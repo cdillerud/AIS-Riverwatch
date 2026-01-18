@@ -414,6 +414,83 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
 
+          {/* Known Vessel Names */}
+          <Card className="glass-panel border-white/10">
+            <CardHeader>
+              <CardTitle className="text-lg text-white flex items-center gap-2">
+                <Users className="w-5 h-5 text-cyan-400" />
+                Known Vessel Names
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Add names for vessels you recognize. AIS sends names infrequently, so this helps identify boats faster.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Add new vessel */}
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Input
+                    placeholder="MMSI (e.g., 367000001)"
+                    value={newVesselMmsi}
+                    onChange={(e) => setNewVesselMmsi(e.target.value)}
+                    className="bg-slate-950 border-slate-700 text-white"
+                    data-testid="new-vessel-mmsi"
+                  />
+                </div>
+                <div className="flex-1">
+                  <Input
+                    placeholder="Vessel Name"
+                    value={newVesselName}
+                    onChange={(e) => setNewVesselName(e.target.value)}
+                    className="bg-slate-950 border-slate-700 text-white"
+                    data-testid="new-vessel-name"
+                  />
+                </div>
+                <Button
+                  onClick={addVesselName}
+                  variant="outline"
+                  className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+                  data-testid="add-vessel-btn"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {/* List of cached vessels */}
+              {Object.keys(vesselCache).length > 0 ? (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {Object.entries(vesselCache).map(([mmsi, data]) => (
+                    <div 
+                      key={mmsi}
+                      className="flex items-center justify-between p-2 rounded bg-slate-900/50 border border-slate-700/50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Ship className="w-4 h-4 text-amber-400" />
+                        <div>
+                          <div className="text-white text-sm font-medium">
+                            {data.name || 'Unknown'}
+                          </div>
+                          <div className="text-slate-500 text-xs font-mono">
+                            MMSI: {mmsi}
+                          </div>
+                        </div>
+                      </div>
+                      {data.ship_type && (
+                        <Badge className="bg-slate-800 text-slate-400 text-xs">
+                          Type {data.ship_type}
+                        </Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-slate-500 text-sm">
+                  No vessel names cached yet. Names are learned automatically from AIS Type 5 messages, or you can add them manually above.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Alert Settings */}
           <Card className="glass-panel border-white/10">
             <CardHeader>

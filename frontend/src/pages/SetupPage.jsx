@@ -267,16 +267,18 @@ export default function SetupPage({ onConnect }) {
         </div>
 
         {/* Pool Info */}
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
-            <div className="text-xs text-slate-500 uppercase tracking-wider">Lock 2</div>
-            <div className="text-white font-mono text-sm">RM 815.2</div>
-            <div className="text-xs text-slate-400">Hastings, MN</div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-800 text-center">
+            <div className="text-[10px] text-slate-500 uppercase">Lock 2</div>
+            <div className="text-white font-mono text-xs">RM 815</div>
           </div>
-          <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
-            <div className="text-xs text-slate-500 uppercase tracking-wider">Lock 3</div>
-            <div className="text-white font-mono text-sm">RM 796.9</div>
-            <div className="text-xs text-slate-400">Red Wing, MN</div>
+          <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-800 text-center">
+            <div className="text-[10px] text-slate-500 uppercase">Lock 5</div>
+            <div className="text-white font-mono text-xs">RM 738</div>
+          </div>
+          <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-800 text-center">
+            <div className="text-[10px] text-slate-500 uppercase">Lock 10</div>
+            <div className="text-white font-mono text-xs">RM 615</div>
           </div>
         </div>
         </>

@@ -223,20 +223,30 @@ export default function Dashboard({
       </header>
 
       {/* Your Vessel Status Bar - Desktop */}
-      {userVessel && (
-        <div className="hidden md:block border-b border-white/10 bg-slate-900/50">
-          <div className="container mx-auto px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
-                  <span className="text-sm font-semibold text-white">Your Vessel</span>
+      <div className="hidden md:block border-b border-white/10 bg-slate-900/50">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${userVessel ? 'bg-cyan-400 user-vessel-pulse' : 'bg-slate-600'}`} />
+                <span className="text-sm font-semibold text-white">Your Vessel</span>
+                {userVessel ? (
                   <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
-                    {userVessel.name || 'MMSI: ' + userVessel.mmsi}
+                    {userVessel.name || userSettings.boat_name || 'MMSI: ' + userVessel.mmsi}
                   </Badge>
-                </div>
+                ) : userMmsi ? (
+                  <Badge className="bg-slate-700 text-slate-400 border-slate-600">
+                    MMSI: {userMmsi} <span className="text-xs ml-1">(awaiting AIS data)</span>
+                  </Badge>
+                ) : (
+                  <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30">
+                    No MMSI configured
+                  </Badge>
+                )}
               </div>
-              
+            </div>
+            
+            {userVessel ? (
               <div className="flex items-center gap-6">
                 <div className="text-center">
                   <div className="text-[10px] text-slate-500 uppercase tracking-wider">River Mile</div>
@@ -263,10 +273,14 @@ export default function Dashboard({
                   </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="text-sm text-slate-500">
+                {isConnected ? 'Waiting for your vessel position from AIS feed...' : 'Not connected to AIS'}
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
 
       {/* Main Content */}
       <main className="container mx-auto px-2 md:px-4 py-3 md:py-6">

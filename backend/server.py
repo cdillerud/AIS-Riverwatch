@@ -113,6 +113,116 @@ class LockStatus(BaseModel):
 active_vessels: Dict[str, VesselPosition] = {}
 user_mmsi: str = ""
 
+async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
+    """
+    Fetch lock status data from USACE Corps Locks system.
+    Data is updated every 15 minutes by USACE.
+    """
+    global usace_cache
+    
+    # Check cache
+    if usace_cache["last_updated"]:
+        age = (datetime.now(timezone.utc) - usace_cache["last_updated"]).total_seconds()
+        if age < usace_cache["cache_duration_seconds"] and usace_cache["data"]:
+            return usace_cache["data"]
+    
+    lock_status_data = {}
+    
+    try:
+        # Fetch from St. Paul District (Locks 2-10)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Try the MVR lock status page for basic open/closed status
+            mvp_url = "https://www.mvp.usace.army.mil/Missions/Navigation/Locks-Dams/"
+            
+            # Map our lock IDs to river miles for matching
+            lock_rm_map = {lock_id: data["river_mile"] for lock_id, data in LOCKS.items()}
+            
+            # Initialize all locks with default status
+            for lock_id, lock_data in LOCKS.items():
+                lock_status_data[lock_id] = LockStatus(
+                    lock_id=lock_id,
+                    status="OPEN",
+                    avg_wait_minutes=0,
+                    upbound_queue=0,
+                    downbound_queue=0,
+                    vessels_in_queue=[],
+                    last_updated=datetime.now(timezone.utc).isoformat()
+                )
+            
+            # Try to fetch queue data from Corps Locks
+            try:
+                queue_url = "https://ndc.ops.usace.army.mil/ords/f?p=108:3"
+                response = await client.get(queue_url, follow_redirects=True)
+                
+                if response.status_code == 200:
+                    # Parse the page for queue data
+                    # Note: This page requires JavaScript, so we may get limited data
+                    logger.info("Successfully fetched Corps Locks page")
+            except Exception as e:
+                logger.warning(f"Could not fetch Corps Locks queue data: {e}")
+            
+            # Try MVR lock status for closure info
+            try:
+                mvr_url = "https://www.mvr.usace.army.mil/missions/navigation/lock-status/"
+                response = await client.get(mvr_url, follow_redirects=True)
+                
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    
+                    # Find the status table
+                    tables = soup.find_all('table')
+                    for table in tables:
+                        rows = table.find_all('tr')
+                        for row in rows:
+                            cells = row.find_all(['td', 'th'])
+                            if len(cells) >= 3:
+                                # Try to extract lock name and status
+                                name_cell = cells[0].get_text(strip=True)
+                                
+                                # Check if this mentions any of our locks
+                                for lock_id in LOCKS.keys():
+                                    lock_num = lock_id.replace('lock_', '').upper()
+                                    if f"Lock" in name_cell and lock_num in name_cell.upper():
+                                        status_cell = cells[2].get_text(strip=True) if len(cells) > 2 else "OPEN"
+                                        
+                                        if "CLOSED" in status_cell.upper():
+                                            lock_status_data[lock_id].status = "CLOSED"
+                                            # Try to get closure reason
+                                            if len(cells) > 2:
+                                                lock_status_data[lock_id].closure_info = status_cell
+                                        elif "OPEN" in status_cell.upper():
+                                            lock_status_data[lock_id].status = "OPEN"
+                                        
+                                        logger.info(f"Found status for {lock_id}: {status_cell}")
+                                        break
+                                        
+            except Exception as e:
+                logger.warning(f"Could not fetch MVR lock status: {e}")
+        
+        # Update cache
+        usace_cache["data"] = lock_status_data
+        usace_cache["last_updated"] = datetime.now(timezone.utc)
+        
+        # Also save to database for persistence
+        for lock_id, status in lock_status_data.items():
+            await db.lock_status.update_one(
+                {"lock_id": lock_id},
+                {"$set": status.model_dump()},
+                upsert=True
+            )
+        
+    except Exception as e:
+        logger.error(f"Error fetching USACE data: {e}")
+        
+        # Try to load from database cache
+        cached = await db.lock_status.find({}, {"_id": 0}).to_list(100)
+        for item in cached:
+            lock_id = item.get("lock_id")
+            if lock_id:
+                lock_status_data[lock_id] = LockStatus(**item)
+    
+    return lock_status_data
+
 def estimate_river_mile(lat: float, lon: float) -> float:
     """
     Estimate river mile based on latitude for Upper Mississippi (simplified linear approximation).

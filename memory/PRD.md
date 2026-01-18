@@ -126,6 +126,10 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - [x] Raw NMEA data debug panel
 - [x] Vessel static data caching (names from Type 5/24)
 - [x] Off-screen user vessel indicator
+- [x] **Self Position feature (AIS self-suppression bypass)**
+  - Browser Geolocation API integration
+  - Continuous GPS tracking option
+  - Manual lat/lon entry
 
 ### P1 (High Priority) - Upcoming
 - [ ] **Debug user MMSI issue with live Boat Beacon feed** (use Raw Data panel)

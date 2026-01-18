@@ -37,6 +37,7 @@ export default function Dashboard({
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [mapZoomed, setMapZoomed] = useState(true); // Default to zoomed view
+  const [selectedVessel, setSelectedVessel] = useState(null); // For vessel detail modal
 
   // Find user vessel
   const userVessel = useMemo(() => {
@@ -51,6 +52,16 @@ export default function Dashboard({
   // Check if speed requirement is dangerous
   const isDangerous = raceAnalysis?.analysis?.required_speed_mph && 
                       raceAnalysis.analysis.required_speed_mph > 25;
+
+  // Get the selected lock object for the modal
+  const selectedLockObj = useMemo(() => {
+    return locks.find(l => l.id === selectedLock);
+  }, [locks, selectedLock]);
+
+  // Handle vessel click (from map or list)
+  const handleVesselClick = (vessel) => {
+    setSelectedVessel(vessel);
+  };
 
   // Quick stats for mobile header
   const requiredSpeed = raceAnalysis?.analysis?.required_speed_mph;

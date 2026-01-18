@@ -434,6 +434,125 @@ def calculate_required_speed(user_rm: float, user_heading: str, target_lock_rm: 
     
     return round(required_mph, 1)
 
+def parse_nmea_gps(line: str) -> Optional[dict]:
+    """
+    Parse NMEA GPS sentences for user's own position.
+    Supports: $GPGGA, $GPRMC, $GPGLL, $GNGGA, $GNRMC, $GNGLL
+    
+    Returns dict with lat, lon, speed (if available), or None if parsing fails.
+    """
+    try:
+        line = line.strip()
+        
+        # Check for GPS sentence types
+        if not any(line.startswith(prefix) for prefix in ['$GPGGA', '$GPRMC', '$GPGLL', '$GNGGA', '$GNRMC', '$GNGLL']):
+            return None
+        
+        # Remove checksum if present
+        if '*' in line:
+            line = line.split('*')[0]
+        
+        parts = line.split(',')
+        sentence_type = parts[0]
+        
+        # Parse GPGGA / GNGGA (GPS Fix Data)
+        if 'GGA' in sentence_type and len(parts) >= 10:
+            lat_raw = parts[2]
+            lat_dir = parts[3]
+            lon_raw = parts[4]
+            lon_dir = parts[5]
+            
+            if lat_raw and lon_raw:
+                # Convert NMEA format (DDMM.MMMM) to decimal degrees
+                lat_deg = float(lat_raw[:2])
+                lat_min = float(lat_raw[2:])
+                lat = lat_deg + lat_min / 60
+                if lat_dir == 'S':
+                    lat = -lat
+                
+                lon_deg = float(lon_raw[:3])
+                lon_min = float(lon_raw[3:])
+                lon = lon_deg + lon_min / 60
+                if lon_dir == 'W':
+                    lon = -lon
+                
+                return {
+                    'lat': lat,
+                    'lon': lon,
+                    'speed': 0,  # GGA doesn't have speed
+                    'course': 0,
+                    'is_gps': True,
+                    'sentence': sentence_type
+                }
+        
+        # Parse GPRMC / GNRMC (Recommended Minimum)
+        elif 'RMC' in sentence_type and len(parts) >= 10:
+            status = parts[2]  # A=valid, V=invalid
+            if status != 'A':
+                return None
+            
+            lat_raw = parts[3]
+            lat_dir = parts[4]
+            lon_raw = parts[5]
+            lon_dir = parts[6]
+            speed_knots = parts[7]  # Speed over ground in knots
+            course = parts[8]  # Course over ground
+            
+            if lat_raw and lon_raw:
+                lat_deg = float(lat_raw[:2])
+                lat_min = float(lat_raw[2:])
+                lat = lat_deg + lat_min / 60
+                if lat_dir == 'S':
+                    lat = -lat
+                
+                lon_deg = float(lon_raw[:3])
+                lon_min = float(lon_raw[3:])
+                lon = lon_deg + lon_min / 60
+                if lon_dir == 'W':
+                    lon = -lon
+                
+                return {
+                    'lat': lat,
+                    'lon': lon,
+                    'speed': float(speed_knots) if speed_knots else 0,
+                    'course': float(course) if course else 0,
+                    'is_gps': True,
+                    'sentence': sentence_type
+                }
+        
+        # Parse GPGLL / GNGLL (Geographic Position)
+        elif 'GLL' in sentence_type and len(parts) >= 6:
+            lat_raw = parts[1]
+            lat_dir = parts[2]
+            lon_raw = parts[3]
+            lon_dir = parts[4]
+            
+            if lat_raw and lon_raw:
+                lat_deg = float(lat_raw[:2])
+                lat_min = float(lat_raw[2:])
+                lat = lat_deg + lat_min / 60
+                if lat_dir == 'S':
+                    lat = -lat
+                
+                lon_deg = float(lon_raw[:3])
+                lon_min = float(lon_raw[3:])
+                lon = lon_deg + lon_min / 60
+                if lon_dir == 'W':
+                    lon = -lon
+                
+                return {
+                    'lat': lat,
+                    'lon': lon,
+                    'speed': 0,
+                    'course': 0,
+                    'is_gps': True,
+                    'sentence': sentence_type
+                }
+    except Exception as e:
+        logger.debug(f"GPS parse error: {e}")
+    
+    return None
+
 def parse_nmea_ais(data: str) -> Optional[dict]:
     """
     Parse NMEA/AIS data. Boat Beacon typically sends !AIVDM sentences.

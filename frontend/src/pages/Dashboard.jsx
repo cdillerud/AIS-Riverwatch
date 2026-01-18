@@ -292,12 +292,23 @@ export default function Dashboard({
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg text-white flex items-center gap-2">
                     <Navigation className="w-5 h-5 text-cyan-400" />
-                    Locks 2-10 Overview
+                    {mapZoomed ? `Around Lock ${selectedLock.replace('lock_', '').toUpperCase()}` : 'Locks 2-10 Overview'}
                   </CardTitle>
                   
-                  {/* Lock Selector */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-400">Target Lock:</span>
+                  {/* Lock Selector + Zoom Toggle */}
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMapZoomed(!mapZoomed)}
+                      className={`border-slate-600 ${mapZoomed ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50' : 'text-slate-300'}`}
+                      data-testid="zoom-toggle"
+                    >
+                      <MapPin className="w-4 h-4 mr-1" />
+                      {mapZoomed ? 'Zoomed' : 'Full Map'}
+                    </Button>
+                    
+                    <span className="text-sm text-slate-400">Target:</span>
                     <select
                       value={selectedLock}
                       onChange={(e) => onSelectLock(e.target.value)}

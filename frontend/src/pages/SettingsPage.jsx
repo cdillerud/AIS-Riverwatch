@@ -30,6 +30,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     map_zoom_miles: 25,
     show_buoys: false,
     lock_buffer_minutes: 20,
+    use_device_gps: false,
     ...initialSettings
   });
   

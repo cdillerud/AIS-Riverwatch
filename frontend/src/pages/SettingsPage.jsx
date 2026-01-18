@@ -206,6 +206,25 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                   Used to calculate if you can beat commercial vessels to the lock
                 </p>
               </div>
+
+              <div className="space-y-2">
+                <Label className="text-slate-300">
+                  Lock Priority Buffer: <span className="text-cyan-400 font-mono">{settings.lock_buffer_minutes} min</span>
+                </Label>
+                <Slider
+                  value={[settings.lock_buffer_minutes]}
+                  onValueChange={([value]) => updateSetting("lock_buffer_minutes", value)}
+                  min={10}
+                  max={45}
+                  step={5}
+                  className="w-full"
+                  data-testid="settings-lockbuffer"
+                />
+                <p className="text-xs text-slate-500">
+                  Minutes you need to arrive BEFORE a commercial tow to get through first. 
+                  Tows always have priority - you need time to complete your lockage before they arrive.
+                </p>
+              </div>
             </CardContent>
           </Card>
 

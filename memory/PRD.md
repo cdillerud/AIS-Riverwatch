@@ -40,11 +40,17 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - Vessel static data cache for names (from AIS Type 5/24 messages)
 - Docker support for local deployment
 - **Raw NMEA WebSocket** (`/ws/raw`) for debugging live data stream
+- **Self Position API** (`/api/user-position`) - bypasses AIS self-suppression
 
 ### Frontend (React)
 - Setup page for IP/Port/MMSI configuration
 - **Settings Page** (accessible via Settings button):
   - Vessel info: MMSI, boat name, max speed
+  - **Self Position section** (AIS Self-Suppression Bypass):
+    - Browser Geolocation API integration ("Get My Location" button)
+    - Continuous GPS tracking toggle (auto-updates position as you move)
+    - Manual lat/lon entry for testing
+    - Explanation of why AIS self-suppression occurs
   - AIS Connection: default IP/port
   - Map Display: zoom range, show all locks, default lock
   - Lock priority buffer (minutes before tow arrival)

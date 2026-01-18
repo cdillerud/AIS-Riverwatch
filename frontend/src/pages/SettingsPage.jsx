@@ -26,6 +26,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     alert_speed_threshold: 25,
     show_all_locks: true,
     map_zoom_miles: 25,
+    show_buoys: false,
     ...initialSettings
   });
   

@@ -438,7 +438,16 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
     """
     Parse NMEA/AIS data. Boat Beacon typically sends !AIVDM sentences.
     Returns vessel info dict or None if parsing fails.
+    
+    AIS Message Types:
+    - Types 1,2,3: Class A position reports (frequent, NO name)
+    - Type 5: Class A static/voyage data (every 6 min, HAS name, dimensions, ship type)
+    - Type 18: Class B position report (frequent, NO name)  
+    - Type 19: Class B extended position (infrequent, HAS name)
+    - Type 24: Class B static data (HAS name)
     """
+    global vessel_static_cache
+    
     try:
         from pyais import decode
         
@@ -450,30 +459,106 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                     msg = decode(line)
                     decoded = msg.asdict()
                     
-                    # Extract relevant fields
-                    if 'mmsi' in decoded:
+                    if 'mmsi' not in decoded:
+                        continue
+                        
+                    mmsi = str(decoded.get('mmsi', ''))
+                    msg_type = decoded.get('msg_type', 0)
+                    
+                    # Handle static data messages (Type 5, 19, 24) - cache the vessel info
+                    if msg_type in [5, 19, 24]:
+                        static_data = {}
+                        
+                        # Get vessel name
+                        shipname = decoded.get('shipname', '') or decoded.get('name', '')
+                        if shipname and shipname.strip() and shipname.strip() != '@@@@@@@@@@@@@@@@@@@@':
+                            static_data['name'] = shipname.strip()
+                        
+                        # Get call sign
+                        callsign = decoded.get('callsign', '')
+                        if callsign and callsign.strip():
+                            static_data['callsign'] = callsign.strip()
+                        
+                        # Get ship type and dimensions
+                        if decoded.get('ship_type'):
+                            static_data['ship_type'] = decoded.get('ship_type')
+                        
+                        # Calculate dimensions from bow/stern/port/starboard
+                        to_bow = decoded.get('to_bow', 0) or 0
+                        to_stern = decoded.get('to_stern', 0) or 0
+                        to_port = decoded.get('to_port', 0) or 0
+                        to_starboard = decoded.get('to_starboard', 0) or 0
+                        
+                        if to_bow + to_stern > 0:
+                            static_data['length'] = to_bow + to_stern
+                        if to_port + to_starboard > 0:
+                            static_data['width'] = to_port + to_starboard
+                        
+                        if decoded.get('draught'):
+                            static_data['draught'] = decoded.get('draught')
+                        
+                        # Update cache
+                        if static_data:
+                            if mmsi not in vessel_static_cache:
+                                vessel_static_cache[mmsi] = {}
+                            vessel_static_cache[mmsi].update(static_data)
+                            logger.info(f"Cached static data for MMSI {mmsi}: {static_data.get('name', 'unnamed')}")
+                    
+                    # Handle position messages (Type 1,2,3,18,19)
+                    if msg_type in [1, 2, 3, 18, 19]:
+                        lat = decoded.get('lat')
+                        lon = decoded.get('lon')
+                        
+                        # Filter invalid positions
+                        if lat is None or lon is None:
+                            continue
+                        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                            continue
+                        if lat == 91.0 or lon == 181.0:  # AIS "not available" values
+                            continue
+                        
+                        # Build vessel data from position report
                         vessel = {
-                            'mmsi': str(decoded.get('mmsi', '')),
-                            'lat': decoded.get('lat'),
-                            'lon': decoded.get('lon'),
-                            'speed': decoded.get('speed', 0),  # knots
-                            'course': decoded.get('course', 0),
-                            'name': decoded.get('shipname', ''),
-                            'vessel_type': str(decoded.get('ship_type', 'unknown')),
-                            'ship_type': decoded.get('ship_type', 0),
-                            'length': decoded.get('to_bow', 0) + decoded.get('to_stern', 0) if decoded.get('to_bow') else None,
-                            'width': decoded.get('to_port', 0) + decoded.get('to_starboard', 0) if decoded.get('to_port') else None,
-                            'draught': decoded.get('draught'),
+                            'mmsi': mmsi,
+                            'lat': lat,
+                            'lon': lon,
+                            'speed': decoded.get('speed', 0) or 0,  # knots
+                            'course': decoded.get('course', 0) or 0,
+                            'name': '',
+                            'vessel_type': 'unknown',
+                            'ship_type': 0,
+                            'length': None,
+                            'width': None,
+                            'draught': None,
                         }
+                        
+                        # Merge in cached static data if available
+                        if mmsi in vessel_static_cache:
+                            cached = vessel_static_cache[mmsi]
+                            if cached.get('name'):
+                                vessel['name'] = cached['name']
+                            if cached.get('ship_type'):
+                                vessel['ship_type'] = cached['ship_type']
+                                vessel['vessel_type'] = str(cached['ship_type'])
+                            if cached.get('length'):
+                                vessel['length'] = cached['length']
+                            if cached.get('width'):
+                                vessel['width'] = cached['width']
+                            if cached.get('draught'):
+                                vessel['draught'] = cached['draught']
+                        
+                        # Type 19 includes name directly
+                        if msg_type == 19:
+                            shipname = decoded.get('shipname', '')
+                            if shipname and shipname.strip():
+                                vessel['name'] = shipname.strip()
                         
                         # Add tow/barge information
                         tow_info = estimate_tow_info(vessel)
                         vessel.update(tow_info)
                         
-                        # Filter invalid positions
-                        if vessel['lat'] and vessel['lon']:
-                            if -90 <= vessel['lat'] <= 90 and -180 <= vessel['lon'] <= 180:
-                                return vessel
+                        return vessel
+                        
                 except Exception as e:
                     logger.debug(f"Failed to parse AIS message: {e}")
                     continue

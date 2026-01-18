@@ -632,8 +632,26 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                         
                         # Get call sign
                         callsign = decoded.get('callsign', '')
-                        if callsign and callsign.strip():
+                        if callsign and callsign.strip() and '@' not in callsign:
                             static_data['callsign'] = callsign.strip()
+                        
+                        # Get IMO number
+                        if decoded.get('imo'):
+                            static_data['imo'] = decoded.get('imo')
+                        
+                        # Get destination
+                        destination = decoded.get('destination', '')
+                        if destination and destination.strip() and '@' not in destination:
+                            static_data['destination'] = destination.strip()
+                        
+                        # Get ETA (from Type 5)
+                        if decoded.get('month') and decoded.get('day'):
+                            eta_month = decoded.get('month', 0)
+                            eta_day = decoded.get('day', 0)
+                            eta_hour = decoded.get('hour', 0)
+                            eta_min = decoded.get('minute', 0)
+                            if eta_month > 0 and eta_day > 0:
+                                static_data['eta'] = f"{eta_month:02d}/{eta_day:02d} {eta_hour:02d}:{eta_min:02d}"
                         
                         # Get ship type and dimensions
                         if decoded.get('ship_type'):

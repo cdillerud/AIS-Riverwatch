@@ -205,7 +205,7 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                         ~{vessel.estimated_lockage_time} min lockage
                       </span>
                     )}
-                    {vessel.barge_count > 15 && (
+                    {vessel.barge_count > 9 && (
                       <Badge className="bg-red-900/30 text-red-400 border-red-500/30 text-xs">
                         DOUBLE LOCK
                       </Badge>

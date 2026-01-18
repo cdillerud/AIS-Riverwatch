@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
   Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
-  Play, Zap, Target
+  Play, Zap, Target, Menu, X, ChevronUp
 } from "lucide-react";
 import RiverVisualization from "@/components/RiverVisualization";
 import RaceAnalysisPanel from "@/components/RaceAnalysisPanel";

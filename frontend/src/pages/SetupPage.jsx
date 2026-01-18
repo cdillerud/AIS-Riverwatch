@@ -1,0 +1,222 @@
+import { useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Anchor, Wifi, Ship, ArrowRight, AlertCircle, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+export default function SetupPage({ onConnect }) {
+  const [ipAddress, setIpAddress] = useState("");
+  const [port, setPort] = useState("5353");
+  const [userMmsi, setUserMmsi] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  const handleTestConnection = async () => {
+    if (!ipAddress) {
+      toast.error("Please enter an IP address");
+      return;
+    }
+    
+    setTesting(true);
+    setTestResult(null);
+    
+    try {
+      const response = await fetch(`${API}/connection/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ip_address: ipAddress,
+          port: parseInt(port),
+          user_mmsi: userMmsi
+        })
+      });
+      
+      const data = await response.json();
+      setTestResult(data);
+      
+      if (data.success) {
+        toast.success("Connection test successful!");
+      } else {
+        toast.error(data.message || "Connection test failed");
+      }
+    } catch (error) {
+      setTestResult({ success: false, message: error.message });
+      toast.error("Connection test failed: " + error.message);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleConnect = () => {
+    if (!ipAddress || !userMmsi) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+    
+    onConnect({
+      ip_address: ipAddress,
+      port: parseInt(port),
+      user_mmsi: userMmsi
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4">
+      {/* Background decoration */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl" />
+      </div>
+
+      <div className="w-full max-w-lg relative z-10">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cyan-500/10 border border-cyan-500/30 mb-4">
+            <Anchor className="w-8 h-8 text-cyan-400" />
+          </div>
+          <h1 className="text-3xl font-bold text-white tracking-wide">RIVER WATCH</h1>
+          <p className="text-slate-400 mt-2">AIS Vessel Tracker & Lock Timer</p>
+        </div>
+
+        {/* Setup Card */}
+        <Card className="glass-panel border-white/10" data-testid="setup-card">
+          <CardHeader>
+            <CardTitle className="text-xl text-white flex items-center gap-2">
+              <Wifi className="w-5 h-5 text-cyan-400" />
+              Connection Setup
+            </CardTitle>
+            <CardDescription className="text-slate-400">
+              Enter your Boat Beacon AIS connection details
+            </CardDescription>
+          </CardHeader>
+          
+          <CardContent className="space-y-6">
+            {/* IP Address */}
+            <div className="space-y-2">
+              <Label htmlFor="ip" className="text-slate-300">
+                Boat Beacon IP Address <span className="text-red-400">*</span>
+              </Label>
+              <Input
+                id="ip"
+                data-testid="ip-input"
+                placeholder="192.168.1.100"
+                value={ipAddress}
+                onChange={(e) => setIpAddress(e.target.value)}
+                className="bg-slate-950 border-slate-700 text-white font-mono placeholder:text-slate-600 focus:border-cyan-500"
+              />
+              <p className="text-xs text-slate-500">
+                Find this in Boat Beacon app under Settings → AIS Output
+              </p>
+            </div>
+
+            {/* Port */}
+            <div className="space-y-2">
+              <Label htmlFor="port" className="text-slate-300">Port</Label>
+              <Input
+                id="port"
+                data-testid="port-input"
+                placeholder="5353"
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+                className="bg-slate-950 border-slate-700 text-white font-mono placeholder:text-slate-600 focus:border-cyan-500"
+              />
+            </div>
+
+            {/* MMSI */}
+            <div className="space-y-2">
+              <Label htmlFor="mmsi" className="text-slate-300">
+                Your Vessel MMSI <span className="text-red-400">*</span>
+              </Label>
+              <Input
+                id="mmsi"
+                data-testid="mmsi-input"
+                placeholder="123456789"
+                value={userMmsi}
+                onChange={(e) => setUserMmsi(e.target.value)}
+                className="bg-slate-950 border-slate-700 text-white font-mono placeholder:text-slate-600 focus:border-cyan-500"
+              />
+              <p className="text-xs text-slate-500">
+                Your 9-digit Maritime Mobile Service Identity number
+              </p>
+            </div>
+
+            {/* Test Result */}
+            {testResult && (
+              <div className={`p-4 rounded-lg border ${testResult.success ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
+                <div className="flex items-center gap-2">
+                  {testResult.success ? (
+                    <CheckCircle2 className="w-5 h-5 text-green-400" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-red-400" />
+                  )}
+                  <span className={testResult.success ? 'text-green-400' : 'text-red-400'}>
+                    {testResult.message}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div className="flex gap-3 pt-4">
+              <Button
+                variant="outline"
+                onClick={handleTestConnection}
+                disabled={testing || !ipAddress}
+                className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white"
+                data-testid="test-connection-btn"
+              >
+                {testing ? (
+                  <span className="spinner mr-2" />
+                ) : (
+                  <Wifi className="w-4 h-4 mr-2" />
+                )}
+                Test Connection
+              </Button>
+              
+              <Button
+                onClick={handleConnect}
+                disabled={!ipAddress || !userMmsi}
+                className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-black font-bold btn-hover"
+                data-testid="connect-btn"
+              >
+                <Ship className="w-4 h-4 mr-2" />
+                Connect
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Info Section */}
+        <div className="mt-6 p-4 rounded-lg bg-slate-900/50 border border-slate-800">
+          <h3 className="text-sm font-semibold text-slate-300 mb-2">Quick Start</h3>
+          <ol className="text-xs text-slate-500 space-y-1 list-decimal list-inside">
+            <li>Open Boat Beacon on your mobile device</li>
+            <li>Go to Settings → AIS Output → Enable TCP Server</li>
+            <li>Note the IP address shown in the app</li>
+            <li>Enter the IP address and your vessel's MMSI above</li>
+          </ol>
+        </div>
+
+        {/* Pool Info */}
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+            <div className="text-xs text-slate-500 uppercase tracking-wider">Lock 2</div>
+            <div className="text-white font-mono text-sm">RM 815.2</div>
+            <div className="text-xs text-slate-400">Hastings, MN</div>
+          </div>
+          <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+            <div className="text-xs text-slate-500 uppercase tracking-wider">Lock 3</div>
+            <div className="text-white font-mono text-sm">RM 796.9</div>
+            <div className="text-xs text-slate-400">Red Wing, MN</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

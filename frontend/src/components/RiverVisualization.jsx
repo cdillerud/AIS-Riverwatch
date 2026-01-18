@@ -1,0 +1,200 @@
+import { useMemo } from "react";
+import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor } from "lucide-react";
+
+// River Mile range for Pool 2-3 visualization
+const MIN_RM = 790;
+const MAX_RM = 835;
+
+export const RiverVisualization = ({ 
+  vessels, 
+  userMmsi, 
+  locks, 
+  selectedLock,
+  raceAnalysis 
+}) => {
+  // Calculate position percentage for a river mile
+  const getRiverPosition = (riverMile) => {
+    if (!riverMile) return 50;
+    // Invert because higher RM is north (top of screen)
+    const pct = ((riverMile - MIN_RM) / (MAX_RM - MIN_RM)) * 100;
+    return Math.max(5, Math.min(95, 100 - pct)); // Invert so north is at top
+  };
+
+  // Generate river mile markers
+  const rmMarkers = useMemo(() => {
+    const markers = [];
+    for (let rm = 795; rm <= 830; rm += 5) {
+      markers.push(rm);
+    }
+    return markers;
+  }, []);
+
+  // Get direction icon
+  const getDirectionIcon = (heading) => {
+    if (heading === "northbound") return <ChevronUp className="w-3 h-3" />;
+    if (heading === "southbound") return <ChevronDown className="w-3 h-3" />;
+    return <Minus className="w-3 h-3" />;
+  };
+
+  return (
+    <div className="river-map relative w-full h-full min-h-[500px] overflow-hidden" data-testid="river-visualization">
+      {/* Radar sweep effect */}
+      <div className="absolute inset-0 radar-sweep opacity-30 pointer-events-none" />
+      
+      {/* River centerline with gradient */}
+      <div className="absolute left-1/2 top-0 bottom-0 w-24 -translate-x-1/2 river-viz" />
+      
+      {/* North indicator */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center text-slate-500 text-xs">
+        <ChevronUp className="w-4 h-4" />
+        <span className="font-mono">NORTH</span>
+      </div>
+      
+      {/* South indicator */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center text-slate-500 text-xs">
+        <span className="font-mono">SOUTH</span>
+        <ChevronDown className="w-4 h-4" />
+      </div>
+
+      {/* River Mile markers on left side */}
+      <div className="absolute left-4 top-0 bottom-0 flex flex-col justify-between py-16">
+        {rmMarkers.map(rm => (
+          <div 
+            key={rm} 
+            className="flex items-center gap-2 text-slate-600"
+            style={{ position: 'absolute', top: `${getRiverPosition(rm)}%`, transform: 'translateY(-50%)' }}
+          >
+            <span className="font-mono text-xs">RM {rm}</span>
+            <div className="w-16 h-px bg-slate-800" />
+          </div>
+        ))}
+      </div>
+
+      {/* Locks */}
+      {locks.map(lock => (
+        <div
+          key={lock.id}
+          className="absolute left-1/2 transform -translate-x-1/2 z-10"
+          style={{ top: `${getRiverPosition(lock.river_mile)}%` }}
+          data-testid={`lock-marker-${lock.id}`}
+        >
+          <div className={`
+            lock-indicator 
+            ${lock.id === selectedLock ? 'border-cyan-400 bg-cyan-500/20' : ''}
+          `}>
+            <Lock className="w-3 h-3 mr-1" />
+            <span>LOCK {lock.id.replace('lock_', '')}</span>
+          </div>
+          
+          {/* Lock info tooltip */}
+          <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 whitespace-nowrap">
+            <div className="glass-panel px-3 py-2 rounded text-xs">
+              <div className="font-semibold text-white">{lock.name}</div>
+              <div className="text-slate-400 font-mono">RM {lock.river_mile}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* Vessels */}
+      {vessels.map(vessel => {
+        const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+        const topPosition = getRiverPosition(vessel.river_mile);
+        const speedMph = (vessel.speed * 1.15078).toFixed(1);
+        
+        // Calculate lateral offset based on heading to show direction
+        const lateralOffset = vessel.heading === "northbound" ? -20 : 
+                            vessel.heading === "southbound" ? 20 : 0;
+
+        return (
+          <div
+            key={vessel.mmsi}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 z-20 transition-all duration-1000 ease-out"
+            style={{ 
+              top: `${topPosition}%`,
+              left: `calc(50% + ${lateralOffset}px)`
+            }}
+            data-testid={`vessel-marker-${vessel.mmsi}`}
+          >
+            {/* Vessel pip */}
+            <div className={`
+              vessel-pip relative
+              ${isUser ? 'user w-4 h-4 user-vessel-pulse' : 'commercial w-3 h-3'}
+            `}>
+              {/* Direction indicator */}
+              <div className={`
+                absolute -top-4 left-1/2 -translate-x-1/2
+                ${isUser ? 'text-cyan-400' : 'text-amber-400'}
+              `}>
+                {getDirectionIcon(vessel.heading)}
+              </div>
+            </div>
+
+            {/* Vessel info card */}
+            <div className={`
+              absolute top-full mt-2 whitespace-nowrap
+              ${isUser ? 'left-1/2 -translate-x-1/2' : '-left-2'}
+            `}>
+              <div className={`
+                glass-panel px-2 py-1 rounded text-xs
+                ${isUser ? 'border border-cyan-500/50' : 'border border-amber-500/30'}
+              `}>
+                <div className={`font-semibold ${isUser ? 'text-cyan-400' : 'text-amber-400'}`}>
+                  {vessel.name || vessel.mmsi}
+                </div>
+                <div className="flex items-center gap-2 text-slate-300">
+                  <span className="font-mono">{speedMph} mph</span>
+                  <span className="text-slate-500">|</span>
+                  <span className="font-mono">RM {vessel.river_mile?.toFixed(1)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Race path indicator - shows path from user to lock */}
+      {raceAnalysis?.user_vessel && raceAnalysis?.target_lock_rm && (
+        <div 
+          className="absolute left-1/2 w-1 bg-gradient-to-b from-cyan-500/50 to-transparent -translate-x-1/2"
+          style={{
+            top: `${Math.min(getRiverPosition(raceAnalysis.user_vessel.river_mile), getRiverPosition(raceAnalysis.target_lock_rm))}%`,
+            height: `${Math.abs(getRiverPosition(raceAnalysis.user_vessel.river_mile) - getRiverPosition(raceAnalysis.target_lock_rm))}%`
+          }}
+        />
+      )}
+
+      {/* Legend */}
+      <div className="absolute bottom-4 right-4 glass-panel px-4 py-3 rounded-lg">
+        <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">Legend</div>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
+            <span className="text-xs text-slate-300">Your Vessel</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 bg-amber-400 rotate-45" />
+            <span className="text-xs text-slate-300">Commercial</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Lock className="w-3 h-3 text-white" />
+            <span className="text-xs text-slate-300">Lock & Dam</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {vessels.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center text-slate-500">
+            <Anchor className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <p className="text-lg">No vessels detected</p>
+            <p className="text-sm mt-1">Waiting for AIS data...</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default RiverVisualization;

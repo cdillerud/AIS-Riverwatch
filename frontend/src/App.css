@@ -1,34 +1,232 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* App specific styles */
+
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Map container */
+.map-container {
+  flex: 1;
+  position: relative;
+  min-height: 400px;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+/* Sidebar panel */
+.sidebar-panel {
+  width: 100%;
+  max-width: 420px;
 }
 
-.App-link {
-    color: #61dafb;
+@media (max-width: 768px) {
+  .sidebar-panel {
+    max-width: 100%;
+  }
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* River visualization */
+.river-viz {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(59, 130, 246, 0.1) 45%,
+    rgba(59, 130, 246, 0.2) 50%,
+    rgba(59, 130, 246, 0.1) 55%,
+    transparent 100%
+  );
+  position: relative;
+}
+
+.river-viz::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: rgba(59, 130, 246, 0.3);
+  transform: translateX(-50%);
+}
+
+/* Lock marker on river */
+.lock-indicator {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: white;
+  z-index: 10;
+}
+
+/* Vessel on river viz */
+.vessel-pip {
+  position: absolute;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%);
+  z-index: 20;
+}
+
+.vessel-pip.user {
+  background: hsl(187 94% 43%);
+  border-radius: 50%;
+  box-shadow: 0 0 10px hsl(187 94% 43%);
+}
+
+.vessel-pip.commercial {
+  background: hsl(38 92% 50%);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+/* ETA bar */
+.eta-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.eta-bar-fill {
+  height: 100%;
+  transition: width 0.5s ease;
+}
+
+/* Race panel styling */
+.race-panel {
+  border-left: 3px solid hsl(var(--primary));
+}
+
+.race-panel.danger {
+  border-left-color: hsl(var(--destructive));
+}
+
+/* Speed gauge */
+.speed-gauge {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.speed-gauge-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.speed-gauge-fill.safe {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.speed-gauge-fill.warning {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.speed-gauge-fill.danger {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+/* Connection form */
+.connection-form {
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+/* Vessel list item */
+.vessel-item {
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.vessel-item:hover {
+  background: rgba(6, 182, 212, 0.1);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+
+.vessel-item.user-vessel {
+  border-color: hsl(var(--primary));
+  background: rgba(6, 182, 212, 0.05);
+}
+
+/* Competitor threat level */
+.threat-high {
+  border-left: 3px solid hsl(var(--destructive));
+}
+
+.threat-medium {
+  border-left: 3px solid hsl(var(--accent));
+}
+
+.threat-low {
+  border-left: 3px solid #22c55e;
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Loading spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(6, 182, 212, 0.2);
+  border-top-color: hsl(var(--primary));
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Notification badge */
+.notification-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
+  background: hsl(var(--destructive));
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+}
+
+/* Tab indicator */
+.tab-active {
+  position: relative;
+}
+
+.tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: hsl(var(--primary));
 }

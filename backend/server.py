@@ -95,16 +95,14 @@ user_mmsi: str = ""
 def estimate_river_mile(lat: float, lon: float) -> float:
     """
     Estimate river mile based on latitude for Upper Mississippi (simplified linear approximation).
-    This is a rough estimate - real implementation would use river centerline data.
-    Pool 2-3 runs roughly from RM 830 to RM 790
-    Latitude range roughly 44.95 (north) to 44.45 (south)
+    Extended coverage: Lock 2 (RM 815) to Lock 10 (RM 615)
+    Latitude range roughly 44.95 (north) to 42.7 (south)
     """
     # Linear interpolation based on known points
     # Lock 2 at Hastings: RM 815.2, lat ~44.74
-    # Lock 3 at Red Wing: RM 796.9, lat ~44.55
-    
-    # Slope: (815.2 - 796.9) / (44.74 - 44.55) = 18.3 / 0.19 ≈ 96.3 RM per degree lat
-    slope = 96.3
+    # Lock 10 at Guttenberg: RM 615.1, lat ~42.79
+    # Slope: (815.2 - 615.1) / (44.74 - 42.79) = 200.1 / 1.95 ≈ 102.6 RM per degree lat
+    slope = 102.6
     ref_lat = 44.74
     ref_rm = 815.2
     

@@ -332,6 +332,8 @@ export default function Dashboard({
                   locks={locks}
                   selectedLock={selectedLock}
                   raceAnalysis={raceAnalysis}
+                  zoomed={mapZoomed}
+                  zoomRange={userSettings.map_zoom_miles || 25}
                 />
               </CardContent>
             </Card>

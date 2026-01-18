@@ -624,6 +624,14 @@ export default function Dashboard({
           </div>
         </div>
       )}
+
+      {/* Vessel Detail Modal */}
+      <VesselDetailModal
+        vessel={selectedVessel}
+        isOpen={!!selectedVessel}
+        onClose={() => setSelectedVessel(null)}
+        selectedLock={selectedLockObj}
+      />
     </div>
   );
 }

@@ -222,8 +222,14 @@ function App() {
 
   // Add demo vessels for testing
   const addDemoVessels = async () => {
-    const demoVessels = [
-      {
+    // Clear existing demo vessels first
+    await fetch(`${API}/demo/clear-vessels`, { method: "DELETE" });
+    
+    // Add user vessel
+    await fetch(`${API}/demo/add-vessel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         mmsi: "123456789",
         name: "MY BOAT",
         lat: 44.82,
@@ -232,40 +238,63 @@ function App() {
         course: 180,
         is_user_vessel: true,
         vessel_type: "recreational"
-      },
-      {
+      })
+    });
+
+    // Add commercial tow with 12 barges (single lock)
+    await fetch(`${API}/demo/add-tow`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         mmsi: "987654321",
-        name: "MISSISSIPPI QUEEN",
-        lat: 44.60,
-        lon: -92.65,
-        speed: 5,
-        course: 0,
-        is_user_vessel: false,
-        vessel_type: "cargo"
-      },
-      {
-        mmsi: "555555555",
-        name: "RIVER BARGE 42",
-        lat: 44.68,
-        lon: -92.75,
+        name: "M/V MISS KATHY",
+        lat: 44.70,
+        lon: -92.80,
         speed: 4,
         course: 0,
-        is_user_vessel: false,
-        vessel_type: "cargo"
-      }
-    ];
+        barge_count: 12,
+        tow_config: "3x4"
+      })
+    });
 
-    for (const vessel of demoVessels) {
-      try {
-        await fetch(`${API}/demo/add-vessel`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(vessel)
-        });
-      } catch (error) {
-        console.error("Failed to add demo vessel:", error);
-      }
-    }
+    // Add commercial tow with 18 barges (double lock required!)
+    await fetch(`${API}/demo/add-tow`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mmsi: "555555555",
+        name: "M/V BIG RIVER",
+        lat: 44.65,
+        lon: -92.70,
+        speed: 3.5,
+        course: 0,
+        barge_count: 18,
+        tow_config: "3x6"
+      })
+    });
+
+    // Add smaller tow with 6 barges
+    await fetch(`${API}/demo/add-tow`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mmsi: "777777777",
+        name: "M/V QUICK TRIP",
+        lat: 44.55,
+        lon: -92.60,
+        speed: 5,
+        course: 0,
+        barge_count: 6,
+        tow_config: "2x3"
+      })
+    });
+
+    // Set user MMSI
+    await fetch(`${API}/set-user-mmsi`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mmsi: "123456789" })
+    });
     
     // Refresh vessels
     try {

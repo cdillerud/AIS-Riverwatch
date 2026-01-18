@@ -231,12 +231,19 @@ export default function Dashboard({
                 <div className={`w-3 h-3 rounded-full ${userVessel ? 'bg-cyan-400 user-vessel-pulse' : 'bg-slate-600'}`} />
                 <span className="text-sm font-semibold text-white">Your Vessel</span>
                 {userVessel ? (
-                  <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
-                    {userVessel.name || userSettings.boat_name || 'MMSI: ' + userVessel.mmsi}
-                  </Badge>
+                  <>
+                    <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
+                      {userVessel.name || userSettings.boat_name || 'MMSI: ' + userVessel.mmsi}
+                    </Badge>
+                    {userVessel.source && (
+                      <Badge className={`text-xs ${userVessel.source === 'GPS' ? 'bg-green-900/30 text-green-400 border-green-500/30' : 'bg-blue-900/30 text-blue-400 border-blue-500/30'}`}>
+                        {userVessel.source}
+                      </Badge>
+                    )}
+                  </>
                 ) : userMmsi ? (
                   <Badge className="bg-slate-700 text-slate-400 border-slate-600">
-                    MMSI: {userMmsi} <span className="text-xs ml-1">(awaiting AIS data)</span>
+                    MMSI: {userMmsi} <span className="text-xs ml-1">(awaiting position data)</span>
                   </Badge>
                 ) : (
                   <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30">

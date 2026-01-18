@@ -29,19 +29,31 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - AIS TCP connection via WebSocket bridge
 - NMEA/AIS message parsing with pyais library
 - Vessel tracking with river mile estimation
-- Lock positions (Lock 2: RM 815.2, Lock 3: RM 796.9)
+- Lock positions (Locks 2-10, RM 615-835)
 - Race analysis API with ETA calculations
 - Required speed calculator
 - Demo mode for testing without live AIS feed
-- Settings persistence in MongoDB
+- Settings persistence API (GET/POST /api/settings)
+- USACE lock status scraping for open/closed status
+- Tow/barge detection with lockage time estimation
+- Docker support for local deployment
 
 ### Frontend (React)
 - Setup page for IP/Port/MMSI configuration
+- **Settings Page** (accessible via Settings button):
+  - Vessel info: MMSI, boat name, max speed
+  - AIS Connection: default IP/port
+  - Map Display: zoom range, show all locks, default lock
+  - Alerts: sound toggle, speed threshold
+  - All settings persist across sessions
 - Dashboard with:
-  - River visualization (RM 790-835)
+  - River visualization (Locks 2-10)
+  - **Map Zoom feature**: Zooms to ±25mi around selected lock (configurable)
   - Lock positions with tooltips
   - Vessel markers (user in cyan, commercial in amber)
   - Direction indicators (north/southbound)
+  - "Zoomed" / "Full Map" toggle button
+  - Out-of-view vessels indicator
 - Race to Lock panel:
   - Target lock selection
   - User distance and ETA
@@ -50,8 +62,11 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
   - Speed gauge with color coding
   - "Can Beat" / "Cannot Beat" indicators
 - Alert banner when speed > 25 MPH required
-- Vessel list with tabs (All/Commercial)
+- Vessel list with tow/barge info (e.g., "+45min lock", "DOUBLE LOCK")
+- Lock status panel (USACE open/closed status)
+- Mobile-responsive design with tab navigation
 - Dark nautical "Tactical Sonar" theme
+- Demo Mode for testing in cloud environment
 
 ### API Endpoints
 - `GET /api/` - Health check

@@ -185,6 +185,11 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
                 ETA: {threat.eta_minutes?.toFixed(0)} min
               </span>
             </div>
+            {analysis?.buffer_minutes && (
+              <div className="mt-2 text-xs text-slate-500">
+                You need to arrive {analysis.buffer_minutes} min before tow (commercial priority)
+              </div>
+            )}
           </div>
         )}
 

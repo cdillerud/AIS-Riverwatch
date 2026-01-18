@@ -60,6 +60,20 @@ export const RiverVisualization = ({
     return riverMile >= minRM && riverMile <= maxRM;
   };
 
+  // Find user vessel
+  const userVessel = useMemo(() => {
+    return vessels.find(v => v.mmsi === userMmsi || v.is_user_vessel);
+  }, [vessels, userMmsi]);
+
+  // Check if user vessel is outside visible range
+  const userOutOfRange = useMemo(() => {
+    if (!userVessel?.river_mile) return null;
+    const rm = userVessel.river_mile;
+    if (rm > maxRM) return 'north';
+    if (rm < minRM) return 'south';
+    return null;
+  }, [userVessel, minRM, maxRM]);
+
   // Generate river mile markers - adaptive based on range
   const rmMarkers = useMemo(() => {
     const markers = [];

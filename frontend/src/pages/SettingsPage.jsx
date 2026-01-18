@@ -34,6 +34,49 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Vessel name cache management
+  const [vesselCache, setVesselCache] = useState({});
+  const [newVesselMmsi, setNewVesselMmsi] = useState("");
+  const [newVesselName, setNewVesselName] = useState("");
+
+  // Load vessel cache
+  const loadVesselCache = async () => {
+    try {
+      const response = await fetch(`${API}/vessel-cache`);
+      if (response.ok) {
+        const data = await response.json();
+        setVesselCache(data.cache || {});
+      }
+    } catch (error) {
+      console.error("Failed to load vessel cache:", error);
+    }
+  };
+
+  // Add vessel name to cache
+  const addVesselName = async () => {
+    if (!newVesselMmsi.trim() || !newVesselName.trim()) {
+      toast.error("Please enter both MMSI and vessel name");
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API}/vessel-cache/${newVesselMmsi.trim()}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newVesselName.trim() })
+      });
+      
+      if (response.ok) {
+        toast.success(`Added name for MMSI ${newVesselMmsi}`);
+        setNewVesselMmsi("");
+        setNewVesselName("");
+        loadVesselCache();
+      }
+    } catch (error) {
+      toast.error("Failed to add vessel name");
+    }
+  };
 
   // Load settings on mount
   useEffect(() => {

@@ -294,6 +294,7 @@ function App() {
                   vessels={vessels}
                   userMmsi={userMmsi}
                   locks={locks}
+                  lockStatus={lockStatus}
                   raceAnalysis={raceAnalysis}
                   selectedLock={selectedLock}
                   onSelectLock={setSelectedLock}

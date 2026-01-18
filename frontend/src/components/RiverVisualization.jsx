@@ -10,7 +10,8 @@ export const RiverVisualization = ({
   userMmsi, 
   locks, 
   selectedLock,
-  raceAnalysis 
+  raceAnalysis,
+  compact = false
 }) => {
   // Calculate position percentage for a river mile
   const getRiverPosition = (riverMile) => {
@@ -23,11 +24,12 @@ export const RiverVisualization = ({
   // Generate river mile markers
   const rmMarkers = useMemo(() => {
     const markers = [];
-    for (let rm = 795; rm <= 830; rm += 5) {
+    const step = compact ? 10 : 5;
+    for (let rm = 795; rm <= 830; rm += step) {
       markers.push(rm);
     }
     return markers;
-  }, []);
+  }, [compact]);
 
   // Get direction icon
   const getDirectionIcon = (heading) => {

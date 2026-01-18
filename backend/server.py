@@ -998,6 +998,8 @@ async def websocket_ais(websocket: WebSocket):
                     
                     # Start reading AIS data
                     buffer = ""
+                    gps_update_count = 0  # Track GPS updates for logging
+                    
                     while connection_active:
                         try:
                             # Try to receive data (non-blocking)
@@ -1009,13 +1011,51 @@ async def websocket_ais(websocket: WebSocket):
                                     # Process complete lines
                                     while '\n' in buffer:
                                         line, buffer = buffer.split('\n', 1)
+                                        
+                                        # First try to parse as GPS (for user's own position)
+                                        gps_data = parse_nmea_gps(line)
+                                        if gps_data and user_mmsi:
+                                            # Update user vessel from GPS data
+                                            rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
+                                            heading = determine_heading(gps_data['speed'], gps_data['course'])
+                                            
+                                            # Get name from cache or settings
+                                            vessel_name = boat_name
+                                            if user_mmsi in vessel_static_cache:
+                                                vessel_name = vessel_static_cache[user_mmsi].get('name', boat_name)
+                                            
+                                            vessel = VesselPosition(
+                                                mmsi=user_mmsi,
+                                                name=vessel_name,
+                                                lat=gps_data['lat'],
+                                                lon=gps_data['lon'],
+                                                speed=gps_data['speed'],
+                                                course=gps_data['course'],
+                                                river_mile=rm,
+                                                heading=heading,
+                                                is_user_vessel=True,
+                                                vessel_type='recreational',
+                                            )
+                                            
+                                            active_vessels[user_mmsi] = vessel
+                                            
+                                            # Send update to client (throttle GPS updates)
+                                            gps_update_count += 1
+                                            if gps_update_count % 5 == 0:  # Send every 5th GPS update
+                                                v_dict = vessel.model_dump()
+                                                v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+                                                v_dict['source'] = 'GPS'
+                                                await websocket.send_json({"type": "vessel_update", "vessel": v_dict})
+                                            continue
+                                        
+                                        # Then try to parse as AIS
                                         vessel_data = parse_nmea_ais(line)
                                         
                                         if vessel_data and vessel_data.get('mmsi'):
-                                            mmsi = vessel_data['mmsi']
+                                            mmsi_parsed = vessel_data['mmsi']
                                             
                                             # Skip filtered MMSI (test beacons, known noise)
-                                            if mmsi in FILTERED_MMSI:
+                                            if mmsi_parsed in FILTERED_MMSI:
                                                 continue
                                             
                                             # Calculate river mile and heading

@@ -103,12 +103,23 @@ export default function Dashboard({
               <Button
                 variant="outline"
                 size="sm"
+                onClick={onOpenSettings}
+                className="border-slate-600 text-slate-300 hover:bg-slate-800"
+                data-testid="settings-btn"
+              >
+                <Settings className="w-4 h-4 mr-1" />
+                Settings
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={onResetConnection}
                 className="border-slate-600 text-slate-300 hover:bg-slate-800"
                 data-testid="change-connection-btn"
               >
-                <Settings className="w-4 h-4 mr-1" />
-                Change Connection
+                <Wifi className="w-4 h-4 mr-1" />
+                Connection
               </Button>
             </div>
 

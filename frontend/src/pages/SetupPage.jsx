@@ -203,6 +203,16 @@ export default function SetupPage({ onConnect }) {
           </ol>
         </div>
 
+        {/* Network Note */}
+        <div className="mt-4 p-4 rounded-lg bg-amber-900/20 border border-amber-500/30">
+          <h3 className="text-sm font-semibold text-amber-400 mb-2">⚠️ Network Note</h3>
+          <p className="text-xs text-slate-400">
+            This app runs on a cloud server and <strong>cannot connect to local network IPs</strong> (192.168.x.x). 
+            For testing, use <strong>Demo Mode</strong> on the dashboard. For live AIS data, you'll need to 
+            either run this app locally or use a public IP/port forwarding.
+          </p>
+        </div>
+
         {/* Pool Info */}
         <div className="mt-4 grid grid-cols-2 gap-3">
           <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">

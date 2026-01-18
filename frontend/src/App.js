@@ -265,10 +265,10 @@ function App() {
       })
     });
 
-    // Add commercial tow with 12 barges (single lock)
+    // Add commercial tow with 8 barges (single lock - under 9 threshold)
     await fetch(`${API}/demo/add-tow`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type: "application/json" },
       body: JSON.stringify({
         mmsi: "987654321",
         name: "M/V MISS KATHY",
@@ -276,12 +276,12 @@ function App() {
         lon: -92.80,
         speed: 4,
         course: 0,
-        barge_count: 12,
-        tow_config: "3x4"
+        barge_count: 8,
+        tow_config: "2x4"
       })
     });
 
-    // Add commercial tow with 18 barges (double lock required!)
+    // Add commercial tow with 12 barges (double lock required - over 9 threshold!)
     await fetch(`${API}/demo/add-tow`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -292,12 +292,12 @@ function App() {
         lon: -92.70,
         speed: 3.5,
         course: 0,
-        barge_count: 18,
-        tow_config: "3x6"
+        barge_count: 12,
+        tow_config: "3x4"
       })
     });
 
-    // Add smaller tow with 6 barges
+    // Add smaller tow with 6 barges (single lock)
     await fetch(`${API}/demo/add-tow`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

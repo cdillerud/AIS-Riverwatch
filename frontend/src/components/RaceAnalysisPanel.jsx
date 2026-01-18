@@ -6,7 +6,7 @@ import {
   CheckCircle2, XCircle, Zap, Navigation 
 } from "lucide-react";
 
-export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous }) => {
+export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compact = false }) => {
   const analysis = raceAnalysis?.analysis;
   const threat = analysis?.threatening_vessel;
 
@@ -26,6 +26,85 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous }) => 
     if (speed > 20) return 'warning';
     return 'safe';
   };
+
+  // Compact mobile version
+  if (compact) {
+    return (
+      <Card 
+        className={`glass-panel ${isDangerous ? 'border-2 border-red-500 alert-pulse' : 'hud-border'}`}
+        data-testid="race-analysis-panel-mobile"
+      >
+        <CardContent className="p-3">
+          {/* Header with status */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-cyan-400" />
+              <span className="font-semibold text-white text-sm">Race to Lock</span>
+            </div>
+            {isDangerous ? (
+              <Badge className="bg-red-900/50 text-red-300 border border-red-500 text-xs">
+                CAN'T BEAT
+              </Badge>
+            ) : analysis?.can_beat_at_25mph ? (
+              <Badge className="bg-green-900/50 text-green-300 border border-green-500 text-xs">
+                CAN BEAT
+              </Badge>
+            ) : (
+              <Badge className="bg-slate-700 text-slate-300 text-xs">
+                NO THREAT
+              </Badge>
+            )}
+          </div>
+
+          {/* Target Lock */}
+          <div className="text-xs text-slate-400 mb-2">
+            Target: <span className="text-white font-mono">{raceAnalysis?.target_lock_name}</span>
+          </div>
+
+          {/* Speed Required - Big Display */}
+          {analysis?.required_speed_mph && (
+            <div className={`text-center py-3 rounded-lg mb-3 ${isDangerous ? 'bg-red-900/20' : 'bg-cyan-900/20'}`}>
+              <div className="text-xs text-slate-400 uppercase mb-1">Speed Needed</div>
+              <div className={`text-4xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                {analysis.required_speed_mph?.toFixed(1)}
+                <span className="text-lg ml-1">MPH</span>
+              </div>
+              <div className="mt-2 speed-gauge mx-4">
+                <div 
+                  className={`speed-gauge-fill ${getGaugeColor(analysis.required_speed_mph)}`}
+                  style={{ width: `${requiredSpeedPct}%` }}
+                />
+              </div>
+              <div className="text-xs text-slate-500 mt-1">Max: 25 mph</div>
+            </div>
+          )}
+
+          {/* Threat Info */}
+          {threat && (
+            <div className="p-2 rounded bg-amber-900/20 border border-amber-500/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1 text-amber-400 text-xs">
+                  <AlertTriangle className="w-3 h-3" />
+                  <span className="font-semibold">{threat.name || threat.mmsi}</span>
+                </div>
+                <span className="text-amber-400 text-xs font-mono">
+                  ETA: {threat.eta_minutes?.toFixed(0)}min
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* No threat state */}
+          {!threat && (
+            <div className="p-3 rounded-lg bg-green-900/20 border border-green-500/30 text-center">
+              <CheckCircle2 className="w-6 h-6 text-green-400 mx-auto mb-1" />
+              <div className="text-green-400 text-sm font-semibold">Clear Path</div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card 

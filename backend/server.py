@@ -402,8 +402,15 @@ def calculate_eta_to_lock(vessel_rm: float, vessel_speed_knots: float, heading: 
         return round(eta_minutes, 1)
     return None
 
-def calculate_required_speed(user_rm: float, user_heading: str, target_lock_rm: float, competitor_eta_minutes: float) -> Optional[float]:
-    """Calculate required speed in MPH to beat competitor to lock."""
+def calculate_required_speed(user_rm: float, user_heading: str, target_lock_rm: float, competitor_eta_minutes: float, buffer_minutes: float = 20) -> Optional[float]:
+    """
+    Calculate required speed in MPH to beat competitor to lock.
+    
+    Buffer time accounts for:
+    - Commercial vessels always have lock priority
+    - User needs to arrive AND complete lockage before the tow arrives
+    - Typical recreational lockage takes 15-20 minutes
+    """
     if competitor_eta_minutes is None or competitor_eta_minutes <= 0:
         return None
     
@@ -415,9 +422,9 @@ def calculate_required_speed(user_rm: float, user_heading: str, target_lock_rm: 
     elif user_heading == "southbound" and user_rm <= target_lock_rm:
         return None  # User past the lock going south
     
-    # Required speed in MPH to arrive just before competitor
-    # Subtract 5 minutes buffer to actually beat them
-    target_time_minutes = max(competitor_eta_minutes - 5, 1)
+    # Required speed in MPH to arrive with enough buffer before competitor
+    # Buffer time ensures user can complete lockage before tow arrives
+    target_time_minutes = max(competitor_eta_minutes - buffer_minutes, 1)
     required_mph = (distance_rm / target_time_minutes) * 60
     
     return round(required_mph, 1)

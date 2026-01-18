@@ -454,6 +454,10 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
         lines = data.strip().split('\n')
         for line in lines:
             line = line.strip()
+            
+            # Handle AIVDO (own vessel) and AIVDM (other vessels) messages
+            is_own_vessel = line.startswith('!AIVDO')
+            
             if line.startswith('!AIVDM') or line.startswith('!AIVDO'):
                 try:
                     msg = decode(line)
@@ -465,9 +469,13 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                     mmsi = str(decoded.get('mmsi', ''))
                     msg_type = decoded.get('msg_type', 0)
                     
+                    # Mark if this is own vessel data (AIVDO)
+                    if is_own_vessel:
+                        logger.debug(f"Own vessel data received: MMSI {mmsi}")
+                    
                     # Handle static data messages (Type 5, 19, 24) - cache the vessel info
                     if msg_type in [5, 19, 24]:
-                        static_data = {}
+                        static_data = {'is_own_vessel': is_own_vessel}
                         
                         # Get vessel name
                         shipname = decoded.get('shipname', '') or decoded.get('name', '')

@@ -96,6 +96,7 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - `POST /api/vessel-cache/{mmsi}` - Manually set vessel name
 - `GET /api/race-analysis/{lock_id}?buffer_minutes=20` - Race analysis with buffer
 - `POST /api/set-user-mmsi` - Set user MMSI
+- `POST /api/user-position` - **Set user position directly (bypasses AIS self-suppression)**
 - `GET/POST /api/settings` - Settings management (persistent)
 - `GET /api/debug/state` - Debug endpoint for backend state
 - `POST /api/demo/add-vessel` - Add demo vessel

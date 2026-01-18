@@ -15,6 +15,7 @@ import RaceAnalysisPanel from "@/components/RaceAnalysisPanel";
 import VesselList from "@/components/VesselList";
 import ConnectionStatus from "@/components/ConnectionStatus";
 import LockStatusPanel from "@/components/LockStatusPanel";
+import VesselDetailModal from "@/components/VesselDetailModal";
 
 export default function Dashboard({ 
   isConnected, 

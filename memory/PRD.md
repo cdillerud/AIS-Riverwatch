@@ -70,39 +70,54 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 
 ### API Endpoints
 - `GET /api/` - Health check
-- `GET /api/locks` - Get lock positions
+- `GET /api/locks` - Get lock positions (Locks 2-10)
+- `GET /api/locks/status` - Get USACE lock status (open/closed)
 - `POST /api/connection/test` - Test AIS connection
 - `GET /api/vessels` - Get tracked vessels
 - `GET /api/race-analysis/{lock_id}` - Race analysis
 - `POST /api/set-user-mmsi` - Set user MMSI
-- `GET/POST /api/settings` - Settings management
+- `GET/POST /api/settings` - Settings management (persistent)
 - `POST /api/demo/add-vessel` - Add demo vessel
+- `POST /api/demo/add-tow` - Add demo tow with barges
 - `DELETE /api/demo/clear-vessels` - Clear demo vessels
 - `WS /ws/ais` - WebSocket for real-time AIS
 
 ## Prioritized Backlog
 
-### P0 (Critical) - Done
+### P0 (Critical) - ✅ COMPLETED
 - [x] AIS connection and parsing
 - [x] Vessel tracking
 - [x] ETA calculations
 - [x] Speed requirement analysis
 - [x] 25 MPH alert
+- [x] Extended lock coverage (Locks 2-10)
+- [x] Mobile responsive UI
+- [x] Docker local deployment
+- [x] USACE lock status integration
+- [x] Barge/tow tracking with lockage estimates
+- [x] Settings page with persistence
+- [x] Map zoom to target lock
 
-### P1 (High Priority) - Future
+### P1 (High Priority) - Upcoming
+- [ ] Sound/vibration alerts for "Cannot Beat" scenarios
 - [ ] Actual AIS TCP connection testing with live Boat Beacon
 - [ ] Persist vessel history in MongoDB
-- [ ] Sound alerts for "Cannot Beat" scenarios
 - [ ] Push notifications
 
 ### P2 (Medium Priority) - Future
+- [ ] USACE lock wait time API (if available)
+- [ ] Offline mode with service workers
+- [ ] Multiple target locks display
 - [ ] Historical lock wait times
+
+### P3 (Low Priority) - Backlog
 - [ ] Map layer with actual river geography
-- [ ] Multiple user vessel support
 - [ ] Weather overlay
+- [ ] River current speed from USGS
+- [ ] Multiple user vessel support
 
 ## Next Tasks
-1. Test with actual Boat Beacon AIS feed
-2. Add sound alert for critical warnings
-3. Implement vessel history tracking
-4. Add lock queue estimation based on historical data
+1. Implement sound/vibration alerts for critical warnings
+2. Test with actual Boat Beacon AIS feed on local network
+3. Add offline mode for graceful degradation
+4. Implement vessel history tracking

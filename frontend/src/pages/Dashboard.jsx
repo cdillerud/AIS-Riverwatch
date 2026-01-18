@@ -222,6 +222,52 @@ export default function Dashboard({
         </div>
       </header>
 
+      {/* Your Vessel Status Bar - Desktop */}
+      {userVessel && (
+        <div className="hidden md:block border-b border-white/10 bg-slate-900/50">
+          <div className="container mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
+                  <span className="text-sm font-semibold text-white">Your Vessel</span>
+                  <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
+                    {userVessel.name || 'MMSI: ' + userVessel.mmsi}
+                  </Badge>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-6">
+                <div className="text-center">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">River Mile</div>
+                  <div className="text-lg font-mono text-white">
+                    {userVessel.river_mile?.toFixed(1) || '--'}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Speed</div>
+                  <div className="text-lg font-mono text-white">
+                    {(userVessel.speed * 1.15078).toFixed(1)} <span className="text-xs text-slate-400">MPH</span>
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Course</div>
+                  <div className="text-lg font-mono text-white">
+                    {userVessel.course?.toFixed(0)}°
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Direction</div>
+                  <div className="text-lg font-semibold text-white capitalize">
+                    {userVessel.heading || '--'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="container mx-auto px-2 md:px-4 py-3 md:py-6">
         

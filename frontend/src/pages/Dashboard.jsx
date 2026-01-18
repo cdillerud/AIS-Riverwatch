@@ -32,7 +32,7 @@ export default function Dashboard({
   connectionConfig
 }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map"
+  const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   // Find user vessel

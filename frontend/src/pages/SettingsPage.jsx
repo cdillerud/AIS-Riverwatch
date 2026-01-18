@@ -206,6 +206,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             map_zoom_miles: parseInt(data.map_zoom_miles) || 25,
             show_buoys: data.show_buoys === "true",
             lock_buffer_minutes: parseInt(data.lock_buffer_minutes) || 20,
+            use_device_gps: data.use_device_gps === "true",
           }));
         }
       } catch (error) {

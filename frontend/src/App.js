@@ -54,6 +54,7 @@ function App() {
             alert_sound_enabled: settings.alert_sound_enabled !== "false",
             alert_speed_threshold: parseInt(settings.alert_speed_threshold) || 25,
             boat_name: settings.boat_name || "",
+            show_buoys: settings.show_buoys === "true", // Default false
           }));
           if (settings.connection_config) {
             setConnectionConfig(JSON.parse(settings.connection_config));

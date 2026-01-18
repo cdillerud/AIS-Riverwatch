@@ -30,6 +30,8 @@ export default function Dashboard({
   connectionConfig
 }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map"
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   // Find user vessel
   const userVessel = useMemo(() => {
@@ -44,6 +46,10 @@ export default function Dashboard({
   // Check if speed requirement is dangerous
   const isDangerous = raceAnalysis?.analysis?.required_speed_mph && 
                       raceAnalysis.analysis.required_speed_mph > 25;
+
+  // Quick stats for mobile header
+  const requiredSpeed = raceAnalysis?.analysis?.required_speed_mph;
+  const userEta = raceAnalysis?.analysis?.user_eta_minutes;
 
   return (
     <div className="min-h-screen bg-[#020617]" data-testid="dashboard">

@@ -117,6 +117,35 @@ class VesselPosition(BaseModel):
     tow_config: Optional[str] = None  # e.g., "2x3" (2 wide, 3 long)
     is_tow: bool = False
     estimated_lockage_time: Optional[int] = None  # minutes
+    # Additional AIS fields
+    heading: Optional[float] = None  # True heading (degrees)
+    turn_rate: Optional[float] = None  # Rate of turn (deg/min)
+    nav_status: Optional[int] = None  # Navigation status code
+    nav_status_text: Optional[str] = None  # Human-readable status
+    destination: Optional[str] = None  # Vessel destination
+    callsign: Optional[str] = None  # Radio call sign
+    imo: Optional[int] = None  # IMO number
+    eta: Optional[str] = None  # ETA as string
+
+# Navigation status codes
+NAV_STATUS = {
+    0: "Under way using engine",
+    1: "At anchor",
+    2: "Not under command",
+    3: "Restricted maneuverability",
+    4: "Constrained by draught",
+    5: "Moored",
+    6: "Aground",
+    7: "Engaged in fishing",
+    8: "Under way sailing",
+    9: "Reserved (HSC)",
+    10: "Reserved (WIG)",
+    11: "Power-driven towing astern",
+    12: "Power-driven pushing/towing alongside",
+    13: "Reserved",
+    14: "AIS-SART active",
+    15: "Undefined"
+}
 
 class RaceAnalysis(BaseModel):
     model_config = ConfigDict(extra="ignore")

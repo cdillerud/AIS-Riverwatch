@@ -105,12 +105,17 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
               </div>
               {/* Barge info for tows */}
               {isTow && (
-                <div className="flex items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                   {vessel.barge_count && (
                     <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[10px]">
                       <Box className="w-2.5 h-2.5 mr-1" />
                       {vessel.barge_count} barges
                       {vessel.tow_config && ` (${vessel.tow_config})`}
+                    </Badge>
+                  )}
+                  {vessel.barge_count > 9 && (
+                    <Badge className="bg-red-900/30 text-red-400 border-red-500/30 text-[10px]">
+                      DOUBLE LOCK
                     </Badge>
                   )}
                   {vessel.estimated_lockage_time && (

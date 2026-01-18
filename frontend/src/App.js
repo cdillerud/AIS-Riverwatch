@@ -131,6 +131,80 @@ function App() {
     return () => clearInterval(interval);
   }, [selectedLock, vessels, userSettings.lock_buffer_minutes]);
 
+  // Continuous GPS tracking (bypasses AIS self-suppression)
+  useEffect(() => {
+    // Send position update to backend
+    const sendPositionUpdate = async (position) => {
+      const { latitude, longitude, speed, heading } = position.coords;
+      try {
+        const response = await fetch(`${API}/user-position`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lat: latitude,
+            lon: longitude,
+            speed: speed ? speed * 1.94384 : 0, // m/s to knots
+            course: heading || 0,
+            source: "geolocation"
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Update local vessels list with the user vessel
+          if (data.vessel) {
+            setVessels(prev => {
+              const mmsi = data.vessel.mmsi;
+              const existing = prev.findIndex(v => v.mmsi === mmsi);
+              if (existing >= 0) {
+                const updated = [...prev];
+                updated[existing] = data.vessel;
+                return updated;
+              }
+              return [...prev, data.vessel];
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Failed to send GPS position:", error);
+      }
+    };
+
+    // Start/stop geolocation watch based on settings
+    if (userSettings.use_device_gps && navigator.geolocation) {
+      // Clear any existing watch
+      if (geoWatchRef.current) {
+        navigator.geolocation.clearWatch(geoWatchRef.current);
+      }
+      
+      // Start watching position
+      geoWatchRef.current = navigator.geolocation.watchPosition(
+        sendPositionUpdate,
+        (error) => {
+          console.error("Geolocation error:", error.message);
+        },
+        { 
+          enableHighAccuracy: true, 
+          timeout: 15000, 
+          maximumAge: 5000 // Allow cached position up to 5 seconds old
+        }
+      );
+      
+      console.log("Started GPS tracking");
+    } else if (geoWatchRef.current) {
+      // Stop watching if disabled
+      navigator.geolocation.clearWatch(geoWatchRef.current);
+      geoWatchRef.current = null;
+      console.log("Stopped GPS tracking");
+    }
+
+    return () => {
+      if (geoWatchRef.current) {
+        navigator.geolocation.clearWatch(geoWatchRef.current);
+      }
+    };
+  }, [userSettings.use_device_gps]);
+
   // WebSocket connection
   const connectWebSocket = useCallback((config) => {
     if (wsRef.current) {

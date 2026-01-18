@@ -59,6 +59,7 @@ function App() {
             boat_name: settings.boat_name || "",
             show_buoys: settings.show_buoys === "true", // Default false
             lock_buffer_minutes: parseInt(settings.lock_buffer_minutes) || 20,
+            use_device_gps: settings.use_device_gps === "true", // Default false
           }));
           if (settings.connection_config) {
             setConnectionConfig(JSON.parse(settings.connection_config));

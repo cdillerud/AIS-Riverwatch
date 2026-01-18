@@ -838,6 +838,7 @@ async def websocket_ais(websocket: WebSocket):
                 ip = msg.get("ip_address")
                 port = msg.get("port", 5353)
                 mmsi = msg.get("user_mmsi", "")
+                boat_name = msg.get("boat_name", "")
                 
                 global user_mmsi
                 user_mmsi = mmsi
@@ -846,6 +847,15 @@ async def websocket_ais(websocket: WebSocket):
                     # Close existing connection
                     if ais_socket:
                         ais_socket.close()
+                    
+                    # Pre-populate user vessel in cache if we have their MMSI
+                    # This ensures they show up even if their own AIS data isn't in the feed
+                    if mmsi and boat_name:
+                        vessel_static_cache[mmsi] = {
+                            'name': boat_name,
+                            'is_user': True
+                        }
+                        logger.info(f"Pre-cached user vessel: {mmsi} = {boat_name}")
                     
                     # Connect to AIS feed
                     ais_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -466,6 +466,7 @@ export default function Dashboard({
                         vessels={vessels} 
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
+                        onVesselClick={handleVesselClick}
                       />
                     </ScrollArea>
                   </TabsContent>
@@ -476,6 +477,7 @@ export default function Dashboard({
                         vessels={commercialVessels}
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
+                        onVesselClick={handleVesselClick}
                       />
                     </ScrollArea>
                   </TabsContent>

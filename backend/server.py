@@ -432,7 +432,10 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             'width': decoded.get('to_port', 0) + decoded.get('to_starboard', 0) if decoded.get('to_port') else None,
                             'draught': decoded.get('draught'),
                         }
-                        }
+                        
+                        # Add tow/barge information
+                        tow_info = estimate_tow_info(vessel)
+                        vessel.update(tow_info)
                         
                         # Filter invalid positions
                         if vessel['lat'] and vessel['lon']:

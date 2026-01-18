@@ -349,9 +349,57 @@ async def root():
 async def get_locks():
     """Get all lock positions."""
     return [
-        LockInfo(id=k, name=v["name"], river_mile=v["river_mile"], lat=v["lat"], lon=v["lon"])
+        LockInfo(id=k, name=v["name"], river_mile=v["river_mile"], lat=v["lat"], lon=v["lon"], phone=v.get("phone"))
         for k, v in LOCKS.items()
     ]
+
+@api_router.get("/locks/status")
+async def get_all_lock_status():
+    """Get USACE status for all locks including wait times and queue info."""
+    status_data = await fetch_usace_lock_status()
+    
+    result = []
+    for lock_id, lock_info in LOCKS.items():
+        status = status_data.get(lock_id, LockStatus(lock_id=lock_id, status="UNKNOWN"))
+        result.append({
+            "lock_id": lock_id,
+            "name": lock_info["name"],
+            "river_mile": lock_info["river_mile"],
+            "phone": lock_info.get("phone"),
+            "status": status.status,
+            "avg_wait_minutes": status.avg_wait_minutes,
+            "upbound_queue": status.upbound_queue,
+            "downbound_queue": status.downbound_queue,
+            "vessels_in_queue": status.vessels_in_queue,
+            "closure_info": status.closure_info,
+            "last_updated": status.last_updated
+        })
+    
+    return result
+
+@api_router.get("/locks/{lock_id}/status")
+async def get_lock_status(lock_id: str):
+    """Get USACE status for a specific lock."""
+    if lock_id not in LOCKS:
+        return {"error": "Invalid lock ID"}
+    
+    status_data = await fetch_usace_lock_status()
+    status = status_data.get(lock_id, LockStatus(lock_id=lock_id, status="UNKNOWN"))
+    lock_info = LOCKS[lock_id]
+    
+    return {
+        "lock_id": lock_id,
+        "name": lock_info["name"],
+        "river_mile": lock_info["river_mile"],
+        "phone": lock_info.get("phone"),
+        "status": status.status,
+        "avg_wait_minutes": status.avg_wait_minutes,
+        "upbound_queue": status.upbound_queue,
+        "downbound_queue": status.downbound_queue,
+        "vessels_in_queue": status.vessels_in_queue,
+        "closure_info": status.closure_info,
+        "last_updated": status.last_updated
+    }
 
 @api_router.post("/connection/test")
 async def test_connection(config: ConnectionConfig):

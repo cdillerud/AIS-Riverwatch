@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import Dashboard from "@/pages/Dashboard";
 import SetupPage from "@/pages/SetupPage";
+import SettingsPage from "@/pages/SettingsPage";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -19,6 +20,14 @@ function App() {
   const [lockStatus, setLockStatus] = useState({});
   const [raceAnalysis, setRaceAnalysis] = useState(null);
   const [selectedLock, setSelectedLock] = useState("lock_2");
+  const [showSettings, setShowSettings] = useState(false);
+  const [userSettings, setUserSettings] = useState({
+    max_speed_mph: 25,
+    map_zoom_miles: 25,
+    show_all_locks: true,
+    alert_sound_enabled: true,
+    alert_speed_threshold: 25,
+  });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
 
@@ -32,6 +41,19 @@ function App() {
           if (settings.user_mmsi) {
             setUserMmsi(settings.user_mmsi);
           }
+          if (settings.default_lock) {
+            setSelectedLock(settings.default_lock);
+          }
+          // Load user settings
+          setUserSettings(prev => ({
+            ...prev,
+            max_speed_mph: parseInt(settings.max_speed_mph) || 25,
+            map_zoom_miles: parseInt(settings.map_zoom_miles) || 25,
+            show_all_locks: settings.show_all_locks !== "false",
+            alert_sound_enabled: settings.alert_sound_enabled !== "false",
+            alert_speed_threshold: parseInt(settings.alert_speed_threshold) || 25,
+            boat_name: settings.boat_name || "",
+          });
           if (settings.connection_config) {
             setConnectionConfig(JSON.parse(settings.connection_config));
           }

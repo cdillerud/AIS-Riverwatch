@@ -133,7 +133,7 @@ export const RiverVisualization = ({
       ))}
 
       {/* Vessels */}
-      {vessels.map(vessel => {
+      {vessels.filter(v => isInView(v.river_mile)).map(vessel => {
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);

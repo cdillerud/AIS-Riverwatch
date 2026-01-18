@@ -23,6 +23,8 @@ export default function Dashboard({
   selectedLock,
   onSelectLock,
   onDisconnect,
+  onResetConnection,
+  onReconnect,
   onAddDemoVessels,
   connectionConfig
 }) {

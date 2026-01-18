@@ -221,6 +221,20 @@ export const RiverVisualization = ({
         </div>
       )}
 
+      {/* View range indicator */}
+      {zoomed && !compact && (
+        <div className="absolute top-2 left-2 glass-panel px-2 py-1 rounded text-xs text-slate-400">
+          <span className="font-mono">RM {minRM.toFixed(0)} - {maxRM.toFixed(0)}</span>
+        </div>
+      )}
+
+      {/* Out of view vessels indicator */}
+      {vessels.length > 0 && vessels.filter(v => isInView(v.river_mile)).length < vessels.length && (
+        <div className="absolute bottom-2 left-2 glass-panel px-2 py-1 rounded text-xs text-amber-400">
+          {vessels.length - vessels.filter(v => isInView(v.river_mile)).length} vessel(s) outside view
+        </div>
+      )}
+
       {/* Empty state */}
       {vessels.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">

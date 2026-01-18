@@ -113,7 +113,8 @@ function App() {
     const fetchRaceAnalysis = async () => {
       if (!selectedLock) return;
       try {
-        const response = await fetch(`${API}/race-analysis/${selectedLock}`);
+        const bufferMinutes = userSettings.lock_buffer_minutes || 20;
+        const response = await fetch(`${API}/race-analysis/${selectedLock}?buffer_minutes=${bufferMinutes}`);
         if (response.ok) {
           const data = await response.json();
           setRaceAnalysis(data);
@@ -126,7 +127,7 @@ function App() {
     fetchRaceAnalysis();
     const interval = setInterval(fetchRaceAnalysis, 5000);
     return () => clearInterval(interval);
-  }, [selectedLock, vessels]);
+  }, [selectedLock, vessels, userSettings.lock_buffer_minutes]);
 
   // WebSocket connection
   const connectWebSocket = useCallback((config) => {

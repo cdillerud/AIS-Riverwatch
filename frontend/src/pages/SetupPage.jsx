@@ -125,6 +125,16 @@ export default function SetupPage({ onConnect }) {
           <p className="text-slate-400 mt-2">AIS Vessel Tracker & Lock Timer</p>
         </div>
 
+        {/* Loading State */}
+        {loading ? (
+          <Card className="glass-panel border-white/10">
+            <CardContent className="p-8 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 text-cyan-400 animate-spin mr-2" />
+              <span className="text-slate-400">Loading saved settings...</span>
+            </CardContent>
+          </Card>
+        ) : (
+        <>
         {/* Setup Card */}
         <Card className="glass-panel border-white/10" data-testid="setup-card">
           <CardHeader>

@@ -573,8 +573,15 @@ async def get_vessels():
     return vessels
 
 @api_router.get("/race-analysis/{lock_id}")
-async def get_race_analysis(lock_id: str):
-    """Get race analysis for a specific lock."""
+async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
+    """
+    Get race analysis for a specific lock.
+    
+    Args:
+        lock_id: Target lock ID
+        buffer_minutes: Minutes of buffer needed before a commercial tow arrives
+                       (to complete your lockage before they get priority)
+    """
     global user_mmsi
     
     if lock_id not in LOCKS:
@@ -629,9 +636,10 @@ async def get_race_analysis(lock_id: str):
         if competitors:
             for comp in competitors:
                 comp_eta = comp.get('eta_minutes')
-                if comp_eta and (user_eta is None or comp_eta < user_eta):
+                if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
+                    # User needs to arrive buffer_minutes BEFORE the tow to get through first
                     threat = comp
-                    required_speed = calculate_required_speed(user_rm, user_heading, lock["river_mile"], comp_eta)
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock["river_mile"], comp_eta, buffer_minutes)
                     if required_speed and required_speed > 25:
                         can_beat = False
                     break
@@ -643,7 +651,8 @@ async def get_race_analysis(lock_id: str):
             "threatening_vessel": threat,
             "required_speed_mph": required_speed,
             "can_beat_at_25mph": can_beat,
-            "max_speed_mph": 25
+            "max_speed_mph": 25,
+            "buffer_minutes": buffer_minutes
         }
     
     return RaceAnalysis(

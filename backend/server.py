@@ -1064,14 +1064,14 @@ async def websocket_ais(websocket: WebSocket):
                                             
                                             # Preserve existing name if new data doesn't have one
                                             vessel_name = vessel_data.get('name', '')
-                                            if not vessel_name and mmsi in active_vessels:
-                                                vessel_name = active_vessels[mmsi].name
+                                            if not vessel_name and mmsi_parsed in active_vessels:
+                                                vessel_name = active_vessels[mmsi_parsed].name
                                             
                                             # Determine if this is the user's vessel
-                                            is_user = (mmsi == user_mmsi) or vessel_data.get('is_own_vessel', False)
+                                            is_user = (mmsi_parsed == user_mmsi) or vessel_data.get('is_own_vessel', False)
                                             
                                             vessel = VesselPosition(
-                                                mmsi=mmsi,
+                                                mmsi=mmsi_parsed,
                                                 name=vessel_name,
                                                 lat=vessel_data['lat'],
                                                 lon=vessel_data['lon'],

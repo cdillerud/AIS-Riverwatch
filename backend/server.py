@@ -538,6 +538,7 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             'length': None,
                             'width': None,
                             'draught': None,
+                            'is_own_vessel': is_own_vessel,
                         }
                         
                         # Merge in cached static data if available
@@ -554,6 +555,8 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                                 vessel['width'] = cached['width']
                             if cached.get('draught'):
                                 vessel['draught'] = cached['draught']
+                            if cached.get('is_own_vessel') or cached.get('is_user'):
+                                vessel['is_own_vessel'] = True
                         
                         # Type 19 includes name directly
                         if msg_type == 19:

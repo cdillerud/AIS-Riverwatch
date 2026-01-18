@@ -108,17 +108,18 @@ class VesselPosition(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     is_user_vessel: bool = False
     vessel_type: str = "unknown"
-    # Tow/Barge information
-    ship_type_code: Optional[int] = None
+    # Ship information
+    ship_type: Optional[int] = None  # AIS ship type code
     length: Optional[float] = None  # meters
     width: Optional[float] = None  # meters
     draught: Optional[float] = None  # meters
+    # Tow/Barge information
     barge_count: Optional[int] = None  # Estimated or reported barge count
     tow_config: Optional[str] = None  # e.g., "2x3" (2 wide, 3 long)
     is_tow: bool = False
     estimated_lockage_time: Optional[int] = None  # minutes
     # Additional AIS fields
-    heading: Optional[float] = None  # True heading (degrees)
+    heading_true: Optional[float] = None  # True heading (degrees) from AIS
     turn_rate: Optional[float] = None  # Rate of turn (deg/min)
     nav_status: Optional[int] = None  # Navigation status code
     nav_status_text: Optional[str] = None  # Human-readable status

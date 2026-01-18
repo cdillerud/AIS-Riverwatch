@@ -199,8 +199,56 @@ export default function Dashboard({
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <main className="container mx-auto px-2 md:px-4 py-3 md:py-6">
+        
+        {/* Mobile Tab Navigation */}
+        <div className="md:hidden mb-3">
+          <div className="flex bg-slate-900/80 rounded-lg p-1 gap-1">
+            <button
+              onClick={() => setMobilePanel("race")}
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+                mobilePanel === "race" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Target className="w-4 h-4 mx-auto mb-1" />
+              Race
+            </button>
+            <button
+              onClick={() => setMobilePanel("map")}
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+                mobilePanel === "map" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Navigation className="w-4 h-4 mx-auto mb-1" />
+              Map
+            </button>
+            <button
+              onClick={() => setMobilePanel("vessels")}
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+                mobilePanel === "vessels" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Ship className="w-4 h-4 mx-auto mb-1" />
+              <span className="relative">
+                Vessels
+                {vessels.length > 0 && (
+                  <span className="absolute -top-1 -right-3 bg-cyan-500 text-black text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
+                    {vessels.length}
+                  </span>
+                )}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Desktop Grid Layout */}
+        <div className="hidden md:grid grid-cols-1 lg:grid-cols-12 gap-6">
           
           {/* Left Panel - River Visualization */}
           <div className="lg:col-span-8 xl:col-span-9">
@@ -349,6 +397,114 @@ export default function Dashboard({
               </Card>
             )}
           </div>
+        </div>
+
+        {/* Mobile Content Panels */}
+        <div className="md:hidden">
+          {/* Race Panel - Mobile */}
+          {mobilePanel === "race" && (
+            <div className="space-y-4">
+              <RaceAnalysisPanel 
+                raceAnalysis={raceAnalysis}
+                userVessel={userVessel}
+                isDangerous={isDangerous}
+                compact={true}
+              />
+              
+              {userVessel && (
+                <Card className="glass-panel border-cyan-500/30">
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-cyan-400">Your Vessel</span>
+                      <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-xs">
+                        {userVessel.name || userVessel.mmsi}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase">RM</div>
+                        <div className="text-base font-mono text-white">{userVessel.river_mile?.toFixed(1)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase">Speed</div>
+                        <div className="text-base font-mono text-white">{(userVessel.speed * 1.15078).toFixed(1)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase">Course</div>
+                        <div className="text-base font-mono text-white">{userVessel.course?.toFixed(0)}°</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase">Dir</div>
+                        <div className="text-base font-mono text-white capitalize">{userVessel.heading?.slice(0,1) || '-'}</div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* Map Panel - Mobile */}
+          {mobilePanel === "map" && (
+            <Card className="glass-panel hud-border" data-testid="river-map-card-mobile">
+              <CardContent className="p-0 h-[calc(100vh-200px)] min-h-[400px]">
+                <RiverVisualization
+                  vessels={vessels}
+                  userMmsi={userMmsi}
+                  locks={locks}
+                  selectedLock={selectedLock}
+                  raceAnalysis={raceAnalysis}
+                  compact={true}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Vessels Panel - Mobile */}
+          {mobilePanel === "vessels" && (
+            <Card className="glass-panel hud-border">
+              <CardContent className="p-0">
+                <Tabs defaultValue="all" className="w-full">
+                  <TabsList className="w-full bg-slate-900/50 border-b border-white/10 rounded-none">
+                    <TabsTrigger 
+                      value="all" 
+                      className="flex-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400 text-sm"
+                    >
+                      All ({vessels.length})
+                    </TabsTrigger>
+                    <TabsTrigger 
+                      value="commercial"
+                      className="flex-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400 text-sm"
+                    >
+                      Commercial ({commercialVessels.length})
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="all" className="mt-0">
+                    <ScrollArea className="h-[calc(100vh-250px)]">
+                      <VesselList 
+                        vessels={vessels} 
+                        userMmsi={userMmsi}
+                        selectedLock={locks.find(l => l.id === selectedLock)}
+                        compact={true}
+                      />
+                    </ScrollArea>
+                  </TabsContent>
+                  
+                  <TabsContent value="commercial" className="mt-0">
+                    <ScrollArea className="h-[calc(100vh-250px)]">
+                      <VesselList 
+                        vessels={commercialVessels}
+                        userMmsi={userMmsi}
+                        selectedLock={locks.find(l => l.id === selectedLock)}
+                        compact={true}
+                      />
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </main>
 

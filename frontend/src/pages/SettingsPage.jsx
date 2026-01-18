@@ -236,6 +236,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
         map_zoom_miles: settings.map_zoom_miles.toString(),
         show_buoys: settings.show_buoys.toString(),
         lock_buffer_minutes: settings.lock_buffer_minutes.toString(),
+        use_device_gps: settings.use_device_gps.toString(),
       };
 
       const response = await fetch(`${API}/settings`, {

@@ -1,6 +1,15 @@
 import { Wifi, WifiOff, Signal } from "lucide-react";
 
-export const ConnectionStatus = ({ isConnected, config }) => {
+export const ConnectionStatus = ({ isConnected, config, compact = false }) => {
+  if (compact) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <div className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
+        {!isConnected && <span className="text-xs text-red-400">Offline</span>}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-700">
       <div className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} />

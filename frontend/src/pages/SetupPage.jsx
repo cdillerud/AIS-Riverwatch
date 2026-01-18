@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Anchor, Wifi, Ship, ArrowRight, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Anchor, Wifi, Ship, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -15,6 +15,33 @@ export default function SetupPage({ onConnect }) {
   const [userMmsi, setUserMmsi] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Load saved settings on mount
+  useEffect(() => {
+    const loadSavedSettings = async () => {
+      try {
+        const response = await fetch(`${API}/settings`);
+        if (response.ok) {
+          const settings = await response.json();
+          if (settings.user_mmsi) {
+            setUserMmsi(settings.user_mmsi);
+          }
+          if (settings.last_ip) {
+            setIpAddress(settings.last_ip);
+          }
+          if (settings.last_port) {
+            setPort(settings.last_port);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load saved settings:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSavedSettings();
+  }, []);
 
   const handleTestConnection = async () => {
     if (!ipAddress) {

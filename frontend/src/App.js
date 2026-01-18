@@ -27,6 +27,7 @@ function App() {
     show_all_locks: true,
     alert_sound_enabled: true,
     alert_speed_threshold: 25,
+    show_buoys: false, // Hide buoys (MMSI starting with 99) by default
   });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);

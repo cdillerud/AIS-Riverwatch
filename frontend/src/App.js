@@ -188,6 +188,12 @@ function App() {
     }
   };
 
+  const handleResetConnection = () => {
+    handleDisconnect();
+    setConnectionConfig(null);
+    setVessels([]);
+  };
+
   // Add demo vessels for testing
   const addDemoVessels = async () => {
     const demoVessels = [

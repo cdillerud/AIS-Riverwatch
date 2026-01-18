@@ -54,6 +54,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             show_all_locks: data.show_all_locks !== "false",
             map_zoom_miles: parseInt(data.map_zoom_miles) || 25,
             show_buoys: data.show_buoys === "true",
+            lock_buffer_minutes: parseInt(data.lock_buffer_minutes) || 20,
           }));
         }
       } catch (error) {

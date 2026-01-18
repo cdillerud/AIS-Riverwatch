@@ -413,6 +413,7 @@ export default function Dashboard({
                   raceAnalysis={raceAnalysis}
                   zoomed={mapZoomed}
                   zoomRange={userSettings.map_zoom_miles || 25}
+                  onVesselClick={handleVesselClick}
                 />
               </CardContent>
             </Card>

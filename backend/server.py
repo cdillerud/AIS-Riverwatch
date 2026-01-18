@@ -227,8 +227,14 @@ async def test_connection(config: ConnectionConfig):
         
         if result == 0:
             return {"success": True, "message": "Connection successful"}
+        elif result == 111:
+            return {"success": False, "message": "Connection refused - Boat Beacon may not be running or the IP is unreachable from this server. For local networks (192.168.x.x), you may need to use Demo Mode."}
+        elif result == 110:
+            return {"success": False, "message": "Connection timed out - check the IP address and ensure Boat Beacon TCP server is enabled."}
         else:
             return {"success": False, "message": f"Connection failed (error code: {result})"}
+    except socket.gaierror:
+        return {"success": False, "message": "Invalid IP address format"}
     except Exception as e:
         return {"success": False, "message": str(e)}
 

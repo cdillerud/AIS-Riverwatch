@@ -429,9 +429,23 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                     )}
                   </Button>
                 </div>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 mb-3">
                   Uses your phone/tablet's GPS to set your position. Works if River Watch is running on your boat.
                 </p>
+                
+                {/* Continuous tracking toggle */}
+                <div className="flex items-center justify-between p-3 rounded bg-slate-800/50 border border-slate-600/50">
+                  <div>
+                    <Label className="text-slate-300 text-sm">Continuous GPS Tracking</Label>
+                    <p className="text-xs text-slate-500">Auto-update your position as you move</p>
+                  </div>
+                  <Switch
+                    checked={settings.use_device_gps}
+                    onCheckedChange={(checked) => updateSetting("use_device_gps", checked)}
+                    data-testid="settings-use-device-gps"
+                  />
+                </div>
+                
                 {lastGeoUpdate && (
                   <p className="text-xs text-green-400 mt-2">
                     Last updated: {lastGeoUpdate.toLocaleTimeString()}

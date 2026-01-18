@@ -154,7 +154,6 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - ~~User vessel (MMSI 338414076) not appearing with live Boat Beacon feed~~ **RESOLVED**: This is expected AIS self-suppression behavior. Use the new Self Position feature in Settings to inject your position directly.
 
 ## Next Tasks
-1. **Use Raw Data panel to debug live feed** - Have user connect and check if GPS sentences ($GPGGA/$GPRMC) or AIVDO messages appear
-2. Implement sound/vibration alerts for critical warnings
-3. Add MarineTraffic API integration for vessel name lookup
-4. Add offline mode for graceful degradation
+1. Sound/vibration alerts for critical "CANNOT BEAT" warnings
+2. MarineTraffic API integration for vessel name lookup
+3. Add offline mode for graceful degradation

@@ -8,7 +8,8 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { 
   Settings, Ship, Gauge, Anchor, Save, ArrowLeft, 
-  Wifi, Bell, MapPin, AlertTriangle, Plus, Trash2, Users
+  Wifi, Bell, MapPin, AlertTriangle, Plus, Trash2, Users,
+  Navigation, Crosshair, Loader2
 } from "lucide-react";
 import { toast } from "sonner";
 

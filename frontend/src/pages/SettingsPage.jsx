@@ -52,6 +52,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             alert_speed_threshold: parseInt(data.alert_speed_threshold) || 25,
             show_all_locks: data.show_all_locks !== "false",
             map_zoom_miles: parseInt(data.map_zoom_miles) || 25,
+            show_buoys: data.show_buoys === "true",
           }));
         }
       } catch (error) {

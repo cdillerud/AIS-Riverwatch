@@ -496,6 +496,9 @@ export default function Dashboard({
                 </Tabs>
               </CardContent>
             </Card>
+
+            {/* Raw Data Panel - Debug */}
+            <RawDataPanel isConnected={isConnected} />
           </div>
         </div>
 

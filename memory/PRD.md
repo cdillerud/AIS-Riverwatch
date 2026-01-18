@@ -132,7 +132,6 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
   - Manual lat/lon entry
 
 ### P1 (High Priority) - Upcoming
-- [ ] **Debug user MMSI issue with live Boat Beacon feed** (use Raw Data panel)
 - [ ] Sound/vibration alerts for "Cannot Beat" scenarios
 - [ ] MarineTraffic/AISHub API integration for vessel names
 - [ ] Push notifications

@@ -332,6 +332,30 @@ function App() {
     toast.success("Demo vessels added");
   };
 
+  const handleSettingsUpdate = (newSettings) => {
+    setUserSettings(prev => ({ ...prev, ...newSettings }));
+    if (newSettings.user_mmsi) {
+      setUserMmsi(newSettings.user_mmsi);
+    }
+    if (newSettings.default_lock) {
+      setSelectedLock(newSettings.default_lock);
+    }
+    setShowSettings(false);
+  };
+
+  // If showing settings page
+  if (showSettings) {
+    return (
+      <div className="app-container bg-[#020617] min-h-screen">
+        <SettingsPage 
+          onBack={handleSettingsUpdate}
+          initialSettings={userSettings}
+        />
+        <Toaster position="top-right" theme="dark" />
+      </div>
+    );
+  }
+
   return (
     <div className="app-container bg-[#020617] min-h-screen">
       <BrowserRouter>
@@ -353,7 +377,9 @@ function App() {
                   onResetConnection={handleResetConnection}
                   onReconnect={() => connectWebSocket(connectionConfig)}
                   onAddDemoVessels={addDemoVessels}
+                  onOpenSettings={() => setShowSettings(true)}
                   connectionConfig={connectionConfig}
+                  userSettings={userSettings}
                 />
               ) : (
                 <SetupPage onConnect={handleConnect} />

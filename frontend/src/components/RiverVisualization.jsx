@@ -39,35 +39,35 @@ export const RiverVisualization = ({
   };
 
   return (
-    <div className="river-map relative w-full h-full min-h-[500px] overflow-hidden" data-testid="river-visualization">
+    <div className="river-map relative w-full h-full min-h-[400px] md:min-h-[500px] overflow-hidden" data-testid="river-visualization">
       {/* Radar sweep effect */}
       <div className="absolute inset-0 radar-sweep opacity-30 pointer-events-none" />
       
       {/* River centerline with gradient */}
-      <div className="absolute left-1/2 top-0 bottom-0 w-24 -translate-x-1/2 river-viz" />
+      <div className="absolute left-1/2 top-0 bottom-0 w-16 md:w-24 -translate-x-1/2 river-viz" />
       
       {/* North indicator */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center text-slate-500 text-xs">
-        <ChevronUp className="w-4 h-4" />
-        <span className="font-mono">NORTH</span>
+      <div className="absolute top-2 md:top-4 left-1/2 -translate-x-1/2 flex flex-col items-center text-slate-500 text-xs">
+        <ChevronUp className="w-3 h-3 md:w-4 md:h-4" />
+        <span className="font-mono text-[10px] md:text-xs">N</span>
       </div>
       
       {/* South indicator */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center text-slate-500 text-xs">
-        <span className="font-mono">SOUTH</span>
-        <ChevronDown className="w-4 h-4" />
+      <div className="absolute bottom-2 md:bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center text-slate-500 text-xs">
+        <span className="font-mono text-[10px] md:text-xs">S</span>
+        <ChevronDown className="w-3 h-3 md:w-4 md:h-4" />
       </div>
 
       {/* River Mile markers on left side */}
-      <div className="absolute left-4 top-0 bottom-0 flex flex-col justify-between py-16">
+      <div className="absolute left-1 md:left-4 top-0 bottom-0 flex flex-col justify-between py-8 md:py-16">
         {rmMarkers.map(rm => (
           <div 
             key={rm} 
-            className="flex items-center gap-2 text-slate-600"
+            className="flex items-center gap-1 md:gap-2 text-slate-600"
             style={{ position: 'absolute', top: `${getRiverPosition(rm)}%`, transform: 'translateY(-50%)' }}
           >
-            <span className="font-mono text-xs">RM {rm}</span>
-            <div className="w-16 h-px bg-slate-800" />
+            <span className="font-mono text-[10px] md:text-xs">{compact ? rm : `RM ${rm}`}</span>
+            <div className="w-6 md:w-16 h-px bg-slate-800" />
           </div>
         ))}
       </div>
@@ -81,20 +81,22 @@ export const RiverVisualization = ({
           data-testid={`lock-marker-${lock.id}`}
         >
           <div className={`
-            lock-indicator 
+            lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6
             ${lock.id === selectedLock ? 'border-cyan-400 bg-cyan-500/20' : ''}
           `}>
-            <Lock className="w-3 h-3 mr-1" />
-            <span>LOCK {lock.id.replace('lock_', '')}</span>
+            <Lock className="w-2 h-2 md:w-3 md:h-3 mr-0.5 md:mr-1" />
+            <span>{lock.id.replace('lock_', 'L')}</span>
           </div>
           
-          {/* Lock info tooltip */}
-          <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 whitespace-nowrap">
-            <div className="glass-panel px-3 py-2 rounded text-xs">
-              <div className="font-semibold text-white">{lock.name}</div>
-              <div className="text-slate-400 font-mono">RM {lock.river_mile}</div>
+          {/* Lock info tooltip - hide on compact */}
+          {!compact && (
+            <div className="absolute left-full ml-2 md:ml-4 top-1/2 -translate-y-1/2 whitespace-nowrap hidden md:block">
+              <div className="glass-panel px-2 md:px-3 py-1 md:py-2 rounded text-xs">
+                <div className="font-semibold text-white">{lock.name}</div>
+                <div className="text-slate-400 font-mono">RM {lock.river_mile}</div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ))}
 
@@ -105,8 +107,8 @@ export const RiverVisualization = ({
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
         
         // Calculate lateral offset based on heading to show direction
-        const lateralOffset = vessel.heading === "northbound" ? -20 : 
-                            vessel.heading === "southbound" ? 20 : 0;
+        const lateralOffset = vessel.heading === "northbound" ? -15 : 
+                            vessel.heading === "southbound" ? 15 : 0;
 
         return (
           <div
@@ -121,33 +123,33 @@ export const RiverVisualization = ({
             {/* Vessel pip */}
             <div className={`
               vessel-pip relative
-              ${isUser ? 'user w-4 h-4 user-vessel-pulse' : 'commercial w-3 h-3'}
+              ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
             `}>
               {/* Direction indicator */}
               <div className={`
-                absolute -top-4 left-1/2 -translate-x-1/2
+                absolute -top-3 md:-top-4 left-1/2 -translate-x-1/2
                 ${isUser ? 'text-cyan-400' : 'text-amber-400'}
               `}>
                 {getDirectionIcon(vessel.heading)}
               </div>
             </div>
 
-            {/* Vessel info card */}
+            {/* Vessel info card - simplified on compact */}
             <div className={`
-              absolute top-full mt-2 whitespace-nowrap
-              ${isUser ? 'left-1/2 -translate-x-1/2' : '-left-2'}
+              absolute top-full mt-1 md:mt-2 whitespace-nowrap
+              ${isUser ? 'left-1/2 -translate-x-1/2' : '-left-1 md:-left-2'}
             `}>
               <div className={`
-                glass-panel px-2 py-1 rounded text-xs
+                glass-panel px-1.5 md:px-2 py-0.5 md:py-1 rounded text-[10px] md:text-xs
                 ${isUser ? 'border border-cyan-500/50' : 'border border-amber-500/30'}
               `}>
                 <div className={`font-semibold ${isUser ? 'text-cyan-400' : 'text-amber-400'}`}>
-                  {vessel.name || vessel.mmsi}
+                  {compact ? (vessel.name?.slice(0, 8) || vessel.mmsi.slice(-4)) : (vessel.name || vessel.mmsi)}
                 </div>
-                <div className="flex items-center gap-2 text-slate-300">
-                  <span className="font-mono">{speedMph} mph</span>
-                  <span className="text-slate-500">|</span>
-                  <span className="font-mono">RM {vessel.river_mile?.toFixed(1)}</span>
+                <div className="flex items-center gap-1 md:gap-2 text-slate-300">
+                  <span className="font-mono">{speedMph}</span>
+                  {!compact && <span className="text-slate-500">|</span>}
+                  {!compact && <span className="font-mono">RM {vessel.river_mile?.toFixed(1)}</span>}
                 </div>
               </div>
             </div>
@@ -158,7 +160,7 @@ export const RiverVisualization = ({
       {/* Race path indicator - shows path from user to lock */}
       {raceAnalysis?.user_vessel && raceAnalysis?.target_lock_rm && (
         <div 
-          className="absolute left-1/2 w-1 bg-gradient-to-b from-cyan-500/50 to-transparent -translate-x-1/2"
+          className="absolute left-1/2 w-0.5 md:w-1 bg-gradient-to-b from-cyan-500/50 to-transparent -translate-x-1/2"
           style={{
             top: `${Math.min(getRiverPosition(raceAnalysis.user_vessel.river_mile), getRiverPosition(raceAnalysis.target_lock_rm))}%`,
             height: `${Math.abs(getRiverPosition(raceAnalysis.user_vessel.river_mile) - getRiverPosition(raceAnalysis.target_lock_rm))}%`
@@ -166,32 +168,34 @@ export const RiverVisualization = ({
         />
       )}
 
-      {/* Legend */}
-      <div className="absolute bottom-4 right-4 glass-panel px-4 py-3 rounded-lg">
-        <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">Legend</div>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
-            <span className="text-xs text-slate-300">Your Vessel</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 bg-amber-400 rotate-45" />
-            <span className="text-xs text-slate-300">Commercial</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Lock className="w-3 h-3 text-white" />
-            <span className="text-xs text-slate-300">Lock & Dam</span>
+      {/* Legend - hide on compact */}
+      {!compact && (
+        <div className="absolute bottom-2 md:bottom-4 right-2 md:right-4 glass-panel px-2 md:px-4 py-2 md:py-3 rounded-lg">
+          <div className="text-[10px] md:text-xs text-slate-400 uppercase tracking-wider mb-1 md:mb-2">Legend</div>
+          <div className="space-y-1 md:space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 md:w-3 md:h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
+              <span className="text-[10px] md:text-xs text-slate-300">Your Vessel</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 md:w-2.5 md:h-2.5 bg-amber-400 rotate-45" />
+              <span className="text-[10px] md:text-xs text-slate-300">Commercial</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Lock className="w-2 h-2 md:w-3 md:h-3 text-white" />
+              <span className="text-[10px] md:text-xs text-slate-300">Lock & Dam</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Empty state */}
       {vessels.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center text-slate-500">
-            <Anchor className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p className="text-lg">No vessels detected</p>
-            <p className="text-sm mt-1">Waiting for AIS data...</p>
+            <Anchor className="w-8 h-8 md:w-12 md:h-12 mx-auto mb-2 md:mb-4 opacity-50" />
+            <p className="text-sm md:text-lg">No vessels detected</p>
+            <p className="text-xs md:text-sm mt-1">Waiting for AIS data...</p>
           </div>
         </div>
       )}

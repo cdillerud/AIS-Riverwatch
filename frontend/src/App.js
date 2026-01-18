@@ -16,6 +16,7 @@ function App() {
   const [vessels, setVessels] = useState([]);
   const [userMmsi, setUserMmsi] = useState("");
   const [locks, setLocks] = useState([]);
+  const [lockStatus, setLockStatus] = useState({});
   const [raceAnalysis, setRaceAnalysis] = useState(null);
   const [selectedLock, setSelectedLock] = useState("lock_2");
   const wsRef = useRef(null);
@@ -54,6 +55,31 @@ function App() {
 
     loadSettings();
     loadLocks();
+  }, []);
+
+  // Fetch lock status from USACE
+  useEffect(() => {
+    const fetchLockStatus = async () => {
+      try {
+        const response = await fetch(`${API}/locks/status`);
+        if (response.ok) {
+          const data = await response.json();
+          // Convert to map by lock_id
+          const statusMap = {};
+          data.forEach(lock => {
+            statusMap[lock.lock_id] = lock;
+          });
+          setLockStatus(statusMap);
+        }
+      } catch (error) {
+        console.error("Failed to fetch lock status:", error);
+      }
+    };
+
+    fetchLockStatus();
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchLockStatus, 300000);
+    return () => clearInterval(interval);
   }, []);
 
   // Fetch race analysis periodically

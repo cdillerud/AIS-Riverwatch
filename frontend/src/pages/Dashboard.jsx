@@ -619,6 +619,13 @@ export default function Dashboard({
               compact={true}
             />
           )}
+
+          {/* Debug/Raw Data Panel - Mobile */}
+          {mobilePanel === "debug" && (
+            <div className="h-[calc(100vh-200px)] min-h-[400px]">
+              <RawDataPanel isConnected={isConnected} />
+            </div>
+          )}
         </div>
       </main>
 

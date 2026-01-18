@@ -105,7 +105,7 @@ export const RiverVisualization = ({
       </div>
 
       {/* Locks */}
-      {locks.map(lock => (
+      {visibleLocks.map(lock => (
         <div
           key={lock.id}
           className="absolute left-1/2 transform -translate-x-1/2 z-10"

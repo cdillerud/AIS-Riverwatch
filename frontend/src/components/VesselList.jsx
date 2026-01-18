@@ -174,6 +174,11 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                       TOW
                     </Badge>
                   )}
+                  {vessel.nav_status_text && vessel.nav_status !== 0 && (
+                    <Badge className="bg-slate-700 text-slate-300 text-xs">
+                      {vessel.nav_status_text}
+                    </Badge>
+                  )}
                 </div>
 
                 {/* Vessel details */}
@@ -193,6 +198,21 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                     <span className="capitalize">{vessel.heading || 'stationary'}</span>
                   </span>
                 </div>
+
+                {/* Additional AIS info (destination, ETA) */}
+                {(vessel.destination || vessel.eta || vessel.callsign) && (
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
+                    {vessel.destination && (
+                      <span>→ {vessel.destination}</span>
+                    )}
+                    {vessel.eta && (
+                      <span>ETA: {vessel.eta}</span>
+                    )}
+                    {vessel.callsign && (
+                      <span className="font-mono">{vessel.callsign}</span>
+                    )}
+                  </div>
+                )}
 
                 {/* Barge info for tows */}
                 {isTow && (

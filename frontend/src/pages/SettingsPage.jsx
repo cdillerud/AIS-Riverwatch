@@ -85,6 +85,105 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     }
   };
 
+  // Send position update to backend
+  const sendPositionUpdate = async (lat, lon, speed = 0, course = 0, source = "manual") => {
+    try {
+      const response = await fetch(`${API}/user-position`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon, speed, course, source })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setLastGeoUpdate(new Date());
+        return data;
+      }
+    } catch (error) {
+      console.error("Failed to update position:", error);
+      throw error;
+    }
+  };
+
+  // Get current position using browser Geolocation API
+  const getCurrentPosition = () => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setGeoStatus("getting");
+    
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude, speed, heading } = position.coords;
+        setManualLat(latitude.toFixed(6));
+        setManualLon(longitude.toFixed(6));
+        
+        try {
+          await sendPositionUpdate(
+            latitude, 
+            longitude, 
+            speed ? speed * 1.94384 : 0, // m/s to knots
+            heading || 0,
+            "geolocation"
+          );
+          setGeoStatus("active");
+          toast.success("Position updated from GPS!");
+        } catch (error) {
+          setGeoStatus("error");
+          toast.error("Failed to send position to server");
+        }
+      },
+      (error) => {
+        setGeoStatus("error");
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            toast.error("Location permission denied. Please enable in browser settings.");
+            break;
+          case error.POSITION_UNAVAILABLE:
+            toast.error("Location information unavailable.");
+            break;
+          case error.TIMEOUT:
+            toast.error("Location request timed out.");
+            break;
+          default:
+            toast.error("Failed to get location.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  // Submit manual position
+  const submitManualPosition = async () => {
+    const lat = parseFloat(manualLat);
+    const lon = parseFloat(manualLon);
+    
+    if (isNaN(lat) || isNaN(lon)) {
+      toast.error("Please enter valid latitude and longitude values");
+      return;
+    }
+    
+    if (lat < -90 || lat > 90) {
+      toast.error("Latitude must be between -90 and 90");
+      return;
+    }
+    
+    if (lon < -180 || lon > 180) {
+      toast.error("Longitude must be between -180 and 180");
+      return;
+    }
+    
+    try {
+      await sendPositionUpdate(lat, lon, 0, 0, "manual");
+      toast.success("Manual position set!");
+      setGeoStatus("active");
+    } catch (error) {
+      toast.error("Failed to set position");
+    }
+  };
+
   // Load settings on mount
   useEffect(() => {
     const loadSettings = async () => {

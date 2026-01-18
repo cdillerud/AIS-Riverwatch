@@ -122,6 +122,97 @@ class LockStatus(BaseModel):
 active_vessels: Dict[str, VesselPosition] = {}
 user_mmsi: str = ""
 
+def estimate_tow_info(vessel_data: dict) -> dict:
+    """
+    Estimate barge count and lockage time based on AIS data.
+    
+    Standard barge dimensions: ~195ft (59m) long x 35ft (10.7m) wide
+    Lock chamber: ~600ft (183m) long x 110ft (33.5m) wide
+    
+    Tow configurations:
+    - Single lock (fits in one pass): up to 15 barges (3 wide x 5 long = ~975ft)
+    - Double lock (requires 2 passes): 16+ barges
+    
+    Ship type codes (AIS):
+    - 30: Fishing
+    - 31-32: Towing
+    - 60-69: Passenger
+    - 70-79: Cargo
+    - 80-89: Tanker
+    """
+    ship_type = vessel_data.get('ship_type', 0)
+    length = vessel_data.get('length', 0) or 0
+    width = vessel_data.get('width', 0) or 0
+    name = (vessel_data.get('shipname', '') or vessel_data.get('name', '') or '').upper()
+    
+    is_tow = False
+    barge_count = 0
+    tow_config = None
+    estimated_lockage_time = 30  # Default for small vessels
+    
+    # Check if it's a towing vessel by ship type
+    if ship_type in [31, 32, 52]:  # Towing, Towing and length > 200m, Tug
+        is_tow = True
+    
+    # Check name for tow indicators
+    tow_keywords = ['M/V', 'MV ', 'CAPT', 'MISS', 'TUG', 'TOWBOAT', 'BARGE', 'PUSH']
+    if any(kw in name for kw in tow_keywords):
+        is_tow = True
+    
+    # Estimate barge count from length if it's a tow
+    if is_tow and length > 0:
+        # Towboat itself is about 100-200ft (30-60m)
+        # Each barge adds ~195ft (59m) in length
+        towboat_length = 50  # meters, average
+        barge_length = 59  # meters, standard barge
+        
+        tow_length = length - towboat_length
+        if tow_length > 0:
+            # Estimate barges in line (assuming 2-3 wide typical)
+            barges_long = max(1, int(tow_length / barge_length))
+            
+            # Estimate width configuration
+            if width > 25:  # More than 2 barges wide
+                barges_wide = 3
+            elif width > 15:
+                barges_wide = 2
+            else:
+                barges_wide = 1
+            
+            barge_count = barges_long * barges_wide
+            tow_config = f"{barges_wide}x{barges_long}"
+    
+    # If no length data but it's a tow, estimate from vessel type
+    if is_tow and barge_count == 0:
+        # Default assumption for commercial tow
+        barge_count = 6  # Conservative estimate
+        tow_config = "2x3"
+    
+    # Calculate estimated lockage time
+    if barge_count > 0:
+        # Lock chamber is ~600ft, can fit about 3x5 barges (15 barges)
+        if barge_count <= 6:
+            estimated_lockage_time = 30  # Single cut, quick
+        elif barge_count <= 12:
+            estimated_lockage_time = 45  # Single cut, larger tow
+        elif barge_count <= 15:
+            estimated_lockage_time = 60  # Single cut, maximum size
+        else:
+            # Double lockage required
+            estimated_lockage_time = 90 + (barge_count - 15) * 5  # Base + extra per barge
+    elif is_tow:
+        estimated_lockage_time = 45  # Unknown tow, assume medium
+    else:
+        # Non-tow vessel
+        estimated_lockage_time = 20 if length < 30 else 30
+    
+    return {
+        'is_tow': is_tow,
+        'barge_count': barge_count if barge_count > 0 else None,
+        'tow_config': tow_config,
+        'estimated_lockage_time': estimated_lockage_time
+    }
+
 async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
     """
     Fetch lock status data from USACE Corps Locks system.

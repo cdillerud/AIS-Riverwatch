@@ -270,6 +270,18 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 />
               </div>
 
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300">Show River Buoys</Label>
+                  <p className="text-xs text-slate-500">Display buoys and navigation aids (MMSI 99xxxxxx)</p>
+                </div>
+                <Switch
+                  checked={settings.show_buoys}
+                  onCheckedChange={(checked) => updateSetting("show_buoys", checked)}
+                  data-testid="settings-showbuoys"
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label className="text-slate-300">
                   Zoom Range: <span className="text-cyan-400 font-mono">±{settings.map_zoom_miles} miles</span>

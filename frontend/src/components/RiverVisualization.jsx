@@ -220,17 +220,19 @@ export const RiverVisualization = ({
         return (
           <div
             key={vessel.mmsi}
-            className="absolute transform -translate-x-1/2 -translate-y-1/2 z-20 transition-all duration-1000 ease-out"
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
             style={{ 
               top: `${topPosition}%`,
               left: `calc(50% + ${lateralOffset}px)`
             }}
             data-testid={`vessel-marker-${vessel.mmsi}`}
+            onClick={() => onVesselClick(vessel)}
           >
             {/* Vessel pip */}
             <div className={`
               vessel-pip relative
               ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
+              hover:scale-125 transition-transform
             `}>
               {/* Direction indicator */}
               <div className={`

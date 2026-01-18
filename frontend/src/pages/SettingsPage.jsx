@@ -79,6 +79,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
         alert_speed_threshold: settings.alert_speed_threshold.toString(),
         show_all_locks: settings.show_all_locks.toString(),
         map_zoom_miles: settings.map_zoom_miles.toString(),
+        show_buoys: settings.show_buoys.toString(),
       };
 
       const response = await fetch(`${API}/settings`, {

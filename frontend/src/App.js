@@ -29,9 +29,11 @@ function App() {
     alert_speed_threshold: 25,
     show_buoys: false, // Hide buoys (MMSI starting with 99) by default
     lock_buffer_minutes: 20, // Buffer time needed before commercial tow arrives
+    use_device_gps: false, // Enable continuous GPS tracking
   });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const geoWatchRef = useRef(null);
 
   // Load saved settings on mount
   useEffect(() => {

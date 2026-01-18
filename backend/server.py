@@ -717,12 +717,18 @@ async def websocket_ais(websocket: WebSocket):
                                         vessel_data = parse_nmea_ais(line)
                                         
                                         if vessel_data and vessel_data.get('mmsi'):
+                                            mmsi = vessel_data['mmsi']
+                                            
+                                            # Skip filtered MMSI (test beacons, known noise)
+                                            if mmsi in FILTERED_MMSI:
+                                                continue
+                                            
                                             # Calculate river mile and heading
                                             rm = estimate_river_mile(vessel_data['lat'], vessel_data['lon'])
                                             heading = determine_heading(vessel_data['speed'], vessel_data['course'])
                                             
                                             vessel = VesselPosition(
-                                                mmsi=vessel_data['mmsi'],
+                                                mmsi=mmsi,
                                                 name=vessel_data.get('name', ''),
                                                 lat=vessel_data['lat'],
                                                 lon=vessel_data['lon'],
@@ -730,7 +736,7 @@ async def websocket_ais(websocket: WebSocket):
                                                 course=vessel_data['course'],
                                                 river_mile=rm,
                                                 heading=heading,
-                                                is_user_vessel=(vessel_data['mmsi'] == user_mmsi),
+                                                is_user_vessel=(mmsi == user_mmsi),
                                                 vessel_type=vessel_data.get('vessel_type', 'unknown')
                                             )
                                             

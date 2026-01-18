@@ -82,6 +82,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
         show_all_locks: settings.show_all_locks.toString(),
         map_zoom_miles: settings.map_zoom_miles.toString(),
         show_buoys: settings.show_buoys.toString(),
+        lock_buffer_minutes: settings.lock_buffer_minutes.toString(),
       };
 
       const response = await fetch(`${API}/settings`, {

@@ -853,9 +853,14 @@ async def websocket_ais(websocket: WebSocket):
                                             rm = estimate_river_mile(vessel_data['lat'], vessel_data['lon'])
                                             heading = determine_heading(vessel_data['speed'], vessel_data['course'])
                                             
+                                            # Preserve existing name if new data doesn't have one
+                                            vessel_name = vessel_data.get('name', '')
+                                            if not vessel_name and mmsi in active_vessels:
+                                                vessel_name = active_vessels[mmsi].name
+                                            
                                             vessel = VesselPosition(
                                                 mmsi=mmsi,
-                                                name=vessel_data.get('name', ''),
+                                                name=vessel_name,
                                                 lat=vessel_data['lat'],
                                                 lon=vessel_data['lon'],
                                                 speed=vessel_data['speed'],
@@ -863,7 +868,14 @@ async def websocket_ais(websocket: WebSocket):
                                                 river_mile=rm,
                                                 heading=heading,
                                                 is_user_vessel=(mmsi == user_mmsi),
-                                                vessel_type=vessel_data.get('vessel_type', 'unknown')
+                                                vessel_type=vessel_data.get('vessel_type', 'unknown'),
+                                                ship_type=vessel_data.get('ship_type'),
+                                                length=vessel_data.get('length'),
+                                                width=vessel_data.get('width'),
+                                                is_tow=vessel_data.get('is_tow', False),
+                                                barge_count=vessel_data.get('barge_count'),
+                                                tow_config=vessel_data.get('tow_config'),
+                                                estimated_lockage_time=vessel_data.get('estimated_lockage_time'),
                                             )
                                             
                                             active_vessels[vessel.mmsi] = vessel

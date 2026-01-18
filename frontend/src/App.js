@@ -368,7 +368,10 @@ function App() {
               connectionConfig ? (
                 <Dashboard 
                   isConnected={isConnected}
-                  vessels={vessels}
+                  vessels={userSettings.show_buoys 
+                    ? vessels 
+                    : vessels.filter(v => !v.mmsi?.toString().startsWith("99"))
+                  }
                   userMmsi={userMmsi}
                   locks={locks}
                   lockStatus={lockStatus}

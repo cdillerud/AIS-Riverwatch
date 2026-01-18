@@ -448,48 +448,6 @@ export default function Dashboard({
                 </Tabs>
               </CardContent>
             </Card>
-
-            {/* User Vessel Quick Stats */}
-            {userVessel && (
-              <Card className="glass-panel border-cyan-500/30" data-testid="user-vessel-card">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
-                    <span className="text-sm font-semibold text-white">Your Vessel</span>
-                    <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
-                      {userVessel.name || 'MMSI: ' + userVessel.mmsi}
-                    </Badge>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="data-highlight">
-                      <div className="text-xs text-slate-500 uppercase">River Mile</div>
-                      <div className="text-xl font-mono text-white">
-                        {userVessel.river_mile?.toFixed(1) || '--'}
-                      </div>
-                    </div>
-                    <div className="data-highlight">
-                      <div className="text-xs text-slate-500 uppercase">Speed</div>
-                      <div className="text-xl font-mono text-white">
-                        {(userVessel.speed * 1.15078).toFixed(1)} <span className="text-sm text-slate-400">MPH</span>
-                      </div>
-                    </div>
-                    <div className="data-highlight">
-                      <div className="text-xs text-slate-500 uppercase">Course</div>
-                      <div className="text-lg font-mono text-white">
-                        {userVessel.course?.toFixed(0)}°
-                      </div>
-                    </div>
-                    <div className="data-highlight">
-                      <div className="text-xs text-slate-500 uppercase">Direction</div>
-                      <div className="text-lg font-semibold text-white capitalize">
-                        {userVessel.heading || '--'}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
 

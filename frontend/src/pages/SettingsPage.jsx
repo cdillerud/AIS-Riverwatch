@@ -108,6 +108,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
       }
     };
     loadSettings();
+    loadVesselCache();
   }, []);
 
   const handleSave = async () => {

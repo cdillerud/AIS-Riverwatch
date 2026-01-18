@@ -28,6 +28,7 @@ function App() {
     alert_sound_enabled: true,
     alert_speed_threshold: 25,
     show_buoys: false, // Hide buoys (MMSI starting with 99) by default
+    lock_buffer_minutes: 20, // Buffer time needed before commercial tow arrives
   });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
@@ -55,6 +56,7 @@ function App() {
             alert_speed_threshold: parseInt(settings.alert_speed_threshold) || 25,
             boat_name: settings.boat_name || "",
             show_buoys: settings.show_buoys === "true", // Default false
+            lock_buffer_minutes: parseInt(settings.lock_buffer_minutes) || 20,
           }));
           if (settings.connection_config) {
             setConnectionConfig(JSON.parse(settings.connection_config));

@@ -649,6 +649,35 @@ async def test_connection(config: ConnectionConfig):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+@api_router.get("/vessel-cache")
+async def get_vessel_cache():
+    """Get cached vessel static data (names, dimensions, etc.)"""
+    return {
+        "cached_vessels": len(vessel_static_cache),
+        "cache": vessel_static_cache
+    }
+
+@api_router.post("/vessel-cache/{mmsi}")
+async def set_vessel_name(mmsi: str, data: dict):
+    """Manually set a vessel name in the cache (useful for known local vessels)."""
+    global vessel_static_cache
+    
+    if mmsi not in vessel_static_cache:
+        vessel_static_cache[mmsi] = {}
+    
+    if data.get('name'):
+        vessel_static_cache[mmsi]['name'] = data['name']
+    if data.get('ship_type'):
+        vessel_static_cache[mmsi]['ship_type'] = data['ship_type']
+    
+    # Also update active vessel if present
+    if mmsi in active_vessels:
+        vessel = active_vessels[mmsi]
+        if data.get('name'):
+            vessel.name = data['name']
+    
+    return {"success": True, "cached": vessel_static_cache.get(mmsi)}
+
 @api_router.get("/vessels")
 async def get_vessels():
     """Get all tracked vessels."""

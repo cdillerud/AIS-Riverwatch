@@ -27,6 +27,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     show_all_locks: true,
     map_zoom_miles: 25,
     show_buoys: false,
+    lock_buffer_minutes: 20,
     ...initialSettings
   });
   

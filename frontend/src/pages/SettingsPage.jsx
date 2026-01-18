@@ -379,6 +379,123 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
 
+          {/* Self Position - Bypasses AIS self-suppression */}
+          <Card className="glass-panel border-white/10 border-l-4 border-l-green-500">
+            <CardHeader>
+              <CardTitle className="text-lg text-white flex items-center gap-2">
+                <Crosshair className="w-5 h-5 text-green-400" />
+                Self Position
+                {geoStatus === "active" && (
+                  <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-xs ml-2">
+                    Active
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                <span className="text-amber-400 font-medium">AIS Self-Suppression Bypass:</span>{" "}
+                Boat Beacon and most AIS apps intentionally filter out your own MMSI from the feed. 
+                Use this to inject your position directly.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Browser Geolocation */}
+              <div className="p-4 rounded-lg bg-slate-900/50 border border-slate-700/50">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Navigation className="w-5 h-5 text-cyan-400" />
+                    <Label className="text-white font-medium">Use Device GPS</Label>
+                  </div>
+                  <Button
+                    onClick={getCurrentPosition}
+                    disabled={geoStatus === "getting"}
+                    variant="outline"
+                    size="sm"
+                    className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+                    data-testid="get-location-btn"
+                  >
+                    {geoStatus === "getting" ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                        Getting...
+                      </>
+                    ) : (
+                      <>
+                        <Crosshair className="w-4 h-4 mr-1" />
+                        Get My Location
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Uses your phone/tablet's GPS to set your position. Works if River Watch is running on your boat.
+                </p>
+                {lastGeoUpdate && (
+                  <p className="text-xs text-green-400 mt-2">
+                    Last updated: {lastGeoUpdate.toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+
+              {/* Manual Position Entry */}
+              <div className="p-4 rounded-lg bg-slate-900/50 border border-slate-700/50">
+                <div className="flex items-center gap-2 mb-3">
+                  <MapPin className="w-5 h-5 text-amber-400" />
+                  <Label className="text-white font-medium">Manual Position Entry</Label>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="lat" className="text-slate-400 text-xs">Latitude</Label>
+                    <Input
+                      id="lat"
+                      placeholder="44.7433"
+                      value={manualLat}
+                      onChange={(e) => setManualLat(e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white font-mono text-sm"
+                      data-testid="manual-lat"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="lon" className="text-slate-400 text-xs">Longitude</Label>
+                    <Input
+                      id="lon"
+                      placeholder="-92.8506"
+                      value={manualLon}
+                      onChange={(e) => setManualLon(e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white font-mono text-sm"
+                      data-testid="manual-lon"
+                    />
+                  </div>
+                </div>
+                <Button
+                  onClick={submitManualPosition}
+                  disabled={!manualLat || !manualLon}
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-amber-500/50 text-amber-400 hover:bg-amber-500/20"
+                  data-testid="set-manual-position-btn"
+                >
+                  <MapPin className="w-4 h-4 mr-1" />
+                  Set Position
+                </Button>
+                <p className="text-xs text-slate-500 mt-2">
+                  Enter coordinates manually for testing or when GPS is unavailable. 
+                  Tip: Lock 2 (Hastings) is at 44.7433, -92.8506
+                </p>
+              </div>
+
+              {/* Help text */}
+              <div className="text-xs text-slate-500 p-3 bg-slate-800/50 rounded-lg">
+                <p className="font-medium text-slate-400 mb-1">Why is this needed?</p>
+                <p>
+                  Most AIS apps (including Boat Beacon) intentionally suppress your own MMSI 
+                  from the data feed to prevent feedback loops. This is normal behavior - 
+                  other vessels can see you, but you won't see yourself in your own feed.
+                  Use one of the options above to manually inject your position.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Connection Settings */}
           <Card className="glass-panel border-white/10">
             <CardHeader>

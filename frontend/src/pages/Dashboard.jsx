@@ -62,6 +62,19 @@ export default function Dashboard({
             </div>
             
             <div className="flex items-center gap-3">
+              {!isConnected && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onReconnect}
+                  className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10"
+                  data-testid="reconnect-btn"
+                >
+                  <Wifi className="w-4 h-4 mr-1" />
+                  Retry Connection
+                </Button>
+              )}
+              
               <Button
                 variant="outline"
                 size="sm"
@@ -84,14 +97,14 @@ export default function Dashboard({
               </Button>
               
               <Button
-                variant="destructive"
+                variant="outline"
                 size="sm"
-                onClick={onDisconnect}
-                className="bg-red-900/50 border border-red-500/50 text-red-100 hover:bg-red-900"
-                data-testid="disconnect-btn"
+                onClick={onResetConnection}
+                className="border-slate-600 text-slate-300 hover:bg-slate-800"
+                data-testid="change-connection-btn"
               >
-                <WifiOff className="w-4 h-4 mr-1" />
-                Disconnect
+                <Settings className="w-4 h-4 mr-1" />
+                Change Connection
               </Button>
             </div>
           </div>

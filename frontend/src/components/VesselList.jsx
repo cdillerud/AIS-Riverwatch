@@ -145,10 +145,11 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false, o
           <div
             key={vessel.mmsi}
             className={`
-              vessel-item p-4 
+              vessel-item p-4 cursor-pointer transition-colors
               ${isUser ? 'user-vessel border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'}
             `}
             data-testid={`vessel-item-${vessel.mmsi}`}
+            onClick={() => onVesselClick(vessel)}
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">

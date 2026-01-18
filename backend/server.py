@@ -757,6 +757,18 @@ async def get_lock_status(lock_id: str):
         "last_updated": status.last_updated
     }
 
+@api_router.get("/debug/state")
+async def get_debug_state():
+    """Get current application state for debugging."""
+    return {
+        "user_mmsi": user_mmsi,
+        "active_vessels_count": len(active_vessels),
+        "active_vessel_mmsis": list(active_vessels.keys()),
+        "vessel_cache_count": len(vessel_static_cache),
+        "cached_vessel_names": {k: v.get('name', 'unnamed') for k, v in vessel_static_cache.items()},
+        "filtered_mmsis": list(FILTERED_MMSI),
+    }
+
 @api_router.post("/connection/test")
 async def test_connection(config: ConnectionConfig):
     """Test AIS TCP connection."""

@@ -5,9 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
+import { Badge } from "@/components/ui/badge";
 import { 
   Settings, Ship, Gauge, Anchor, Save, ArrowLeft, 
-  Wifi, Bell, MapPin, AlertTriangle
+  Wifi, Bell, MapPin, AlertTriangle, Plus, Trash2, Users
 } from "lucide-react";
 import { toast } from "sonner";
 

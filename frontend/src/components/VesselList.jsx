@@ -1,11 +1,11 @@
 import { Ship, Navigation, Gauge, Clock, ChevronUp, ChevronDown, Minus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-export const VesselList = ({ vessels, userMmsi, selectedLock }) => {
+export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false }) => {
   if (vessels.length === 0) {
     return (
-      <div className="empty-state py-12">
-        <Ship className="w-10 h-10 mx-auto mb-3 opacity-30" />
+      <div className="empty-state py-8 md:py-12">
+        <Ship className="w-8 h-8 md:w-10 md:h-10 mx-auto mb-3 opacity-30" />
         <p className="text-sm">No vessels in range</p>
       </div>
     );
@@ -56,6 +56,56 @@ export const VesselList = ({ vessels, userMmsi, selectedLock }) => {
     const etaB = calculateETA(b) || Infinity;
     return etaA - etaB;
   });
+
+  // Compact mobile version
+  if (compact) {
+    return (
+      <div className="divide-y divide-white/5" data-testid="vessel-list">
+        {sortedVessels.map(vessel => {
+          const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+          const speedMph = (vessel.speed * 1.15078).toFixed(1);
+          const eta = calculateETA(vessel);
+
+          return (
+            <div
+              key={vessel.mmsi}
+              className={`p-3 ${isUser ? 'bg-cyan-500/5 border-l-2 border-l-cyan-500' : ''}`}
+              data-testid={`vessel-item-${vessel.mmsi}`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {isUser ? (
+                    <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                  ) : (
+                    <div className="w-2 h-2 bg-amber-400 rotate-45" />
+                  )}
+                  <span className={`font-medium text-sm ${isUser ? 'text-cyan-400' : 'text-white'}`}>
+                    {vessel.name || vessel.mmsi}
+                  </span>
+                  {isUser && (
+                    <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-[10px] px-1">
+                      YOU
+                    </Badge>
+                  )}
+                </div>
+                <span className={`font-mono text-sm ${eta ? 'text-white' : 'text-slate-600'}`}>
+                  {formatETA(eta)}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                <span className="font-mono">RM {vessel.river_mile?.toFixed(1)}</span>
+                <span className="font-mono">{speedMph} mph</span>
+                <span className="flex items-center gap-0.5">
+                  {getDirectionIcon(vessel.heading)}
+                  {vessel.heading?.slice(0,1).toUpperCase()}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="divide-y divide-white/5" data-testid="vessel-list">

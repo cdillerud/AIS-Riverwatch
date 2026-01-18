@@ -140,12 +140,13 @@ function App() {
 
     ws.onopen = () => {
       console.log("WebSocket connected");
-      // Send connection config
+      // Send connection config including boat name for proper identification
       ws.send(JSON.stringify({
         action: "connect",
         ip_address: config.ip_address,
         port: config.port,
-        user_mmsi: config.user_mmsi
+        user_mmsi: config.user_mmsi,
+        boat_name: userSettings.boat_name || config.boat_name || ""
       }));
     };
 

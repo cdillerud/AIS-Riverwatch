@@ -208,39 +208,50 @@ export default function Dashboard({
           <div className="flex bg-slate-900/80 rounded-lg p-1 gap-1">
             <button
               onClick={() => setMobilePanel("race")}
-              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+              className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
                 mobilePanel === "race" 
                   ? "bg-cyan-500/20 text-cyan-400" 
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              <Target className="w-4 h-4 mx-auto mb-1" />
+              <Target className="w-4 h-4 mx-auto mb-0.5" />
               Race
             </button>
             <button
+              onClick={() => setMobilePanel("locks")}
+              className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
+                mobilePanel === "locks" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Lock className="w-4 h-4 mx-auto mb-0.5" />
+              Locks
+            </button>
+            <button
               onClick={() => setMobilePanel("map")}
-              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+              className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
                 mobilePanel === "map" 
                   ? "bg-cyan-500/20 text-cyan-400" 
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              <Navigation className="w-4 h-4 mx-auto mb-1" />
+              <Navigation className="w-4 h-4 mx-auto mb-0.5" />
               Map
             </button>
             <button
               onClick={() => setMobilePanel("vessels")}
-              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+              className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
                 mobilePanel === "vessels" 
                   ? "bg-cyan-500/20 text-cyan-400" 
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              <Ship className="w-4 h-4 mx-auto mb-1" />
+              <Ship className="w-4 h-4 mx-auto mb-0.5" />
               <span className="relative">
-                Vessels
+                Boats
                 {vessels.length > 0 && (
-                  <span className="absolute -top-1 -right-3 bg-cyan-500 text-black text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1 -right-2 bg-cyan-500 text-black text-[8px] w-3 h-3 rounded-full flex items-center justify-center">
                     {vessels.length}
                   </span>
                 )}

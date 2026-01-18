@@ -1169,10 +1169,19 @@ async def websocket_ais(websocket: WebSocket):
                                                 ship_type=vessel_data.get('ship_type'),
                                                 length=vessel_data.get('length'),
                                                 width=vessel_data.get('width'),
+                                                draught=vessel_data.get('draught'),
                                                 is_tow=vessel_data.get('is_tow', False),
                                                 barge_count=vessel_data.get('barge_count'),
                                                 tow_config=vessel_data.get('tow_config'),
                                                 estimated_lockage_time=vessel_data.get('estimated_lockage_time'),
+                                                # Additional AIS fields
+                                                turn_rate=vessel_data.get('turn_rate'),
+                                                nav_status=vessel_data.get('nav_status'),
+                                                nav_status_text=vessel_data.get('nav_status_text'),
+                                                destination=vessel_data.get('destination'),
+                                                callsign=vessel_data.get('callsign'),
+                                                imo=vessel_data.get('imo'),
+                                                eta=vessel_data.get('eta'),
                                             )
                                             
                                             # If this is the user vessel, update user_mmsi if not set

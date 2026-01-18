@@ -1092,14 +1092,15 @@ async def websocket_ais(websocket: WebSocket):
                                             
                                             # If this is the user vessel, update user_mmsi if not set
                                             if vessel_data.get('is_own_vessel') and not user_mmsi:
-                                                user_mmsi = mmsi
-                                                logger.info(f"Auto-detected user vessel MMSI: {mmsi}")
+                                                user_mmsi = mmsi_parsed
+                                                logger.info(f"Auto-detected user vessel MMSI: {mmsi_parsed}")
                                             
                                             active_vessels[vessel.mmsi] = vessel
                                             
                                             # Send update to client
                                             v_dict = vessel.model_dump()
                                             v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+                                            v_dict['source'] = 'AIS'
                                             await websocket.send_json({"type": "vessel_update", "vessel": v_dict})
                                             
                             except BlockingIOError:

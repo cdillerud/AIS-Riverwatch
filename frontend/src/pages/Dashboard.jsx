@@ -20,6 +20,7 @@ export default function Dashboard({
   vessels, 
   userMmsi, 
   locks, 
+  lockStatus,
   raceAnalysis,
   selectedLock,
   onSelectLock,

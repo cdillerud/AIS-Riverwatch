@@ -40,6 +40,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [vesselCache, setVesselCache] = useState({});
   const [newVesselMmsi, setNewVesselMmsi] = useState("");
   const [newVesselName, setNewVesselName] = useState("");
+  
+  // Self-position management
+  const [manualLat, setManualLat] = useState("");
+  const [manualLon, setManualLon] = useState("");
+  const [geoStatus, setGeoStatus] = useState("idle"); // "idle", "getting", "active", "error"
+  const [lastGeoUpdate, setLastGeoUpdate] = useState(null);
 
   // Load vessel cache
   const loadVesselCache = async () => {

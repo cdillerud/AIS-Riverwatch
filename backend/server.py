@@ -1098,6 +1098,10 @@ async def websocket_ais(websocket: WebSocket):
                                     while '\n' in buffer:
                                         line, buffer = buffer.split('\n', 1)
                                         
+                                        # Broadcast raw line to debug subscribers
+                                        if len(line.strip()) > 0:
+                                            await broadcast_raw_line(line.strip())
+                                        
                                         # Log raw data for debugging (first 100 chars)
                                         if len(line) > 5:
                                             logger.debug(f"Raw NMEA: {line[:100]}")
@@ -1317,6 +1321,64 @@ async def clear_demo_vessels():
     """Clear all demo vessels."""
     active_vessels.clear()
     return {"success": True}
+
+# Store raw data subscribers for broadcasting
+raw_data_subscribers: set = set()
+
+# WebSocket for raw NMEA data streaming (debug/diagnostic tool)
+@app.websocket("/ws/raw")
+async def websocket_raw(websocket: WebSocket):
+    """
+    WebSocket endpoint for streaming raw NMEA data for debugging.
+    Clients connect here to see every line received from the AIS TCP feed.
+    """
+    await websocket.accept()
+    raw_data_subscribers.add(websocket)
+    logger.info(f"Raw data subscriber connected. Total subscribers: {len(raw_data_subscribers)}")
+    
+    try:
+        # Keep connection alive and handle client messages
+        while True:
+            try:
+                # Wait for any message from client (ping/pong or disconnect)
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                msg = json.loads(data)
+                
+                if msg.get("action") == "ping":
+                    await websocket.send_json({"type": "pong"})
+                    
+            except asyncio.TimeoutError:
+                # Send keepalive
+                try:
+                    await websocket.send_json({"type": "keepalive"})
+                except:
+                    break
+                    
+    except WebSocketDisconnect:
+        logger.info("Raw data subscriber disconnected")
+    except Exception as e:
+        logger.error(f"Raw WebSocket error: {e}")
+    finally:
+        raw_data_subscribers.discard(websocket)
+        logger.info(f"Raw data subscriber removed. Total subscribers: {len(raw_data_subscribers)}")
+
+async def broadcast_raw_line(line: str):
+    """Broadcast a raw NMEA line to all subscribed clients."""
+    if not raw_data_subscribers:
+        return
+    
+    message = json.dumps({"type": "raw", "line": line})
+    
+    # Send to all subscribers, remove any that fail
+    disconnected = set()
+    for ws in raw_data_subscribers:
+        try:
+            await ws.send_text(message)
+        except Exception:
+            disconnected.add(ws)
+    
+    # Clean up disconnected clients
+    raw_data_subscribers.difference_update(disconnected)
 
 # Include the router in the main app
 app.include_router(api_router)

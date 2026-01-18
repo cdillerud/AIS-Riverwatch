@@ -1098,12 +1098,18 @@ async def websocket_ais(websocket: WebSocket):
                                     while '\n' in buffer:
                                         line, buffer = buffer.split('\n', 1)
                                         
+                                        # Log raw data for debugging (first 100 chars)
+                                        if len(line) > 5:
+                                            logger.debug(f"Raw NMEA: {line[:100]}")
+                                        
                                         # First try to parse as GPS (for user's own position)
                                         gps_data = parse_nmea_gps(line)
                                         if gps_data and user_mmsi:
                                             # Update user vessel from GPS data
                                             rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
                                             heading = determine_heading(gps_data['speed'], gps_data['course'])
+                                            
+                                            logger.info(f"GPS position for user {user_mmsi}: lat={gps_data['lat']:.4f}, lon={gps_data['lon']:.4f}, RM={rm:.1f}")
                                             
                                             # Get name from cache or settings
                                             vessel_name = boat_name

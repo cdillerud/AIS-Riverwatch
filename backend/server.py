@@ -129,9 +129,9 @@ def estimate_tow_info(vessel_data: dict) -> dict:
     Standard barge dimensions: ~195ft (59m) long x 35ft (10.7m) wide
     Lock chamber: ~600ft (183m) long x 110ft (33.5m) wide
     
-    Tow configurations:
-    - Single lock (fits in one pass): up to 15 barges (3 wide x 5 long = ~975ft)
-    - Double lock (requires 2 passes): 16+ barges
+    Tow configurations (Upper Mississippi locks are 600ft):
+    - Single lock (fits in one pass): up to 9 barges
+    - Double lock (requires 2 passes): 10+ barges
     
     Ship type codes (AIS):
     - 30: Fishing
@@ -189,17 +189,15 @@ def estimate_tow_info(vessel_data: dict) -> dict:
         tow_config = "2x3"
     
     # Calculate estimated lockage time
+    # Upper Mississippi locks are 600ft - anything over 9 barges requires double lockage
     if barge_count > 0:
-        # Lock chamber is ~600ft, can fit about 3x5 barges (15 barges)
         if barge_count <= 6:
             estimated_lockage_time = 30  # Single cut, quick
-        elif barge_count <= 12:
+        elif barge_count <= 9:
             estimated_lockage_time = 45  # Single cut, larger tow
-        elif barge_count <= 15:
-            estimated_lockage_time = 60  # Single cut, maximum size
         else:
-            # Double lockage required
-            estimated_lockage_time = 90 + (barge_count - 15) * 5  # Base + extra per barge
+            # Double lockage required (>9 barges)
+            estimated_lockage_time = 90 + (barge_count - 9) * 5  # Base + extra per barge
     elif is_tow:
         estimated_lockage_time = 45  # Unknown tow, assume medium
     else:
@@ -210,7 +208,8 @@ def estimate_tow_info(vessel_data: dict) -> dict:
         'is_tow': is_tow,
         'barge_count': barge_count if barge_count > 0 else None,
         'tow_config': tow_config,
-        'estimated_lockage_time': estimated_lockage_time
+        'estimated_lockage_time': estimated_lockage_time,
+        'is_double_lockage': barge_count > 9  # Flag for UI
     }
 
 async def fetch_usace_lock_status() -> Dict[str, LockStatus]:

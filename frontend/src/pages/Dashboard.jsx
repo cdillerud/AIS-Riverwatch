@@ -29,11 +29,13 @@ export default function Dashboard({
   onResetConnection,
   onReconnect,
   onAddDemoVessels,
-  connectionConfig
+  onOpenSettings,
+  connectionConfig,
+  userSettings = {}
 }) {
-  const [showSettings, setShowSettings] = useState(false);
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [mapZoomed, setMapZoomed] = useState(true); // Default to zoomed view
 
   // Find user vessel
   const userVessel = useMemo(() => {

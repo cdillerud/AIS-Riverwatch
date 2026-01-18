@@ -368,9 +368,9 @@ function App() {
               connectionConfig ? (
                 <Dashboard 
                   isConnected={isConnected}
-                  vessels={userSettings.show_buoys 
-                    ? vessels 
-                    : vessels.filter(v => !v.mmsi?.toString().startsWith("99"))
+                  vessels={vessels
+                    .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
+                    .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"))
                   }
                   userMmsi={userMmsi}
                   locks={locks}

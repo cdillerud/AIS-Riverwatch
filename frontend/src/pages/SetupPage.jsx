@@ -194,6 +194,7 @@ export default function SetupPage({ onConnect }) {
               />
               <p className="text-xs text-slate-500">
                 Your 9-digit Maritime Mobile Service Identity number
+                {userMmsi && <span className="text-cyan-400 ml-1">• Saved for next time</span>}
               </p>
             </div>
 

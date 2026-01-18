@@ -808,6 +808,8 @@ async def add_demo_vessel(vessel: VesselPosition):
 @api_router.post("/demo/add-tow")
 async def add_demo_tow(data: dict):
     """Add a demo tow with specific barge configuration for testing."""
+    barge_count = data.get('barge_count', 6)
+    
     vessel = VesselPosition(
         mmsi=data.get('mmsi', str(uuid.uuid4())[:9]),
         name=data.get('name', 'M/V TEST TOW'),
@@ -817,7 +819,7 @@ async def add_demo_tow(data: dict):
         course=data.get('course', 0),
         vessel_type='towing',
         is_tow=True,
-        barge_count=data.get('barge_count', 6),
+        barge_count=barge_count,
         tow_config=data.get('tow_config', '2x3'),
         length=data.get('length', 200),
         width=data.get('width', 22),
@@ -827,15 +829,15 @@ async def add_demo_tow(data: dict):
     vessel.heading = determine_heading(vessel.speed, vessel.course)
     
     # Calculate lockage time based on barge count
-    if vessel.barge_count:
-        if vessel.barge_count <= 6:
+    # Upper Mississippi locks are 600ft - >9 barges requires double lockage
+    if barge_count:
+        if barge_count <= 6:
             vessel.estimated_lockage_time = 30
-        elif vessel.barge_count <= 12:
+        elif barge_count <= 9:
             vessel.estimated_lockage_time = 45
-        elif vessel.barge_count <= 15:
-            vessel.estimated_lockage_time = 60
         else:
-            vessel.estimated_lockage_time = 90 + (vessel.barge_count - 15) * 5
+            # Double lockage required
+            vessel.estimated_lockage_time = 90 + (barge_count - 9) * 5
     
     active_vessels[vessel.mmsi] = vessel
     v_dict = vessel.model_dump()

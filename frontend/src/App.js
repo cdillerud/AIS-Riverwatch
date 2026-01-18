@@ -272,6 +272,8 @@ function App() {
                   selectedLock={selectedLock}
                   onSelectLock={setSelectedLock}
                   onDisconnect={handleDisconnect}
+                  onResetConnection={handleResetConnection}
+                  onReconnect={() => connectWebSocket(connectionConfig)}
                   onAddDemoVessels={addDemoVessels}
                   connectionConfig={connectionConfig}
                 />

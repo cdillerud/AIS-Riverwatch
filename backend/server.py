@@ -691,6 +691,20 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                         if lat == 91.0 or lon == 181.0:  # AIS "not available" values
                             continue
                         
+                        # Get navigation status
+                        nav_status = decoded.get('status')
+                        nav_status_text = NAV_STATUS.get(nav_status, 'Unknown') if nav_status is not None else None
+                        
+                        # Get heading (true heading, different from course over ground)
+                        heading_true = decoded.get('heading')
+                        if heading_true == 511:  # 511 = not available
+                            heading_true = None
+                        
+                        # Get rate of turn
+                        turn_rate = decoded.get('turn')
+                        if turn_rate == -128 or turn_rate == 128:  # not available
+                            turn_rate = None
+                        
                         # Build vessel data from position report
                         vessel = {
                             'mmsi': mmsi,
@@ -705,6 +719,10 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             'width': None,
                             'draught': None,
                             'is_own_vessel': is_own_vessel,
+                            'heading_true': heading_true,
+                            'turn_rate': turn_rate,
+                            'nav_status': nav_status,
+                            'nav_status_text': nav_status_text,
                         }
                         
                         # Merge in cached static data if available
@@ -721,6 +739,14 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                                 vessel['width'] = cached['width']
                             if cached.get('draught'):
                                 vessel['draught'] = cached['draught']
+                            if cached.get('destination'):
+                                vessel['destination'] = cached['destination']
+                            if cached.get('callsign'):
+                                vessel['callsign'] = cached['callsign']
+                            if cached.get('imo'):
+                                vessel['imo'] = cached['imo']
+                            if cached.get('eta'):
+                                vessel['eta'] = cached['eta']
                             if cached.get('is_own_vessel') or cached.get('is_user'):
                                 vessel['is_own_vessel'] = True
                         

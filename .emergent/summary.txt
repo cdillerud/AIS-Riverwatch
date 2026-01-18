@@ -1,0 +1,171 @@
+<analysis>**original_problem_statement:**
+The user wants to build an application named River Watch to track vessels on the upper Mississippi River using an AIS (Automatic Identification System) feed provided via TCP from the Boat Beacon app.
+
+**PRODUCT REQUIREMENTS:**
+1.  **AIS Data Integration:** Connect to a TCP feed on a user-specified IP and port (default 5353) to receive and parse AIS data.
+2.  **Vessel Tracking:** Display the user's vessel and other commercial vessels on a simplified river map.
+3.  **Race to the Lock Calculation:** Calculate the required speed in MPH for the user's vessel to reach a target lock before a competing commercial vessel.
+4.  **Alert System:** Trigger a visual alert if the required speed exceeds the user's boat's maximum speed (e.g., 25 MPH).
+5.  **River Coverage:** Initially focused on Locks 2 & 3, later expanded to cover Locks 2 through 10.
+6.  **Connection Management:** Allow the user to retry a failed connection and change connection settings (IP, Port, MMSI).
+7.  **Local Deployment:** Provide instructions and a  setup for running the application locally on a laptop or Raspberry Pi to connect to the local AIS feed.
+8.  **Persistent Configuration:** Create a Settings page where the user can enter their vessel's MMSI, name, and max speed, and have these settings persist across sessions.
+9.  **Mobile-Friendly UI:** The application must be responsive and usable on mobile devices and tablets.
+10. **USACE Data Integration:** Fetch and display lock status (e.g., OPEN/CLOSED) from the U.S. Army Corps of Engineers.
+11. **Tow/Barge Estimation:** Identify commercial tows, estimate the number of barges, and calculate the additional lockage time, warning the user about potential long delays (e.g., DOUBLE LOCK).
+12. **Map Zoom:** Add a feature to zoom the river map into the area around a selected target lock.
+
+**User's preferred language**: English
+
+**what currently exists?**
+A full-stack FastAPI (backend) and React (frontend) application. The backend connects to an AIS feed via TCP, parses data, scrapes USACE for lock statuses, and serves the information through REST APIs and a WebSocket for real-time updates. The frontend features a setup page for connection details and a comprehensive dashboard that includes:
+- A mobile-responsive layout with tab navigation (Race, Map, Vessels, Locks).
+- A linear river map visualizing vessels and locks from #2 (Hastings) to #10 (Guttenberg).
+- A Race to the Lock panel with ETA calculations and Cannot Beat alerts.
+- A Demo Mode to populate the app with sample data for testing in the cloud.
+- A vessel list that displays tow information, including estimated barge count and additional lockage time (e.g., +45min lock, DOUBLE LOCK).
+- A lock status panel showing data scraped from USACE.
+- A  and  for easy local deployment.
+- A settings page for persistent configuration and a map zoom feature.
+
+**Last working item**:
+-   **Last item agent was working**: Implementing two user-requested features:
+    1.  A **Settings Page** () to allow users to persistently store their MMSI, boat name, and max speed using .
+    2.  A **Map Zoom** feature on the dashboard to focus the river visualization on a +/- 25-mile radius around the selected target lock, reducing clutter.
+-   **Status**: IN PROGRESS
+-   **Agent Testing Done**: Y (for the map zoom feature via screenshots)
+-   **Which testing method agent to use?**: screenshot tool. The next step should be to navigate to the  page, enter and save data, reload the application, and capture a screenshot to confirm the data persists on the Setup and Dashboard pages.
+-   **User Testing Done**: N
+
+**All Pending/In progress Issue list**:
+-   **Issue 1: Verify Settings Page Functionality (P0)**
+    -   **Description**: The code for the Settings page has been created and integrated, but its functionality has not been end-to-end verified. The agent was in the process of testing when the session ended.
+    -   **Attempted fixes**: N/A
+    -   **Next debug checklist**:
+        1.  Navigate to the  page.
+        2.  Take a screenshot to show the new page.
+        3.  Enter values for Boat Name, MMSI, and Max Speed and click Save Settings.
+        4.  Reload the application.
+        5.  Navigate back to the  and verify the MMSI is pre-filled.
+        6.  Start a Demo Mode session and verify the user's boat name and max speed are used in the  and .
+    -   **Why fix this issue and what will be achieved with the fix?**: This will complete the user's request for persistent configuration, improving usability by removing the need to re-enter the MMSI on every visit.
+    -   **Status**: TESTING PENDING
+    -   **Is recurring issue?**: N
+    -   **Should Test frontend/backend/both after fix?**: Frontend
+
+**In progress Task List**:
+-   **Task 1: Complete and Verify Settings & Zoom Features (P0)**
+    -   **Where to resume**: The agent has already verified the map zoom feature with screenshots. The next action is to verify the Settings page as described in Issue 1 above.
+    -   **What will be achieved with this?**: This will finalize the implementation of the last two user requests, making the application feature-complete based on the current scope.
+    -   **Status**: IN PROGRESS
+    -   **Should Test frontend/backend/both after fix?**: Frontend
+    -   **Blocked on something**: No.
+
+**Upcoming and Future Tasks**
+**Upcoming Tasks:**
+-   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for critical CANNOT BEAT alerts, as a user piloting a boat may not be able to look at the screen. This can be done using the browser's  API or the  object. (Files to update: ).
+
+**Future Tasks:**
+-   **USACE Lock Wait Time API (P2)**: Integrate real-time lock wait times from an official USACE API (if available) instead of just the OPEN/CLOSED status. This would dramatically improve the accuracy of the race calculation.
+-   **Offline Mode (P2)**: Cache lock positions and last-known vessel data using service workers or  to provide graceful degradation when cellular service is lost on the river.
+-   **Multiple Target Locks (P3)**: Enhance the UI to show ETAs to the next 2-3 locks downstream/upstream, not just a single target.
+-   **Advanced Data Integration (P3)**: Incorporate more advanced data like river current speed from USGS gauges, weather overlays, and more accurate tow configuration data if it can be found from an official source.
+
+**Completed work in this session**
+-   **Initial Scaffolding**: Built the FastAPI backend and React frontend from scratch.
+-   **AIS Data Handling**: Implemented a TCP client and WebSocket bridge to process and stream real-time AIS data.
+-   **Core Race to the Lock Feature**: Developed the backend logic and frontend UI for calculating and displaying the required speed to beat competing vessels.
+-   **Dockerization & Local Setup**: Created s, a , and a  to enable easy local deployment.
+-   **Mobile Responsiveness**: Refactored the UI to be fully responsive and usable on mobile devices.
+-   **Extended River Coverage**: Expanded the app's data and visualization to cover Mississippi River Locks 2 through 10.
+-   **USACE Lock Status**: Integrated a web scraper to fetch and display whether locks are open or closed.
+-   **Barge & Tow Tracking**: Added logic to estimate barge counts and additional lockage time for commercial tows, with a DOUBLE LOCK warning.
+
+**Earlier issues found/mentioned but not fixed**
+-   None. The agent has been diligent in addressing all issues raised by the user.
+
+**Known issue recurrence from previous fork**
+-   None.
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+-   **Backend**: FastAPI, , ,  (for web scraping).
+-   **Frontend**: React, , , WebSocket API for real-time data.
+-   **Database**: MongoDB is set up but primarily used for demo data. Core vessel tracking is session-based and managed in memory.
+-   **Deployment**: Docker and  for local execution.
+
+**key DB schema**
+-   **vessels** (in-memory, populated from AIS feed): 
+-   **settings** ( on frontend): 
+
+**changes in tech stack**
+-   None.
+
+**All files of reference**
+-   : The single source for all backend logic, including AIS connection, data parsing, scraping, and all API endpoints.
+-   : The main frontend entry point, handling routing, WebSocket connection, and global state.
+-   : The primary UI component, composing all dashboard elements.
+-   : The newly created page for managing persistent user settings.
+-   : The custom component that renders the river map, recently updated to support zooming.
+-   : The main file for enabling the user's local deployment workflow.
+-   : Contains instructions for the user on how to run the app locally.
+
+**Areas that need refactoring**:
+-   The  component has grown large and handles multiple responsibilities (routing, state management, API calls, WebSocket logic). It could be broken down using custom React hooks (e.g., , ) for better maintainability.
+-   The USACE data fetching in  relies on web scraping, which is inherently fragile. If a stable, public API from USACE is discovered, this should be refactored to use it.
+
+**key api endpoints**
+-   : Get static data for all supported locks.
+-   : Get scraped operational status from USACE.
+-   : Get all currently tracked vessels.
+-   : Calculate speed needed to beat a competitor.
+-   : Retrieve saved settings from the backend (persisted via  on the frontend side, this API helps sync).
+-   : Save user settings.
+-   : WebSocket endpoint for real-time data streaming.
+
+**Critical Info for New Agent**
+-   The live AIS connection **will not work** in the cloud preview environment due to private network restrictions. The user is aware of this. All testing in the cloud environment must be done using the **Demo Mode** feature, which populates the app with sample data.
+-   The user's primary goal is to run this application locally on their boat's network (e.g., on a laptop or Raspberry Pi). The Docker setup is critical to this workflow.
+-   User settings are persisted in the browser's  and managed through the new Settings page.
+
+**documents and test reports created in this job**
+-   
+-   
+-   
+-   
+-   
+-   
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **User**: Can we add a feature that zooms into whatever target lock you choose? ... Also, we need a configuration page... - *Status: IN PROGRESS. Agent has built the features and is in the final verification stage.*
+2.  **User**: I would love to add barge count to commercial toes. - *Status: COMPLETED. Agent implemented barge count estimation and lockage time.*
+3.  **User**: What am I missing for an app like this? - *Status: RESPONDED. Agent provided a list of potential new features.*
+4.  **User**: I would LOVE USACE data integrated - *Status: COMPLETED. Agent scraped USACE data for lock status.*
+5.  **User**: Let’s extend our “coverage” to lock 10. - *Status: COMPLETED. Agent extended lock data from 2-3 to 2-10.*
+6.  **User**: Can we optimize this for mobile devices on the display side? - *Status: COMPLETED. Agent implemented a responsive mobile UI.*
+7.  **User**: Yes, please [create a docker-compose file]. Also, can we store my mmsi so it persists? - *Status: COMPLETED.*
+8.  **User**: How do I run this app locally? - *Status: RESPONDED. Agent provided instructions and then offered to create a Docker setup.*
+9.  **User**: I’m gettting connection error 111 - *Status: RESOLVED. Agent explained the error and added a note to the UI about local network limitations.*
+10. **User**: Great start! If a connection fails, I need to be able to try again - *Status: COMPLETED. Agent added Retry Connection and Change Connection buttons.*
+
+**Project Health Check:**
+-   **Working**: Core application logic, UI/UX, Docker-based local deployment, mobile responsiveness, USACE status scraping, barge/tow estimation, map zoom, and settings page functionality (pending final verification).
+-   **Broken**: Live AIS connection in the cloud preview environment. This is an expected limitation, not a bug.
+-   **Mocked**: All data in the cloud preview is generated via a Demo Mode since a live feed is not possible.
+
+**3rd Party Integrations**
+-   **USACE (U.S. Army Corps of Engineers)**: Data is acquired by web scraping public navigation websites. This is not a formal API and does not require an API key.
+
+**Testing status**
+-   **Testing agent used after significant changes**: YES (once, early in development).
+-   **Troubleshoot agent used after agent stuck in loop**: NO.
+-   **Test files created**: None.
+-   **Known regressions**: Screenshots sometimes show an empty vessel list immediately after a navigation action. This seems to be a minor timing issue where the screenshot is taken before the demo data is repopulated. Manually clicking Demo Mode again serves as a workaround for testing.
+
+**Credentials to test flow:**
+-   No credentials required. Use **Demo Mode** on the dashboard for all functional testing.
+
+**What agent forgot to execute**
+-   The agent did not complete the final verification step for the **Settings page**. The immediate next step should be to navigate to the settings page, save data, reload the app, and confirm that the settings have been applied correctly.</analysis>

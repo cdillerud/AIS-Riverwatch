@@ -8,7 +8,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
   Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
-  Play, Zap, Target, Menu, X, ChevronUp
+  Play, Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut
 } from "lucide-react";
 import RiverVisualization from "@/components/RiverVisualization";
 import RaceAnalysisPanel from "@/components/RaceAnalysisPanel";

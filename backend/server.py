@@ -426,7 +426,12 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             'speed': decoded.get('speed', 0),  # knots
                             'course': decoded.get('course', 0),
                             'name': decoded.get('shipname', ''),
-                            'vessel_type': str(decoded.get('ship_type', 'unknown'))
+                            'vessel_type': str(decoded.get('ship_type', 'unknown')),
+                            'ship_type': decoded.get('ship_type', 0),
+                            'length': decoded.get('to_bow', 0) + decoded.get('to_stern', 0) if decoded.get('to_bow') else None,
+                            'width': decoded.get('to_port', 0) + decoded.get('to_starboard', 0) if decoded.get('to_port') else None,
+                            'draught': decoded.get('draught'),
+                        }
                         }
                         
                         # Filter invalid positions

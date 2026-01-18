@@ -106,6 +106,52 @@ export const RiverVisualization = ({
       {/* River centerline with gradient */}
       <div className="absolute left-1/2 top-0 bottom-0 w-16 md:w-24 -translate-x-1/2 river-viz" />
       
+      {/* User vessel off-screen indicator - NORTH */}
+      {userOutOfRange === 'north' && userVessel && (
+        <div 
+          className="absolute top-1 left-1/2 -translate-x-1/2 z-30 animate-pulse"
+          data-testid="user-offscreen-north"
+        >
+          <div className="glass-panel border border-cyan-500/50 px-3 py-2 rounded-lg">
+            <div className="flex items-center gap-2">
+              <ChevronUp className="w-4 h-4 text-cyan-400" />
+              <div className="text-xs">
+                <div className="text-cyan-400 font-semibold">
+                  {userVessel.name || 'YOUR BOAT'}
+                </div>
+                <div className="text-slate-400 font-mono">
+                  RM {userVessel.river_mile?.toFixed(1)} • {(userVessel.river_mile - maxRM).toFixed(1)} mi north
+                </div>
+              </div>
+              <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* User vessel off-screen indicator - SOUTH */}
+      {userOutOfRange === 'south' && userVessel && (
+        <div 
+          className="absolute bottom-1 left-1/2 -translate-x-1/2 z-30 animate-pulse"
+          data-testid="user-offscreen-south"
+        >
+          <div className="glass-panel border border-cyan-500/50 px-3 py-2 rounded-lg">
+            <div className="flex items-center gap-2">
+              <ChevronDown className="w-4 h-4 text-cyan-400" />
+              <div className="text-xs">
+                <div className="text-cyan-400 font-semibold">
+                  {userVessel.name || 'YOUR BOAT'}
+                </div>
+                <div className="text-slate-400 font-mono">
+                  RM {userVessel.river_mile?.toFixed(1)} • {(minRM - userVessel.river_mile).toFixed(1)} mi south
+                </div>
+              </div>
+              <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* North indicator */}
       <div className="absolute top-2 md:top-4 left-1/2 -translate-x-1/2 flex flex-col items-center text-slate-500 text-xs">
         <ChevronUp className="w-3 h-3 md:w-4 md:h-4" />

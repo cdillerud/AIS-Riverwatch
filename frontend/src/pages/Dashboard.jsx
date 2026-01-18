@@ -148,10 +148,19 @@ export default function Dashboard({
                   
                   <Button
                     variant="outline"
-                    onClick={() => { onResetConnection(); setShowMobileMenu(false); }}
+                    onClick={() => { onOpenSettings(); setShowMobileMenu(false); }}
                     className="border-slate-600 text-slate-300 justify-start"
                   >
                     <Settings className="w-4 h-4 mr-2" />
+                    Settings
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    onClick={() => { onResetConnection(); setShowMobileMenu(false); }}
+                    className="border-slate-600 text-slate-300 justify-start"
+                  >
+                    <Wifi className="w-4 h-4 mr-2" />
                     Change Connection
                   </Button>
                 </div>

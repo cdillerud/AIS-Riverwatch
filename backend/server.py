@@ -37,6 +37,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# MMSI numbers to permanently filter out (test beacons, known noise)
+FILTERED_MMSI = {
+    "2339005",   # Boat Beacon UK test signal
+}
+
 # Lock positions (River Mile markers) - Upper Mississippi Locks 2-10
 LOCKS = {
     "lock_2": {"name": "Lock & Dam #2 (Hastings)", "river_mile": 815.2, "lat": 44.7433, "lon": -92.8506, "phone": "651-436-2900"},

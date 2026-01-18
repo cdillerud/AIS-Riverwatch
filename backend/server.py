@@ -81,6 +81,15 @@ class VesselPosition(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     is_user_vessel: bool = False
     vessel_type: str = "unknown"
+    # Tow/Barge information
+    ship_type_code: Optional[int] = None
+    length: Optional[float] = None  # meters
+    width: Optional[float] = None  # meters
+    draught: Optional[float] = None  # meters
+    barge_count: Optional[int] = None  # Estimated or reported barge count
+    tow_config: Optional[str] = None  # e.g., "2x3" (2 wide, 3 long)
+    is_tow: bool = False
+    estimated_lockage_time: Optional[int] = None  # minutes
 
 class RaceAnalysis(BaseModel):
     model_config = ConfigDict(extra="ignore")

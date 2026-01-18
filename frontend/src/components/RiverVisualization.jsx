@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor } from "lucide-react";
 
-// River Mile range for Pool 2-3 visualization
-const MIN_RM = 790;
+// River Mile range for Upper Mississippi Locks 2-10 visualization
+const MIN_RM = 600;
 const MAX_RM = 835;
 
 export const RiverVisualization = ({ 
@@ -18,14 +18,14 @@ export const RiverVisualization = ({
     if (!riverMile) return 50;
     // Invert because higher RM is north (top of screen)
     const pct = ((riverMile - MIN_RM) / (MAX_RM - MIN_RM)) * 100;
-    return Math.max(5, Math.min(95, 100 - pct)); // Invert so north is at top
+    return Math.max(2, Math.min(98, 100 - pct)); // Invert so north is at top
   };
 
-  // Generate river mile markers
+  // Generate river mile markers - adaptive based on range
   const rmMarkers = useMemo(() => {
     const markers = [];
-    const step = compact ? 10 : 5;
-    for (let rm = 795; rm <= 830; rm += step) {
+    const step = compact ? 50 : 25; // Larger steps for extended range
+    for (let rm = 625; rm <= 825; rm += step) {
       markers.push(rm);
     }
     return markers;

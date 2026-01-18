@@ -97,6 +97,17 @@ class LockInfo(BaseModel):
     river_mile: float
     lat: float
     lon: float
+    phone: Optional[str] = None
+
+class LockStatus(BaseModel):
+    lock_id: str
+    status: str  # "OPEN", "CLOSED", "RESTRICTED"
+    avg_wait_minutes: Optional[int] = None
+    upbound_queue: int = 0
+    downbound_queue: int = 0
+    vessels_in_queue: List[dict] = []
+    last_updated: Optional[str] = None
+    closure_info: Optional[str] = None
 
 # Store active vessels
 active_vessels: Dict[str, VesselPosition] = {}

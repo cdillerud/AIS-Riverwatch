@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor } from "lucide-react";
 
-// Default River Mile range for Upper Mississippi Locks 2-10 visualization
-const FULL_MIN_RM = 600;
-const FULL_MAX_RM = 835;
+// Default River Mile range for Upper Mississippi (Lock 1 to Chain of Rocks)
+const FULL_MIN_RM = 180;  // Chain of Rocks (RM 185) with buffer
+const FULL_MAX_RM = 850;  // Lock 1 Minneapolis (RM 847.6) with buffer
 
 export const RiverVisualization = ({ 
   vessels, 

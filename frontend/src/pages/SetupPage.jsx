@@ -278,6 +278,8 @@ export default function SetupPage({ onConnect }) {
             <div className="text-xs text-slate-400">Red Wing, MN</div>
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { Ship, Navigation, Gauge, Clock, ChevronUp, ChevronDown, Minus } from "lucide-react";
+import { Ship, Navigation, Gauge, Clock, ChevronUp, ChevronDown, Minus, Box, Timer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false }) => {
@@ -65,6 +65,7 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
           const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
           const speedMph = (vessel.speed * 1.15078).toFixed(1);
           const eta = calculateETA(vessel);
+          const isTow = vessel.is_tow || vessel.barge_count > 0;
 
           return (
             <div
@@ -76,6 +77,8 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                 <div className="flex items-center gap-2">
                   {isUser ? (
                     <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                  ) : isTow ? (
+                    <Box className="w-3 h-3 text-amber-400" />
                   ) : (
                     <div className="w-2 h-2 bg-amber-400 rotate-45" />
                   )}
@@ -100,6 +103,24 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                   {vessel.heading?.slice(0,1).toUpperCase()}
                 </span>
               </div>
+              {/* Barge info for tows */}
+              {isTow && (
+                <div className="flex items-center gap-3 mt-1.5">
+                  {vessel.barge_count && (
+                    <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[10px]">
+                      <Box className="w-2.5 h-2.5 mr-1" />
+                      {vessel.barge_count} barges
+                      {vessel.tow_config && ` (${vessel.tow_config})`}
+                    </Badge>
+                  )}
+                  {vessel.estimated_lockage_time && (
+                    <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                      <Timer className="w-2.5 h-2.5" />
+                      ~{vessel.estimated_lockage_time}min lock
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

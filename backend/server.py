@@ -788,6 +788,56 @@ async def add_demo_vessel(vessel: VesselPosition):
     """Add a demo vessel for testing."""
     vessel.river_mile = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
     vessel.heading = vessel.heading or determine_heading(vessel.speed, vessel.course)
+    
+    # Estimate tow info if not provided
+    if vessel.is_tow and vessel.barge_count is None:
+        tow_info = estimate_tow_info({
+            'shipname': vessel.name,
+            'ship_type': vessel.ship_type_code or 31,  # Default to towing
+            'length': vessel.length,
+            'width': vessel.width,
+        })
+        vessel.barge_count = tow_info.get('barge_count')
+        vessel.tow_config = tow_info.get('tow_config')
+        vessel.estimated_lockage_time = tow_info.get('estimated_lockage_time')
+    
+    active_vessels[vessel.mmsi] = vessel
+    v_dict = vessel.model_dump()
+    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+    return {"success": True, "vessel": v_dict}
+
+@api_router.post("/demo/add-tow")
+async def add_demo_tow(data: dict):
+    """Add a demo tow with specific barge configuration for testing."""
+    vessel = VesselPosition(
+        mmsi=data.get('mmsi', str(uuid.uuid4())[:9]),
+        name=data.get('name', 'M/V TEST TOW'),
+        lat=data.get('lat', 44.7),
+        lon=data.get('lon', -92.8),
+        speed=data.get('speed', 4),
+        course=data.get('course', 0),
+        vessel_type='towing',
+        is_tow=True,
+        barge_count=data.get('barge_count', 6),
+        tow_config=data.get('tow_config', '2x3'),
+        length=data.get('length', 200),
+        width=data.get('width', 22),
+    )
+    
+    vessel.river_mile = estimate_river_mile(vessel.lat, vessel.lon)
+    vessel.heading = determine_heading(vessel.speed, vessel.course)
+    
+    # Calculate lockage time based on barge count
+    if vessel.barge_count:
+        if vessel.barge_count <= 6:
+            vessel.estimated_lockage_time = 30
+        elif vessel.barge_count <= 12:
+            vessel.estimated_lockage_time = 45
+        elif vessel.barge_count <= 15:
+            vessel.estimated_lockage_time = 60
+        else:
+            vessel.estimated_lockage_time = 90 + (vessel.barge_count - 15) * 5
+    
     active_vessels[vessel.mmsi] = vessel
     v_dict = vessel.model_dump()
     v_dict['timestamp'] = v_dict['timestamp'].isoformat()

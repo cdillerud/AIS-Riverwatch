@@ -908,6 +908,9 @@ async def websocket_ais(websocket: WebSocket):
                                             if not vessel_name and mmsi in active_vessels:
                                                 vessel_name = active_vessels[mmsi].name
                                             
+                                            # Determine if this is the user's vessel
+                                            is_user = (mmsi == user_mmsi) or vessel_data.get('is_own_vessel', False)
+                                            
                                             vessel = VesselPosition(
                                                 mmsi=mmsi,
                                                 name=vessel_name,
@@ -917,7 +920,7 @@ async def websocket_ais(websocket: WebSocket):
                                                 course=vessel_data['course'],
                                                 river_mile=rm,
                                                 heading=heading,
-                                                is_user_vessel=(mmsi == user_mmsi),
+                                                is_user_vessel=is_user,
                                                 vessel_type=vessel_data.get('vessel_type', 'unknown'),
                                                 ship_type=vessel_data.get('ship_type'),
                                                 length=vessel_data.get('length'),
@@ -927,6 +930,11 @@ async def websocket_ais(websocket: WebSocket):
                                                 tow_config=vessel_data.get('tow_config'),
                                                 estimated_lockage_time=vessel_data.get('estimated_lockage_time'),
                                             )
+                                            
+                                            # If this is the user vessel, update user_mmsi if not set
+                                            if vessel_data.get('is_own_vessel') and not user_mmsi:
+                                                user_mmsi = mmsi
+                                                logger.info(f"Auto-detected user vessel MMSI: {mmsi}")
                                             
                                             active_vessels[vessel.mmsi] = vessel
                                             

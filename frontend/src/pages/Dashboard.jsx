@@ -53,22 +53,25 @@ export default function Dashboard({
 
   return (
     <div className="min-h-screen bg-[#020617]" data-testid="dashboard">
-      {/* Header */}
+      {/* Header - Mobile Optimized */}
       <header className="glass-panel border-b border-white/10 sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-3">
+        <div className="container mx-auto px-3 md:px-4 py-2 md:py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+            {/* Logo & Status */}
+            <div className="flex items-center gap-2 md:gap-4">
               <div className="flex items-center gap-2">
-                <Anchor className="w-6 h-6 text-cyan-400" />
-                <h1 className="text-xl font-bold text-white tracking-wide">RIVER WATCH</h1>
+                <Anchor className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
+                <h1 className="text-lg md:text-xl font-bold text-white tracking-wide hidden sm:block">RIVER WATCH</h1>
               </div>
               <ConnectionStatus 
                 isConnected={isConnected} 
                 config={connectionConfig}
+                compact={true}
               />
             </div>
             
-            <div className="flex items-center gap-3">
+            {/* Desktop Actions */}
+            <div className="hidden md:flex items-center gap-3">
               {!isConnected && (
                 <Button
                   variant="outline"
@@ -94,16 +97,6 @@ export default function Dashboard({
               </Button>
               
               <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowSettings(!showSettings)}
-                className="text-slate-300 hover:text-white"
-                data-testid="settings-btn"
-              >
-                <Settings className="w-5 h-5" />
-              </Button>
-              
-              <Button
                 variant="outline"
                 size="sm"
                 onClick={onResetConnection}
@@ -114,7 +107,94 @@ export default function Dashboard({
                 Change Connection
               </Button>
             </div>
+
+            {/* Mobile Menu Button */}
+            <Sheet open={showMobileMenu} onOpenChange={setShowMobileMenu}>
+              <SheetTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="md:hidden text-slate-300"
+                  data-testid="mobile-menu-btn"
+                >
+                  <Menu className="w-5 h-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="bg-slate-900 border-slate-700 w-72">
+                <div className="flex flex-col gap-3 mt-6">
+                  {!isConnected && (
+                    <Button
+                      variant="outline"
+                      onClick={() => { onReconnect(); setShowMobileMenu(false); }}
+                      className="border-cyan-500/50 text-cyan-400 justify-start"
+                    >
+                      <Wifi className="w-4 h-4 mr-2" />
+                      Retry Connection
+                    </Button>
+                  )}
+                  
+                  <Button
+                    variant="outline"
+                    onClick={() => { onAddDemoVessels(); setShowMobileMenu(false); }}
+                    className="border-slate-600 text-slate-300 justify-start"
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Demo Mode
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    onClick={() => { onResetConnection(); setShowMobileMenu(false); }}
+                    className="border-slate-600 text-slate-300 justify-start"
+                  >
+                    <Settings className="w-4 h-4 mr-2" />
+                    Change Connection
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
+        </div>
+
+        {/* Mobile Quick Stats Bar */}
+        <div className="md:hidden border-t border-white/5 px-3 py-2 flex items-center justify-between bg-slate-900/50">
+          <div className="flex items-center gap-4">
+            <div className="text-center">
+              <div className="text-[10px] text-slate-500 uppercase">Speed Req</div>
+              <div className={`text-lg font-mono font-bold ${isDangerous ? 'text-red-400' : requiredSpeed ? 'text-green-400' : 'text-slate-500'}`}>
+                {requiredSpeed?.toFixed(0) || '--'}
+                <span className="text-xs ml-0.5">mph</span>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-[10px] text-slate-500 uppercase">Your ETA</div>
+              <div className="text-lg font-mono text-white">
+                {userEta?.toFixed(0) || '--'}
+                <span className="text-xs ml-0.5">min</span>
+              </div>
+            </div>
+          </div>
+          
+          {isDangerous && (
+            <div className="flex items-center gap-1 text-red-400 text-xs font-semibold animate-pulse">
+              <AlertTriangle className="w-4 h-4" />
+              CAN'T BEAT
+            </div>
+          )}
+          
+          {/* Lock Selector - Mobile */}
+          <select
+            value={selectedLock}
+            onChange={(e) => onSelectLock(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono"
+            data-testid="lock-selector-mobile"
+          >
+            {locks.map(lock => (
+              <option key={lock.id} value={lock.id}>
+                Lock {lock.id.replace('lock_', '')}
+              </option>
+            ))}
+          </select>
         </div>
       </header>
 

@@ -8,7 +8,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
   Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
-  Play, Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut
+  Play, Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal
 } from "lucide-react";
 import RiverVisualization from "@/components/RiverVisualization";
 import RaceAnalysisPanel from "@/components/RaceAnalysisPanel";
@@ -16,6 +16,7 @@ import VesselList from "@/components/VesselList";
 import ConnectionStatus from "@/components/ConnectionStatus";
 import LockStatusPanel from "@/components/LockStatusPanel";
 import VesselDetailModal from "@/components/VesselDetailModal";
+import RawDataPanel from "@/components/RawDataPanel";
 
 export default function Dashboard({ 
   isConnected, 
@@ -34,7 +35,7 @@ export default function Dashboard({
   connectionConfig,
   userSettings = {}
 }) {
-  const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks"
+  const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [mapZoomed, setMapZoomed] = useState(true); // Default to zoomed view
   const [selectedVessel, setSelectedVessel] = useState(null); // For vessel detail modal

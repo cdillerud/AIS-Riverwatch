@@ -1018,6 +1018,66 @@ async def set_user_mmsi(data: dict):
     
     return {"success": True, "mmsi": user_mmsi}
 
+@api_router.post("/user-position")
+async def update_user_position(data: dict):
+    """
+    Update user's vessel position directly (bypasses AIS feed).
+    
+    This solves the common AIS "self-suppression" issue where Boat Beacon
+    and similar apps intentionally filter out your own MMSI from the feed.
+    
+    Position can come from:
+    - Browser Geolocation API
+    - Manual lat/lon entry
+    - External GPS source
+    """
+    global user_mmsi
+    
+    lat = data.get("lat")
+    lon = data.get("lon")
+    speed = data.get("speed", 0)  # knots
+    course = data.get("course", 0)
+    source = data.get("source", "manual")  # "geolocation", "manual", "external"
+    
+    if lat is None or lon is None:
+        return {"success": False, "error": "lat and lon required"}
+    
+    # Use configured MMSI or default
+    mmsi = user_mmsi or data.get("mmsi", "USER_VESSEL")
+    
+    # Get boat name from cache or settings
+    boat_name = "Your Vessel"
+    if mmsi in vessel_static_cache:
+        boat_name = vessel_static_cache[mmsi].get("name", boat_name)
+    
+    # Calculate river mile and heading
+    rm = estimate_river_mile(lat, lon)
+    heading = determine_heading(speed, course)
+    
+    # Create or update user vessel
+    vessel = VesselPosition(
+        mmsi=mmsi,
+        name=boat_name,
+        lat=lat,
+        lon=lon,
+        speed=speed,
+        course=course,
+        river_mile=rm,
+        heading=heading,
+        is_user_vessel=True,
+        vessel_type="recreational",
+    )
+    
+    active_vessels[mmsi] = vessel
+    
+    logger.info(f"User position updated via {source}: lat={lat:.4f}, lon={lon:.4f}, RM={rm:.1f}")
+    
+    v_dict = vessel.model_dump()
+    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+    v_dict['source'] = source
+    
+    return {"success": True, "vessel": v_dict}
+
 @api_router.get("/settings")
 async def get_settings():
     """Get saved settings."""

@@ -543,6 +543,7 @@ export default function Dashboard({
                   selectedLock={selectedLock}
                   raceAnalysis={raceAnalysis}
                   compact={true}
+                  onVesselClick={handleVesselClick}
                 />
               </CardContent>
             </Card>
@@ -575,6 +576,7 @@ export default function Dashboard({
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         compact={true}
+                        onVesselClick={handleVesselClick}
                       />
                     </ScrollArea>
                   </TabsContent>
@@ -586,6 +588,7 @@ export default function Dashboard({
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         compact={true}
+                        onVesselClick={handleVesselClick}
                       />
                     </ScrollArea>
                   </TabsContent>

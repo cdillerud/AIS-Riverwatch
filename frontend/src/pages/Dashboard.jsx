@@ -518,6 +518,17 @@ export default function Dashboard({
               </CardContent>
             </Card>
           )}
+
+          {/* Locks Panel - Mobile */}
+          {mobilePanel === "locks" && (
+            <LockStatusPanel
+              locks={locks}
+              lockStatus={lockStatus}
+              selectedLock={selectedLock}
+              onSelectLock={onSelectLock}
+              compact={true}
+            />
+          )}
         </div>
       </main>
 

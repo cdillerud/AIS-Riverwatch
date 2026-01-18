@@ -151,7 +151,7 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - [ ] Multiple user vessel support
 
 ## Known Issues
-- **User vessel (MMSI 338414076) not appearing with live Boat Beacon feed**: User reports their vessel doesn't show up. Use the Raw Data panel to diagnose if GPS/AIVDO sentences are being received.
+- ~~User vessel (MMSI 338414076) not appearing with live Boat Beacon feed~~ **RESOLVED**: This is expected AIS self-suppression behavior. Use the new Self Position feature in Settings to inject your position directly.
 
 ## Next Tasks
 1. **Use Raw Data panel to debug live feed** - Have user connect and check if GPS sentences ($GPGGA/$GPRMC) or AIVDO messages appear

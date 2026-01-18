@@ -306,19 +306,42 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                   id="defaultlock"
                   value={settings.default_lock}
                   onChange={(e) => updateSetting("default_lock", e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-white"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-white text-sm"
                   data-testid="settings-defaultlock"
                 >
-                  <option value="lock_2">Lock 2 - Hastings (RM 815)</option>
-                  <option value="lock_3">Lock 3 - Red Wing (RM 797)</option>
-                  <option value="lock_4">Lock 4 - Alma (RM 753)</option>
-                  <option value="lock_5">Lock 5 - Minnesota City (RM 738)</option>
-                  <option value="lock_5a">Lock 5A - Fountain City (RM 729)</option>
-                  <option value="lock_6">Lock 6 - Trempealeau (RM 714)</option>
-                  <option value="lock_7">Lock 7 - Dresbach (RM 703)</option>
-                  <option value="lock_8">Lock 8 - Genoa (RM 679)</option>
-                  <option value="lock_9">Lock 9 - Lynxville (RM 648)</option>
-                  <option value="lock_10">Lock 10 - Guttenberg (RM 615)</option>
+                  <optgroup label="Upper River (MN/WI)">
+                    <option value="lock_1">Lock 1 - Minneapolis (RM 848)</option>
+                    <option value="lock_2">Lock 2 - Hastings (RM 815)</option>
+                    <option value="lock_3">Lock 3 - Red Wing (RM 797)</option>
+                    <option value="lock_4">Lock 4 - Alma (RM 753)</option>
+                    <option value="lock_5">Lock 5 - Minnesota City (RM 738)</option>
+                    <option value="lock_5a">Lock 5A - Fountain City (RM 729)</option>
+                    <option value="lock_6">Lock 6 - Trempealeau (RM 714)</option>
+                    <option value="lock_7">Lock 7 - Dresbach (RM 703)</option>
+                    <option value="lock_8">Lock 8 - Genoa (RM 679)</option>
+                    <option value="lock_9">Lock 9 - Lynxville (RM 648)</option>
+                    <option value="lock_10">Lock 10 - Guttenberg (RM 615)</option>
+                  </optgroup>
+                  <optgroup label="Middle River (IA/IL)">
+                    <option value="lock_11">Lock 11 - Dubuque (RM 583)</option>
+                    <option value="lock_12">Lock 12 - Bellevue (RM 557)</option>
+                    <option value="lock_13">Lock 13 - Fulton (RM 523)</option>
+                    <option value="lock_14">Lock 14 - Le Claire (RM 493)</option>
+                    <option value="lock_15">Lock 15 - Rock Island (RM 483)</option>
+                    <option value="lock_16">Lock 16 - Muscatine (RM 457)</option>
+                    <option value="lock_17">Lock 17 - New Boston (RM 437)</option>
+                    <option value="lock_18">Lock 18 - Gladstone (RM 411)</option>
+                  </optgroup>
+                  <optgroup label="Lower River (MO/IL)">
+                    <option value="lock_19">Lock 19 - Keokuk (RM 364)</option>
+                    <option value="lock_20">Lock 20 - Canton (RM 343)</option>
+                    <option value="lock_21">Lock 21 - Quincy (RM 325)</option>
+                    <option value="lock_22">Lock 22 - Saverton (RM 301)</option>
+                    <option value="lock_24">Lock 24 - Clarksville (RM 273)</option>
+                    <option value="lock_25">Lock 25 - Cap au Gris (RM 241)</option>
+                    <option value="melvin_price">Melvin Price - Alton (RM 201)</option>
+                    <option value="chain_of_rocks">Chain of Rocks (RM 185)</option>
+                  </optgroup>
                 </select>
               </div>
             </CardContent>

@@ -22,12 +22,26 @@ export const RiverVisualization = ({
   }, [locks, selectedLock]);
 
   // Calculate the visible river mile range
+  // When zoomed, center on the selected lock with ±zoomRange miles
+  // If we hit the river boundary, shift the window to show the full zoom range
   const { minRM, maxRM } = useMemo(() => {
     if (zoomed && !compact) {
-      return {
-        minRM: Math.max(FULL_MIN_RM, selectedLockRM - zoomRange),
-        maxRM: Math.min(FULL_MAX_RM, selectedLockRM + zoomRange)
-      };
+      const totalRange = zoomRange * 2; // Total miles to show
+      let min = selectedLockRM - zoomRange;
+      let max = selectedLockRM + zoomRange;
+      
+      // If we exceed the north boundary (high RM), shift window south
+      if (max > FULL_MAX_RM) {
+        max = FULL_MAX_RM;
+        min = Math.max(FULL_MIN_RM, FULL_MAX_RM - totalRange);
+      }
+      // If we exceed the south boundary (low RM), shift window north
+      else if (min < FULL_MIN_RM) {
+        min = FULL_MIN_RM;
+        max = Math.min(FULL_MAX_RM, FULL_MIN_RM + totalRange);
+      }
+      
+      return { minRM: min, maxRM: max };
     }
     return { minRM: FULL_MIN_RM, maxRM: FULL_MAX_RM };
   }, [zoomed, compact, selectedLockRM, zoomRange]);

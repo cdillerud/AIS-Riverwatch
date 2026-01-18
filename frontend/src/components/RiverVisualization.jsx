@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor } from "lucide-react";
 
-// River Mile range for Upper Mississippi Locks 2-10 visualization
-const MIN_RM = 600;
-const MAX_RM = 835;
+// Default River Mile range for Upper Mississippi Locks 2-10 visualization
+const FULL_MIN_RM = 600;
+const FULL_MAX_RM = 835;
 
 export const RiverVisualization = ({ 
   vessels, 
@@ -11,25 +11,57 @@ export const RiverVisualization = ({
   locks, 
   selectedLock,
   raceAnalysis,
-  compact = false
+  compact = false,
+  zoomed = false,
+  zoomRange = 25
 }) => {
+  // Get the selected lock's river mile for zoom center
+  const selectedLockRM = useMemo(() => {
+    const lock = locks.find(l => l.id === selectedLock);
+    return lock?.river_mile || 815;
+  }, [locks, selectedLock]);
+
+  // Calculate the visible river mile range
+  const { minRM, maxRM } = useMemo(() => {
+    if (zoomed && !compact) {
+      return {
+        minRM: Math.max(FULL_MIN_RM, selectedLockRM - zoomRange),
+        maxRM: Math.min(FULL_MAX_RM, selectedLockRM + zoomRange)
+      };
+    }
+    return { minRM: FULL_MIN_RM, maxRM: FULL_MAX_RM };
+  }, [zoomed, compact, selectedLockRM, zoomRange]);
+
   // Calculate position percentage for a river mile
   const getRiverPosition = (riverMile) => {
     if (!riverMile) return 50;
     // Invert because higher RM is north (top of screen)
-    const pct = ((riverMile - MIN_RM) / (MAX_RM - MIN_RM)) * 100;
+    const pct = ((riverMile - minRM) / (maxRM - minRM)) * 100;
     return Math.max(2, Math.min(98, 100 - pct)); // Invert so north is at top
+  };
+
+  // Check if a river mile is in view
+  const isInView = (riverMile) => {
+    if (!riverMile) return false;
+    return riverMile >= minRM && riverMile <= maxRM;
   };
 
   // Generate river mile markers - adaptive based on range
   const rmMarkers = useMemo(() => {
     const markers = [];
-    const step = compact ? 50 : 25; // Larger steps for extended range
-    for (let rm = 625; rm <= 825; rm += step) {
+    const range = maxRM - minRM;
+    const step = compact ? (range > 100 ? 50 : 25) : (range > 100 ? 25 : 10);
+    const start = Math.ceil(minRM / step) * step;
+    for (let rm = start; rm <= maxRM; rm += step) {
       markers.push(rm);
     }
     return markers;
-  }, [compact]);
+  }, [compact, minRM, maxRM]);
+
+  // Filter locks in view
+  const visibleLocks = useMemo(() => {
+    return locks.filter(lock => isInView(lock.river_mile));
+  }, [locks, minRM, maxRM]);
 
   // Get direction icon
   const getDirectionIcon = (heading) => {

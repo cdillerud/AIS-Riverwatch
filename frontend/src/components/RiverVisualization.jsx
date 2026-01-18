@@ -13,7 +13,8 @@ export const RiverVisualization = ({
   raceAnalysis,
   compact = false,
   zoomed = false,
-  zoomRange = 25
+  zoomRange = 25,
+  onVesselClick = () => {}
 }) => {
   // Get the selected lock's river mile for zoom center
   const selectedLockRM = useMemo(() => {

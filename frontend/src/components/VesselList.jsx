@@ -134,6 +134,7 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
         const eta = calculateETA(vessel);
+        const isTow = vessel.is_tow || vessel.barge_count > 0;
 
         return (
           <div
@@ -150,6 +151,8 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                 <div className="flex items-center gap-2 mb-1">
                   {isUser ? (
                     <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                  ) : isTow ? (
+                    <Box className="w-4 h-4 text-amber-400" />
                   ) : (
                     <div className="w-2 h-2 bg-amber-400 rotate-45" />
                   )}
@@ -159,6 +162,11 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                   {isUser && (
                     <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-xs">
                       YOU
+                    </Badge>
+                  )}
+                  {isTow && !isUser && (
+                    <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-xs">
+                      TOW
                     </Badge>
                   )}
                 </div>
@@ -180,6 +188,30 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                     <span className="capitalize">{vessel.heading || 'stationary'}</span>
                   </span>
                 </div>
+
+                {/* Barge info for tows */}
+                {isTow && (
+                  <div className="flex items-center gap-3 mt-2">
+                    {vessel.barge_count && (
+                      <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-xs">
+                        <Box className="w-3 h-3 mr-1" />
+                        {vessel.barge_count} barges
+                        {vessel.tow_config && ` (${vessel.tow_config})`}
+                      </Badge>
+                    )}
+                    {vessel.estimated_lockage_time && (
+                      <span className="text-xs text-slate-500 flex items-center gap-1">
+                        <Timer className="w-3 h-3" />
+                        ~{vessel.estimated_lockage_time} min lockage
+                      </span>
+                    )}
+                    {vessel.barge_count > 15 && (
+                      <Badge className="bg-red-900/30 text-red-400 border-red-500/30 text-xs">
+                        DOUBLE LOCK
+                      </Badge>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* ETA to lock */}
@@ -188,6 +220,11 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false })
                 <div className={`font-mono text-lg ${eta ? 'text-white' : 'text-slate-600'}`}>
                   {formatETA(eta)}
                 </div>
+                {isTow && vessel.estimated_lockage_time && (
+                  <div className="text-xs text-slate-500 mt-1">
+                    +{vessel.estimated_lockage_time}min lock
+                  </div>
+                )}
               </div>
             </div>
 

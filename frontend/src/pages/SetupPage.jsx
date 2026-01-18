@@ -79,10 +79,25 @@ export default function SetupPage({ onConnect }) {
     }
   };
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (!ipAddress || !userMmsi) {
       toast.error("Please fill in all required fields");
       return;
+    }
+    
+    // Save settings for next time
+    try {
+      await fetch(`${API}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_mmsi: userMmsi,
+          last_ip: ipAddress,
+          last_port: port
+        })
+      });
+    } catch (error) {
+      console.error("Failed to save settings:", error);
     }
     
     onConnect({

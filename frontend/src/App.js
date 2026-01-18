@@ -268,7 +268,7 @@ function App() {
     // Add commercial tow with 8 barges (single lock - under 9 threshold)
     await fetch(`${API}/demo/add-tow`, {
       method: "POST",
-      headers: { "Content-Type: "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mmsi: "987654321",
         name: "M/V MISS KATHY",

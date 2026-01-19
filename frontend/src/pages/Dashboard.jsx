@@ -756,6 +756,7 @@ export default function Dashboard({
                   zoomed={mapZoomed}
                   zoomRange={userSettings.map_zoom_miles || 25}
                   onVesselClick={handleVesselClick}
+                  showVesselNames={userSettings.show_vessel_names !== false}
                 />
               </CardContent>
             </Card>
@@ -769,6 +770,7 @@ export default function Dashboard({
               raceAnalysis={raceAnalysis}
               userVessel={userVessel}
               isDangerous={isDangerous}
+              showVesselNames={userSettings.show_vessel_names !== false}
             />
 
             {/* Vessel List */}

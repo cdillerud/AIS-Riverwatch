@@ -22,6 +22,12 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 ## What's Been Implemented
 
 ### January 2026 - Latest Session
+- ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks
+  - Shows Tow vs Recreational breakdown
+  - Displays both lockage duration and wait times
+  - Uses USACE baseline data (35m tow, 20m rec lockage; 15m tow, 5m rec wait)
+  - Will use observed data as vessels are tracked through locks
+  - Direction breakdown (upbound/downbound) available in API
 - ✅ **Touch Gesture Support** - Mobile map now supports drag-to-pan (touch drag up = view south)
 - ✅ **Lock Status on Desktop** - Added Lock Status panel to desktop right sidebar (was mobile-only)
 - ✅ **Zoom Slider** - Replaced binary zoom toggle with multi-level slider (10mi-500mi range)

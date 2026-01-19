@@ -126,11 +126,14 @@ function App() {
           const timesMap = {};
           data.forEach(lock => {
             timesMap[lock.lock_id] = {
-              avg_lockage_minutes: lock.avg_lockage_minutes,
               avg_tow_lockage_minutes: lock.avg_tow_lockage_minutes,
               avg_recreational_lockage_minutes: lock.avg_recreational_lockage_minutes,
+              avg_tow_wait_minutes: lock.avg_tow_wait_minutes,
+              avg_recreational_wait_minutes: lock.avg_recreational_wait_minutes,
               sample_count: lock.sample_count,
-              recent_lockages: lock.recent_lockages
+              is_baseline: lock.is_baseline,
+              upbound: lock.upbound,
+              downbound: lock.downbound
             };
           });
           setLockageTimes(timesMap);

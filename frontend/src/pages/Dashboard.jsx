@@ -864,6 +864,19 @@ export default function Dashboard({
               showVesselNames={userSettings.show_vessel_names !== false}
             />
 
+            {/* Lock Status Panel */}
+            <LockStatusPanel
+              locks={locks}
+              lockStatus={lockStatus}
+              lockageTimes={lockageTimes}
+              selectedLock={selectedLock}
+              onSelectLock={(lockId) => {
+                setAutoNextLock(false);
+                onSelectLock(lockId);
+              }}
+              compact={false}
+            />
+
             {/* Vessel List */}
             <Card className="glass-panel hud-border" data-testid="vessel-list-card">
               <CardHeader className="border-b border-white/10 pb-3">

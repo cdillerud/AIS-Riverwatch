@@ -117,6 +117,49 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
     setEditedName("");
   };
 
+  // Start editing type
+  const startEditingType = () => {
+    setEditedType(vessel.ship_type?.toString() || "0");
+    setIsEditingType(true);
+  };
+
+  // Save vessel type
+  const saveVesselType = async () => {
+    const typeCode = parseInt(editedType);
+    if (isNaN(typeCode) || typeCode < 0 || typeCode > 99) {
+      toast.error("Please enter a valid type code (0-99)");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API}/vessel-cache/${vessel.mmsi}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          name: vessel.name || null,
+          ship_type: typeCode 
+        })
+      });
+
+      if (response.ok) {
+        toast.success(`Saved vessel type for MMSI ${vessel.mmsi}`);
+        setIsEditingType(false);
+        vessel.ship_type = typeCode;
+      } else {
+        toast.error("Failed to save vessel type");
+      }
+    } catch (error) {
+      console.error("Error saving vessel type:", error);
+      toast.error("Failed to save vessel type");
+    }
+  };
+
+  // Cancel editing type
+  const cancelEditingType = () => {
+    setIsEditingType(false);
+    setEditedType("");
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-lg max-h-[90vh] overflow-y-auto">

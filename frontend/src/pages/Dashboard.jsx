@@ -847,6 +847,7 @@ export default function Dashboard({
                 userVessel={userVessel}
                 isDangerous={isDangerous}
                 compact={true}
+                showVesselNames={userSettings.show_vessel_names !== false}
               />
               
               {userVessel && (

@@ -507,6 +507,18 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 Boat Beacon and most AIS apps intentionally filter out your own MMSI from the feed. 
                 Use this to inject your position directly.
               </CardDescription>
+              
+              {/* Mode indicator */}
+              {(settings.use_device_gps || lastPositionResult) && (
+                <div className={`mt-2 p-2 rounded text-xs ${
+                  settings.use_device_gps 
+                    ? "bg-cyan-950/30 border border-cyan-500/30 text-cyan-400"
+                    : "bg-amber-950/30 border border-amber-500/30 text-amber-400"
+                }`}>
+                  <span className="font-medium">Active Mode:</span>{" "}
+                  {settings.use_device_gps ? "📍 Continuous GPS Tracking" : "🎯 Manual Position (testing)"}
+                </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Browser Geolocation */}

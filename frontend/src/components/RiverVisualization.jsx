@@ -255,7 +255,7 @@ export const RiverVisualization = ({
                 ${isUser ? 'border border-cyan-500/50' : 'border border-amber-500/30'}
               `}>
                 <div className={`font-semibold ${isUser ? 'text-cyan-400' : 'text-amber-400'}`}>
-                  {compact ? (vessel.name?.slice(0, 8) || vessel.mmsi.slice(-4)) : (vessel.name || vessel.mmsi)}
+                  {compact ? getVesselShortName(vessel, showVesselNames, 8) : getVesselDisplayName(vessel, showVesselNames)}
                 </div>
                 <div className="flex items-center gap-1 md:gap-2 text-slate-300">
                   <span className="font-mono">{speedMph}</span>

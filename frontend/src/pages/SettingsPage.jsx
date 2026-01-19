@@ -31,6 +31,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     show_buoys: false,
     lock_buffer_minutes: 20,
     use_device_gps: false,
+    show_vessel_names: true,
     ...initialSettings
   });
   

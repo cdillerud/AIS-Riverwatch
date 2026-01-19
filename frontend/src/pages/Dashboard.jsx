@@ -201,7 +201,10 @@ export default function Dashboard({
             <div className="flex items-center gap-2 md:gap-4">
               <div className="flex items-center gap-2">
                 <Anchor className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
-                <h1 className="text-lg md:text-xl font-bold text-white tracking-wide">RIVER WATCH</h1>
+                <h1 className="text-lg md:text-xl font-bold text-white tracking-wide">
+                  RIVER WATCH
+                  <span className="text-xs md:text-sm font-normal text-slate-500 ml-2">v1.0</span>
+                </h1>
               </div>
               <ConnectionStatus 
                 isConnected={isConnected} 

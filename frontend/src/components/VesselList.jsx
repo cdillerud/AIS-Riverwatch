@@ -181,6 +181,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
         const eta = calculateETA(vessel);
         const isTow = vessel.is_tow || vessel.barge_count > 0;
+        const lockStatus = getVesselLockStatus(vessel);
 
         return (
           <div
@@ -188,6 +189,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
             className={`
               vessel-item p-4 cursor-pointer transition-colors
               ${isUser ? 'user-vessel border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'}
+              ${lockStatus ? 'bg-purple-500/5' : ''}
             `}
             data-testid={`vessel-item-${vessel.mmsi}`}
             onClick={() => onVesselClick(vessel)}
@@ -195,7 +197,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 {/* Vessel name and badges */}
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   {isUser ? (
                     <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   ) : isTow ? (
@@ -216,7 +218,14 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                       TOW
                     </Badge>
                   )}
-                  {vessel.nav_status_text && vessel.nav_status !== 0 && (
+                  {/* At Lock Badge */}
+                  {lockStatus && (
+                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/50 text-xs">
+                      <Lock className="w-3 h-3 mr-1" />
+                      AT LOCK {lockStatus.lockNum}
+                    </Badge>
+                  )}
+                  {vessel.nav_status_text && vessel.nav_status !== 0 && !lockStatus && (
                     <Badge className="bg-slate-700 text-slate-300 text-xs">
                       {vessel.nav_status_text}
                     </Badge>

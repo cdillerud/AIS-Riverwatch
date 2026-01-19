@@ -30,6 +30,7 @@ function App() {
     show_buoys: false, // Hide buoys (MMSI starting with 99) by default
     lock_buffer_minutes: 20, // Buffer time needed before commercial tow arrives
     use_device_gps: false, // Enable continuous GPS tracking
+    show_vessel_names: true, // Show vessel names when available (vs MMSI)
   });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);

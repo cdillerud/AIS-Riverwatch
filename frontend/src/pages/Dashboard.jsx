@@ -22,6 +22,7 @@ import ConnectionStatus from "@/components/ConnectionStatus";
 import LockStatusPanel from "@/components/LockStatusPanel";
 import VesselDetailModal from "@/components/VesselDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
+import { getVesselDisplayName } from "@/utils/vesselDisplay";
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 

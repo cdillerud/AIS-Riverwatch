@@ -794,6 +794,104 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
 
+          {/* Blocked Vessels */}
+          <Card className="glass-panel border-white/10 border-l-4 border-l-red-500">
+            <CardHeader>
+              <CardTitle className="text-lg text-white flex items-center gap-2">
+                <Ban className="w-5 h-5 text-red-400" />
+                Blocked Vessels
+                {blockedMmsi.length > 0 && (
+                  <Badge className="bg-red-500/20 text-red-400 border-red-500/50 text-xs ml-2">
+                    {blockedMmsi.length}
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Block invalid or noisy vessels from appearing in your feed. Blocked vessels will be filtered from all views.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Add new blocked MMSI */}
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="MMSI to block (e.g., 3669167)"
+                      value={newBlockedMmsi}
+                      onChange={(e) => setNewBlockedMmsi(e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white font-mono"
+                      data-testid="block-mmsi-input"
+                    />
+                  </div>
+                  <Button
+                    onClick={addBlockedMmsi}
+                    disabled={!newBlockedMmsi.trim()}
+                    variant="outline"
+                    className="border-red-500/50 text-red-400 hover:bg-red-500/20"
+                    data-testid="block-mmsi-btn"
+                  >
+                    <Ban className="w-4 h-4 mr-1" />
+                    Block
+                  </Button>
+                </div>
+                <Input
+                  placeholder="Reason (optional, e.g., 'Invalid position data')"
+                  value={newBlockedReason}
+                  onChange={(e) => setNewBlockedReason(e.target.value)}
+                  className="bg-slate-950 border-slate-700 text-white text-sm"
+                  data-testid="block-reason-input"
+                />
+              </div>
+
+              {/* List of blocked vessels */}
+              {blockedMmsi.length > 0 ? (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {blockedMmsi.map((item) => (
+                    <div 
+                      key={item.mmsi}
+                      className="flex items-center justify-between p-2 rounded bg-red-950/30 border border-red-500/20"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Ban className="w-4 h-4 text-red-400" />
+                        <div>
+                          <div className="text-white text-sm font-mono">
+                            MMSI: {item.mmsi}
+                          </div>
+                          {item.reason && (
+                            <div className="text-slate-500 text-xs">
+                              {item.reason}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => removeBlockedMmsi(item.mmsi)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-slate-400 hover:text-white hover:bg-slate-700"
+                        data-testid={`unblock-${item.mmsi}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-slate-500 text-sm">
+                  No vessels blocked. Add an MMSI above to filter out invalid or noisy vessels.
+                </div>
+              )}
+
+              {/* Info about system-filtered */}
+              <div className="text-xs text-slate-500 p-3 bg-slate-800/50 rounded-lg">
+                <p className="font-medium text-slate-400 mb-1">System-filtered MMSIs:</p>
+                <p>
+                  The following are automatically filtered: test beacons (2339005), buoys (MMSI starting with 99*).
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Alert Settings */}
           <Card className="glass-panel border-white/10">
             <CardHeader>

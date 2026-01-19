@@ -28,10 +28,12 @@ export const RiverVisualization = ({
   // When zoomed, center on the selected lock with ±zoomRange miles
   // If we hit the river boundary, shift the window to show the full zoom range
   const { minRM, maxRM } = useMemo(() => {
-    if (zoomed && !compact) {
-      const totalRange = zoomRange * 2; // Total miles to show
-      let min = selectedLockRM - zoomRange;
-      let max = selectedLockRM + zoomRange;
+    if (zoomed) {
+      // Use smaller range for mobile/compact view
+      const effectiveRange = compact ? Math.min(zoomRange, 15) : zoomRange;
+      const totalRange = effectiveRange * 2; // Total miles to show
+      let min = selectedLockRM - effectiveRange;
+      let max = selectedLockRM + effectiveRange;
       
       // If we exceed the north boundary (high RM), shift window south
       if (max > FULL_MAX_RM) {

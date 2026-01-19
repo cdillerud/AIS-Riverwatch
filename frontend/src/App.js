@@ -18,6 +18,7 @@ function App() {
   const [userMmsi, setUserMmsi] = useState("");
   const [locks, setLocks] = useState([]);
   const [lockStatus, setLockStatus] = useState({});
+  const [lockageTimes, setLockageTimes] = useState({});
   const [raceAnalysis, setRaceAnalysis] = useState(null);
   const [selectedLock, setSelectedLock] = useState("lock_2");
   const [showSettings, setShowSettings] = useState(false);

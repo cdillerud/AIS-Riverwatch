@@ -899,6 +899,19 @@ async def get_vessel_cache():
         "cache": vessel_static_cache
     }
 
+@api_router.get("/river-mile-to-coords/{rm}")
+async def convert_rm_to_coords(rm: float):
+    """Convert a river mile to approximate lat/lon coordinates."""
+    lat, lon = river_mile_to_coords(rm)
+    # Also return the estimated RM back (for verification)
+    estimated_rm = estimate_river_mile(lat, lon)
+    return {
+        "river_mile": rm,
+        "lat": lat,
+        "lon": lon,
+        "estimated_rm_back": estimated_rm
+    }
+
 @api_router.post("/vessel-cache/{mmsi}")
 async def set_vessel_name(mmsi: str, data: dict):
     """Manually set a vessel name in the cache (useful for known local vessels)."""

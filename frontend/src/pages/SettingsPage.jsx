@@ -565,6 +565,26 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                   </Badge>
                 </div>
                 
+                {/* River Mile - Primary input for testing */}
+                <div className="mb-4 p-3 rounded bg-amber-950/30 border border-amber-500/30">
+                  <div className="space-y-1">
+                    <Label htmlFor="rm" className="text-amber-400 text-xs font-medium">River Mile (auto-fills lat/lon)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="rm"
+                        type="number"
+                        placeholder="830"
+                        value={manualRiverMile}
+                        onChange={(e) => handleRiverMileChange(e.target.value)}
+                        className="bg-slate-950 border-amber-500/50 text-white font-mono text-lg"
+                        data-testid="manual-river-mile"
+                      />
+                      <span className="flex items-center text-amber-400 text-sm whitespace-nowrap">RM</span>
+                    </div>
+                    <p className="text-xs text-slate-500">Enter a river mile (e.g., 830) to auto-calculate coordinates</p>
+                  </div>
+                </div>
+                
                 {/* Lat/Lon Row */}
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div className="space-y-1">
@@ -598,7 +618,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                     <Input
                       id="speed"
                       type="number"
-                      placeholder="0"
+                      placeholder="12"
                       value={manualSpeed}
                       onChange={(e) => setManualSpeed(e.target.value)}
                       className="bg-slate-950 border-slate-700 text-white font-mono text-sm"
@@ -656,9 +676,9 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 )}
                 
                 <p className="text-xs text-slate-500 mt-2">
-                  Enter coordinates and speed for testing. Course: 0°=North, 90°=East, 180°=South, 270°=West.
+                  <span className="text-amber-400/70">Quick ref:</span> Lock 2 = RM 815, Lock 3 = RM 797, Lock 4 = RM 752
                   <br />
-                  <span className="text-amber-400/70">Tip:</span> Lock 2 is at RM 815.2 (44.7433, -92.8506), Lock 3 at RM 796.9
+                  Course: 0°=North, 180°=South (downriver)
                 </p>
               </div>
 

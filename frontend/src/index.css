@@ -262,6 +262,11 @@ input:focus, select:focus {
   animation: pulse-alert 1s ease-in-out infinite;
 }
 
+.status-dot.demo {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+}
+
 /* Speed danger state */
 .speed-danger {
   color: hsl(var(--destructive));

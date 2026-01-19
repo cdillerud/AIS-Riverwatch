@@ -725,10 +725,11 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
             all_tow_waits.extend(data.get("tow_waits", []))
             all_rec_waits.extend(data.get("rec_waits", []))
         
-        avg_tow = sum(all_tow_times) / len(all_tow_times) if all_tow_times else baseline_lockage["commercial_single"]["lockage"]
-        avg_rec = sum(all_rec_times) / len(all_rec_times) if all_rec_times else baseline_lockage["recreational"]["lockage"]
-        avg_tow_wait = sum(all_tow_waits) / len(all_tow_waits) if all_tow_waits else baseline_lockage["commercial_single"]["wait"]
-        avg_rec_wait = sum(all_rec_waits) / len(all_rec_waits) if all_rec_waits else baseline_lockage["recreational"]["wait"]
+        # Use lock-specific baseline for combined averages
+        avg_tow = sum(all_tow_times) / len(all_tow_times) if all_tow_times else baseline["tow_lockage"]
+        avg_rec = sum(all_rec_times) / len(all_rec_times) if all_rec_times else baseline["rec_lockage"]
+        avg_tow_wait = sum(all_tow_waits) / len(all_tow_waits) if all_tow_waits else baseline["tow_wait"]
+        avg_rec_wait = sum(all_rec_waits) / len(all_rec_waits) if all_rec_waits else baseline["rec_wait"]
         
         averages[lid]["combined"] = {
             "avg_tow_lockage_minutes": round(avg_tow, 1),

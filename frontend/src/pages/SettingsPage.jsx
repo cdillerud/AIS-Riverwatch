@@ -52,9 +52,35 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [manualLon, setManualLon] = useState("");
   const [manualSpeed, setManualSpeed] = useState("");
   const [manualCourse, setManualCourse] = useState("");
+  const [manualRiverMile, setManualRiverMile] = useState("");
   const [geoStatus, setGeoStatus] = useState("idle"); // "idle", "getting", "active", "error"
   const [lastGeoUpdate, setLastGeoUpdate] = useState(null);
   const [lastPositionResult, setLastPositionResult] = useState(null);
+
+  // Convert River Mile to lat/lon
+  const convertRiverMileToCoords = async (rm) => {
+    try {
+      const response = await fetch(`${API}/river-mile-to-coords/${rm}`);
+      if (response.ok) {
+        const data = await response.json();
+        setManualLat(data.lat.toString());
+        setManualLon(data.lon.toString());
+        return data;
+      }
+    } catch (error) {
+      console.error("Failed to convert river mile:", error);
+      toast.error("Failed to convert river mile");
+    }
+  };
+
+  // Handle River Mile input change
+  const handleRiverMileChange = async (value) => {
+    setManualRiverMile(value);
+    const rm = parseFloat(value);
+    if (!isNaN(rm) && rm >= 500 && rm <= 900) {
+      await convertRiverMileToCoords(rm);
+    }
+  };
 
   // Load blocked MMSIs
   const loadBlockedMmsi = async () => {

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { 
   Dialog, 
   DialogContent, 
@@ -6,11 +7,17 @@ import {
   DialogDescription 
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { 
   Ship, Navigation, Gauge, Compass, Anchor, 
   MapPin, Clock, Phone, Radio, Hash, Ruler,
-  ArrowUp, ArrowDown, Minus, Box, Timer, AlertTriangle
+  ArrowUp, ArrowDown, Minus, Box, Timer, AlertTriangle,
+  Edit3, Check, X
 } from "lucide-react";
+import { toast } from "sonner";
+
+const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
 // Ship type descriptions
 const SHIP_TYPES = {

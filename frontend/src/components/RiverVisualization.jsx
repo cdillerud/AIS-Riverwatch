@@ -124,27 +124,32 @@ const RiverVisualizationComponent = ({
   // Touch gesture state for mobile drag-to-pan
   const touchStartY = useRef(null);
   const lastTouchY = useRef(null);
+  const lastScrollTime = useRef(0);
+  const scrollThrottleMs = 16; // ~60fps max
 
-  // Handle mouse wheel scroll on map
-  const handleWheel = useCallback((e) => {
-    // Don't scroll if showing full river
-    if (zoomRange >= 500) return;
-    
-    e.preventDefault();
-    
-    // Calculate scroll amount based on current zoom level
-    // Smaller zoom = finer scroll, larger zoom = bigger scroll
-    const scrollSpeed = Math.max(1, zoomRange / 20);
-    const delta = e.deltaY > 0 ? -scrollSpeed : scrollSpeed; // Scroll up = go north (higher RM)
+  // Throttled scroll offset update to prevent excessive re-renders
+  const updateScrollOffset = useCallback((delta) => {
+    const now = Date.now();
+    if (now - lastScrollTime.current < scrollThrottleMs) return;
+    lastScrollTime.current = now;
     
     setScrollOffset(prev => {
       const newOffset = prev + delta;
-      // Limit scroll to keep view within river boundaries
       const maxScroll = FULL_MAX_RM - selectedLockRM - zoomRange;
       const minScroll = FULL_MIN_RM - selectedLockRM + zoomRange;
       return Math.max(minScroll, Math.min(maxScroll, newOffset));
     });
-  }, [zoomRange, selectedLockRM]);
+  }, [selectedLockRM, zoomRange]);
+
+  // Handle mouse wheel scroll on map (throttled)
+  const handleWheel = useCallback((e) => {
+    if (zoomRange >= 500) return;
+    e.preventDefault();
+    
+    const scrollSpeed = Math.max(1, zoomRange / 20);
+    const delta = e.deltaY > 0 ? -scrollSpeed : scrollSpeed;
+    updateScrollOffset(delta);
+  }, [zoomRange, updateScrollOffset]);
 
   // Handle touch start for mobile drag
   const handleTouchStart = useCallback((e) => {
@@ -153,29 +158,20 @@ const RiverVisualizationComponent = ({
     lastTouchY.current = e.touches[0].clientY;
   }, [zoomRange]);
 
-  // Handle touch move for mobile drag-to-pan
+  // Handle touch move for mobile drag-to-pan (throttled)
   const handleTouchMove = useCallback((e) => {
     if (zoomRange >= 500 || touchStartY.current === null) return;
-    
     e.preventDefault();
     
     const currentY = e.touches[0].clientY;
-    const deltaY = lastTouchY.current - currentY; // Positive = dragging up = go south
+    const deltaY = lastTouchY.current - currentY;
     lastTouchY.current = currentY;
     
-    // Convert pixel delta to river miles
-    // Approximate: map height ~500px covers zoomRange*2 miles
     const mapHeight = mapRef.current?.clientHeight || 500;
     const milesPerPixel = (zoomRange * 2) / mapHeight;
-    const deltaMiles = deltaY * milesPerPixel * 2; // Multiply for responsiveness
-    
-    setScrollOffset(prev => {
-      const newOffset = prev - deltaMiles; // Negative because drag up = view shifts south
-      const maxScroll = FULL_MAX_RM - selectedLockRM - zoomRange;
-      const minScroll = FULL_MIN_RM - selectedLockRM + zoomRange;
-      return Math.max(minScroll, Math.min(maxScroll, newOffset));
-    });
-  }, [zoomRange, selectedLockRM]);
+    const deltaMiles = -deltaY * milesPerPixel * 2;
+    updateScrollOffset(deltaMiles);
+  }, [zoomRange, updateScrollOffset]);
 
   // Handle touch end
   const handleTouchEnd = useCallback(() => {

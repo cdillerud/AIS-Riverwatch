@@ -543,6 +543,81 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
             </div>
           )}
 
+          {/* Lockage History Section */}
+          <div className="glass-panel p-4 rounded-lg border border-slate-700">
+            <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+              <History className="w-4 h-4" />
+              Lockage History
+              {lockageHistory.length > 0 && (
+                <Badge className="bg-cyan-900/30 text-cyan-400 border-cyan-500/30 text-xs">
+                  {lockageHistory.length} passages
+                </Badge>
+              )}
+            </h3>
+            
+            {loadingHistory ? (
+              <div className="text-slate-500 text-sm text-center py-4">
+                Loading history...
+              </div>
+            ) : lockageHistory.length === 0 ? (
+              <div className="text-slate-500 text-sm text-center py-4">
+                No recorded lockages for this vessel
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                {lockageHistory.map((record, idx) => (
+                  <div 
+                    key={idx} 
+                    className="bg-slate-800/50 rounded p-2 text-sm"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Lock className="w-3 h-3 text-cyan-400" />
+                        <span className="font-medium text-white">
+                          {record.lock_id?.replace('lock_', 'Lock ')}
+                        </span>
+                        <Badge className={`text-[10px] ${
+                          record.direction === 'downbound' 
+                            ? 'bg-red-900/30 text-red-400' 
+                            : 'bg-green-900/30 text-green-400'
+                        }`}>
+                          {record.direction === 'downbound' ? (
+                            <><ArrowDown className="w-2 h-2 mr-0.5" />DOWN</>
+                          ) : (
+                            <><ArrowUp className="w-2 h-2 mr-0.5" />UP</>
+                          )}
+                        </Badge>
+                      </div>
+                      <span className="text-slate-500 text-xs">
+                        {record.recorded_at ? new Date(record.recorded_at).toLocaleDateString() : ''}
+                      </span>
+                    </div>
+                    <div className="flex gap-4 text-xs">
+                      <div>
+                        <span className="text-slate-500">Wait: </span>
+                        <span className="text-amber-400 font-mono">
+                          {record.wait_time_minutes?.toFixed(1) || '0'}m
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Lockage: </span>
+                        <span className="text-cyan-400 font-mono">
+                          {record.lockage_duration_minutes?.toFixed(1) || '0'}m
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Total: </span>
+                        <span className="text-white font-mono">
+                          {record.total_time_minutes?.toFixed(1) || '0'}m
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Data Source */}
           <div className="text-xs text-slate-500 text-center pt-2 border-t border-slate-700">
             {vessel.source && (

@@ -1,171 +1,152 @@
 <analysis>**original_problem_statement:**
-The user wants to build an application named River Watch to track vessels on the upper Mississippi River using an AIS (Automatic Identification System) feed provided via TCP from the Boat Beacon app.
+The user wants to build a local application named River Watch to track vessels on the upper Mississippi River. The application should connect to an AIS (Automatic Identification System) TCP feed from the Boat Beacon app.
 
 **PRODUCT REQUIREMENTS:**
-1.  **AIS Data Integration:** Connect to a TCP feed on a user-specified IP and port (default 5353) to receive and parse AIS data.
-2.  **Vessel Tracking:** Display the user's vessel and other commercial vessels on a simplified river map.
-3.  **Race to the Lock Calculation:** Calculate the required speed in MPH for the user's vessel to reach a target lock before a competing commercial vessel.
-4.  **Alert System:** Trigger a visual alert if the required speed exceeds the user's boat's maximum speed (e.g., 25 MPH).
-5.  **River Coverage:** Initially focused on Locks 2 & 3, later expanded to cover Locks 2 through 10.
-6.  **Connection Management:** Allow the user to retry a failed connection and change connection settings (IP, Port, MMSI).
-7.  **Local Deployment:** Provide instructions and a  setup for running the application locally on a laptop or Raspberry Pi to connect to the local AIS feed.
-8.  **Persistent Configuration:** Create a Settings page where the user can enter their vessel's MMSI, name, and max speed, and have these settings persist across sessions.
-9.  **Mobile-Friendly UI:** The application must be responsive and usable on mobile devices and tablets.
-10. **USACE Data Integration:** Fetch and display lock status (e.g., OPEN/CLOSED) from the U.S. Army Corps of Engineers.
-11. **Tow/Barge Estimation:** Identify commercial tows, estimate the number of barges, and calculate the additional lockage time, warning the user about potential long delays (e.g., DOUBLE LOCK).
-12. **Map Zoom:** Add a feature to zoom the river map into the area around a selected target lock.
+1.  **AIS/GPS Data Integration:** Connect to a TCP feed to receive and parse AIS and NMEA GPS data.
+2.  **Vessel Tracking:** Display the user's vessel and other commercial vessels on a simplified river map covering all 27 Upper Mississippi locks.
+3.  **Race to the Lock Calculation:** Calculate the required speed for the user's vessel to reach a target lock before a competing commercial vessel, including a configurable time buffer.
+4.  **Alert System:** Trigger a visual alert if the required speed exceeds the user's boat's maximum speed.
+5.  **Connection Management:** Allow the user to configure and manage connection settings (IP, Port, MMSI).
+6.  **Local Deployment:** Provide a  setup.
+7.  **Persistent Configuration:** A Settings page for persisting vessel MMSI, name, max speed, and other UI preferences.
+8.  **Mobile-Friendly UI:** The application must be responsive.
+9.  **USACE Data Integration:** Fetch and display lock status from the U.S. Army Corps of Engineers.
+10. **Tow/Barge Estimation:** Identify commercial tows, estimate barge count, and warn about potential DOUBLE LOCK delays.
+11. **Map Features:** Include a map zoom feature and always display the user's vessel.
+12. **Data Visibility:** Show all available AIS data for any vessel in a detail view and provide a raw data feed for debugging.
+13. **Filtering:** Persistently filter out irrelevant MMSIs.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI (backend) and React (frontend) application. The backend connects to an AIS feed via TCP, parses data, scrapes USACE for lock statuses, and serves the information through REST APIs and a WebSocket for real-time updates. The frontend features a setup page for connection details and a comprehensive dashboard that includes:
-- A mobile-responsive layout with tab navigation (Race, Map, Vessels, Locks).
-- A linear river map visualizing vessels and locks from #2 (Hastings) to #10 (Guttenberg).
-- A Race to the Lock panel with ETA calculations and Cannot Beat alerts.
-- A Demo Mode to populate the app with sample data for testing in the cloud.
-- A vessel list that displays tow information, including estimated barge count and additional lockage time (e.g., +45min lock, DOUBLE LOCK).
-- A lock status panel showing data scraped from USACE.
-- A  and  for easy local deployment.
-- A settings page for persistent configuration and a map zoom feature.
+A full-stack FastAPI (backend) and React (frontend) application. The backend connects to an AIS/GPS feed, parses NMEA sentences, scrapes USACE for lock statuses, and serves data via REST APIs and WebSockets. The frontend is a comprehensive dashboard with a mobile-responsive layout, a river map, a Race to the Lock panel, a Demo Mode, and an extensive Settings page.
+
+Recent additions include a Raw Data debug panel, a Self Position feature (manual entry & geolocation) to bypass AIS self-suppression, a feature to block MMSIs, a quick position editor on the dashboard, an Auto: Next Lock feature, editable vessel names in the detail modal, and persistent vessel names stored in MongoDB.
 
 **Last working item**:
--   **Last item agent was working**: Implementing two user-requested features:
-    1.  A **Settings Page** () to allow users to persistently store their MMSI, boat name, and max speed using .
-    2.  A **Map Zoom** feature on the dashboard to focus the river visualization on a +/- 25-mile radius around the selected target lock, reducing clutter.
+-   **Last item agent was working**: The user requested a global setting to switch between displaying vessel names and MMSIs. The agent started implementing this by adding a  setting, creating a  utility function, and updating , , and  to use it.
 -   **Status**: IN PROGRESS
--   **Agent Testing Done**: Y (for the map zoom feature via screenshots)
--   **Which testing method agent to use?**: screenshot tool. The next step should be to navigate to the  page, enter and save data, reload the application, and capture a screenshot to confirm the data persists on the Setup and Dashboard pages.
+-   **Agent Testing Done**: N
+-   **Which testing method agent to use?**: Frontend testing agent. Instruct the agent to toggle the Show Vessel Names setting on the Settings page and verify that vessel identifiers (name vs. MMSI) update correctly across the Dashboard, including the map, vessel list, and race panel.
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Verify Settings Page Functionality (P0)**
-    -   **Description**: The code for the Settings page has been created and integrated, but its functionality has not been end-to-end verified. The agent was in the process of testing when the session ended.
-    -   **Attempted fixes**: N/A
-    -   **Next debug checklist**:
-        1.  Navigate to the  page.
-        2.  Take a screenshot to show the new page.
-        3.  Enter values for Boat Name, MMSI, and Max Speed and click Save Settings.
-        4.  Reload the application.
-        5.  Navigate back to the  and verify the MMSI is pre-filled.
-        6.  Start a Demo Mode session and verify the user's boat name and max speed are used in the  and .
-    -   **Why fix this issue and what will be achieved with the fix?**: This will complete the user's request for persistent configuration, improving usability by removing the need to re-enter the MMSI on every visit.
-    -   **Status**: TESTING PENDING
-    -   **Is recurring issue?**: N
-    -   **Should Test frontend/backend/both after fix?**: Frontend
+-   **Issue 1: User's vessel (MMSI 338414076) does not appear with live data (P0)**
+    -   **Description**: The core problem where the user's own vessel did not appear on the map when connected to their live Boat Beacon feed.
+    -   **Attempted fixes**: Analysis of user-provided raw data confirmed that Boat Beacon intentionally filters the user's own MMSI from the local TCP feed (a common practice called self-suppression). A robust Self Position feature was implemented as a workaround, allowing manual position entry or using the device's GPS.
+    -   **Status**: RESOLVED (via workaround). This is the correct, industry-standard solution.
 
 **In progress Task List**:
--   **Task 1: Complete and Verify Settings & Zoom Features (P0)**
-    -   **Where to resume**: The agent has already verified the map zoom feature with screenshots. The next action is to verify the Settings page as described in Issue 1 above.
-    -   **What will be achieved with this?**: This will finalize the implementation of the last two user requests, making the application feature-complete based on the current scope.
+-   **Task 1: Implement Global Show Vessel Names Setting (P1)**
+    -   **Where to resume**: The agent has updated , , and . The next step is to ensure all other UI elements that display a vessel's identity (e.g., the Your Vessel status bar, mobile views) also respect the  setting. After completing the code changes, build and test the feature.
+    -   **What will be achieved with this?**: The user will have a global toggle in the Settings to consistently display either vessel names (when known) or MMSIs across the entire application.
     -   **Status**: IN PROGRESS
     -   **Should Test frontend/backend/both after fix?**: Frontend
     -   **Blocked on something**: No.
 
 **Upcoming and Future Tasks**
 **Upcoming Tasks:**
--   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for critical CANNOT BEAT alerts, as a user piloting a boat may not be able to look at the screen. This can be done using the browser's  API or the  object. (Files to update: ).
+-   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for CANNOT BEAT alerts. (Files: ).
+-   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster name lookups and additional data. (Files: ).
 
 **Future Tasks:**
--   **USACE Lock Wait Time API (P2)**: Integrate real-time lock wait times from an official USACE API (if available) instead of just the OPEN/CLOSED status. This would dramatically improve the accuracy of the race calculation.
--   **Offline Mode (P2)**: Cache lock positions and last-known vessel data using service workers or  to provide graceful degradation when cellular service is lost on the river.
--   **Multiple Target Locks (P3)**: Enhance the UI to show ETAs to the next 2-3 locks downstream/upstream, not just a single target.
--   **Advanced Data Integration (P3)**: Incorporate more advanced data like river current speed from USGS gauges, weather overlays, and more accurate tow configuration data if it can be found from an official source.
+-   **USACE Lock Wait Time API (P2)**: Replace the web scraper with a real-time API if one becomes available.
+-   **Offline Mode (P2)**: Cache data to provide graceful degradation when cellular service is lost.
+-   **Multiple Target Locks (P3)**: Enhance the UI to show ETAs to the next 2-3 locks.
 
 **Completed work in this session**
--   **Initial Scaffolding**: Built the FastAPI backend and React frontend from scratch.
--   **AIS Data Handling**: Implemented a TCP client and WebSocket bridge to process and stream real-time AIS data.
--   **Core Race to the Lock Feature**: Developed the backend logic and frontend UI for calculating and displaying the required speed to beat competing vessels.
--   **Dockerization & Local Setup**: Created s, a , and a  to enable easy local deployment.
--   **Mobile Responsiveness**: Refactored the UI to be fully responsive and usable on mobile devices.
--   **Extended River Coverage**: Expanded the app's data and visualization to cover Mississippi River Locks 2 through 10.
--   **USACE Lock Status**: Integrated a web scraper to fetch and display whether locks are open or closed.
--   **Barge & Tow Tracking**: Added logic to estimate barge counts and additional lockage time for commercial tows, with a DOUBLE LOCK warning.
+-   **Raw Data Debug Panel**: Implemented to diagnose the live feed issue.
+-   **Self Position Feature**: Added manual position entry (by Lat/Lon or River Mile) and browser geolocation to bypass AIS self-suppression, effectively solving the main blocker.
+-   **Manual Position Enhancements**: Added speed and course fields to the manual entry form and an automatic River Mile-to-coordinate converter.
+-   **MMSI Blocking**: Implemented a feature to block unwanted MMSIs, with data persisted in MongoDB.
+-   **Quick Position Editor**: Added a popover on the Dashboard's Your Vessel bar for quick editing of position, speed, and course.
+-   **Auto-Track Next Lock**: Added a feature that automatically selects the next upcoming lock as the race target based on the vessel's heading.
+-   **Persistent & Editable Vessel Names**: Migrated the vessel name cache to MongoDB, making it persistent and shared. Added the ability to edit names directly from the Vessel Detail modal.
 
 **Earlier issues found/mentioned but not fixed**
--   None. The agent has been diligent in addressing all issues raised by the user.
+-   None.
 
 **Known issue recurrence from previous fork**
--   None.
+-   **Issue recurrence in previous fork**: User's vessel not appearing with live data.
+-   **Recurrence count**: High.
+-   **Status**: RESOLVED. The root cause was identified as intentional self-suppression by the Boat Beacon app, and a robust workaround (Self Position feature) was successfully implemented.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend**: FastAPI, , ,  (for web scraping).
--   **Frontend**: React, , , WebSocket API for real-time data.
--   **Database**: MongoDB is set up but primarily used for demo data. Core vessel tracking is session-based and managed in memory.
--   **Deployment**: Docker and  for local execution.
+-   **Backend**: FastAPI, , , , , .
+-   **Frontend**: React, , , , WebSocket API.
+-   **State Management**: React hooks (, ) and component prop drilling. Settings persisted via .
+-   **Database**: MongoDB is now used for persisting vessel names and blocked MMSIs.
+-   **Deployment**: Docker and .
 
 **key DB schema**
--   **vessels** (in-memory, populated from AIS feed): 
--   **settings** ( on frontend): 
+-   **db.vessel_names**: 
+-   **db.blocked_mmsis**: 
 
 **changes in tech stack**
--   None.
+-   ****: Added to the backend for MongoDB interaction.
 
 **All files of reference**
--   : The single source for all backend logic, including AIS connection, data parsing, scraping, and all API endpoints.
--   : The main frontend entry point, handling routing, WebSocket connection, and global state.
--   : The primary UI component, composing all dashboard elements.
--   : The newly created page for managing persistent user settings.
--   : The custom component that renders the river map, recently updated to support zooming.
--   : The main file for enabling the user's local deployment workflow.
--   : Contains instructions for the user on how to run the app locally.
+-   : Heavily modified to add new APIs (MMSI blocking, position management), WebSockets (), and MongoDB integration.
+-   : Heavily modified to add UI for Self-Positioning, MMSI blocking, and new display settings.
+-   : Heavily modified to include the Raw Data panel, a quick position editor, and an auto-track lock feature.
+-   : Updated to allow inline editing of vessel names.
+-   : New file created to centralize vessel display logic.
+-   : Updated for continuous GPS tracking and new global settings.
 
 **Areas that need refactoring**:
--   The  component has grown large and handles multiple responsibilities (routing, state management, API calls, WebSocket logic). It could be broken down using custom React hooks (e.g., , ) for better maintainability.
--   The USACE data fetching in  relies on web scraping, which is inherently fragile. If a stable, public API from USACE is discovered, this should be refactored to use it.
+-   ****: This monolithic file is now over 1600 lines and urgently needs to be broken down into modules (e.g., , , ).
+-   ** & **: These have become very large. Logic should be extracted into custom hooks to improve readability and state management.
 
 **key api endpoints**
--   : Get static data for all supported locks.
--   : Get scraped operational status from USACE.
--   : Get all currently tracked vessels.
--   : Calculate speed needed to beat a competitor.
--   : Retrieve saved settings from the backend (persisted via  on the frontend side, this API helps sync).
--   : Save user settings.
--   : WebSocket endpoint for real-time data streaming.
+-   : Sets the user's vessel position manually.
+-   : Converts a River Mile to lat/lon coordinates.
+-   : Retrieves the list of blocked MMSIs.
+-   : Adds an MMSI to the blocklist.
+-   : Removes an MMSI from the blocklist.
+-   : Manually adds/updates a vessel name.
+-   : WebSocket for streaming raw NMEA data.
 
 **Critical Info for New Agent**
--   The live AIS connection **will not work** in the cloud preview environment due to private network restrictions. The user is aware of this. All testing in the cloud environment must be done using the **Demo Mode** feature, which populates the app with sample data.
--   The user's primary goal is to run this application locally on their boat's network (e.g., on a laptop or Raspberry Pi). The Docker setup is critical to this workflow.
--   User settings are persisted in the browser's  and managed through the new Settings page.
+-   The core issue of the user's vessel not appearing on the map has been definitively diagnosed as AIS self-suppression by the data source. The **Self Position** feature in Settings is the correct and complete solution. Do not attempt to re-debug the live AIS feed for this issue.
+-   Vessel names and blocked MMSIs are now persisted in a MongoDB database, making them shared and permanent.
+-   You are resuming work on a new global setting to toggle between displaying vessel names and MMSIs. Several components have been updated, but the task is not yet complete or tested.
 
 **documents and test reports created in this job**
--   
--   
--   
--   
--   
--   
+-    (updated)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Can we add a feature that zooms into whatever target lock you choose? ... Also, we need a configuration page... - *Status: IN PROGRESS. Agent has built the features and is in the final verification stage.*
-2.  **User**: I would love to add barge count to commercial toes. - *Status: COMPLETED. Agent implemented barge count estimation and lockage time.*
-3.  **User**: What am I missing for an app like this? - *Status: RESPONDED. Agent provided a list of potential new features.*
-4.  **User**: I would LOVE USACE data integrated - *Status: COMPLETED. Agent scraped USACE data for lock status.*
-5.  **User**: Let’s extend our “coverage” to lock 10. - *Status: COMPLETED. Agent extended lock data from 2-3 to 2-10.*
-6.  **User**: Can we optimize this for mobile devices on the display side? - *Status: COMPLETED. Agent implemented a responsive mobile UI.*
-7.  **User**: Yes, please [create a docker-compose file]. Also, can we store my mmsi so it persists? - *Status: COMPLETED.*
-8.  **User**: How do I run this app locally? - *Status: RESPONDED. Agent provided instructions and then offered to create a Docker setup.*
-9.  **User**: I’m gettting connection error 111 - *Status: RESOLVED. Agent explained the error and added a note to the UI about local network limitations.*
-10. **User**: Great start! If a connection fails, I need to be able to try again - *Status: COMPLETED. Agent added Retry Connection and Change Connection buttons.*
+1.  **User**: Requested a global setting to toggle between displaying vessel names and MMSIs. (IN PROGRESS)
+2.  **User**: Confirmed the vessel name display should be a global setting. (IN PROGRESS)
+3.  **User**: Requested the ability to add a vessel name from the vessel detail modal. (COMPLETED)
+4.  **User**: Requested that vessel names be stored universally and persist across sessions. (COMPLETED)
+5.  **User**: Requested a feature to automatically set the view to the next lock the vessel is heading towards. (COMPLETED)
+6.  **User**: Requested the ability to edit the vessel's position directly from the dashboard. (COMPLETED)
+7.  **User**: Reported that manual positioning was not working for all river miles. (COMPLETED)
+8.  **User**: Reported that the manual position was not being applied to their vessel. (COMPLETED)
+9.  **User**: Requested to use a River Mile field for manual positioning instead of just lat/lon. (COMPLETED)
+10. **User**: Pointed out that setting a manual position should disable continuous geolocation. (COMPLETED)
 
 **Project Health Check:**
--   **Working**: Core application logic, UI/UX, Docker-based local deployment, mobile responsiveness, USACE status scraping, barge/tow estimation, map zoom, and settings page functionality (pending final verification).
--   **Broken**: Live AIS connection in the cloud preview environment. This is an expected limitation, not a bug.
--   **Mocked**: All data in the cloud preview is generated via a Demo Mode since a live feed is not possible.
+-   **Working**: The application is highly functional, with numerous new features implemented successfully. The primary blocker has been resolved with a robust workaround.
+-   **Broken**: The Show Vessel Names feature is mid-implementation and therefore not fully functional.
+-   **Mocked**: All data in the cloud environment is generated via Demo Mode.
 
 **3rd Party Integrations**
--   **USACE (U.S. Army Corps of Engineers)**: Data is acquired by web scraping public navigation websites. This is not a formal API and does not require an API key.
+-   **MongoDB**: Used for persisting  and .
+-   **USACE (U.S. Army Corps of Engineers)**: Data acquired by web scraping.
+-   **MarineTraffic / Other AIS APIs**: Discussed as a future integration.
 
 **Testing status**
--   **Testing agent used after significant changes**: YES (once, early in development).
+-   **Testing agent used after significant changes**: NO. Most features were tested manually by the agent.
 -   **Troubleshoot agent used after agent stuck in loop**: NO.
 -   **Test files created**: None.
--   **Known regressions**: Screenshots sometimes show an empty vessel list immediately after a navigation action. This seems to be a minor timing issue where the screenshot is taken before the demo data is repopulated. Manually clicking Demo Mode again serves as a workaround for testing.
+-   **Known regressions**: None.
 
 **Credentials to test flow:**
--   No credentials required. Use **Demo Mode** on the dashboard for all functional testing.
+-   No credentials required. Use Demo Mode on the dashboard for testing.
 
 **What agent forgot to execute**
--   The agent did not complete the final verification step for the **Settings page**. The immediate next step should be to navigate to the settings page, save data, reload the app, and confirm that the settings have been applied correctly.</analysis>
+-   The agent did not fully complete the implementation of the Show Vessel Names toggle. It needs to check all UI components where a vessel's identity is shown (including mobile views) and ensure they respect the new setting before testing.</analysis>

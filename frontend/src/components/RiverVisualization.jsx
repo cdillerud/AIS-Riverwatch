@@ -212,14 +212,19 @@ export const RiverVisualization = ({
       ))}
 
       {/* Vessels */}
-      {vessels.filter(v => isInView(v.river_mile)).map(vessel => {
+      {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
         
         // Calculate lateral offset based on heading to show direction
-        const lateralOffset = vessel.heading === "northbound" ? -15 : 
-                            vessel.heading === "southbound" ? 15 : 0;
+        // On mobile, use more offset to prevent label overlap
+        const baseOffset = compact ? 25 : 15;
+        const lateralOffset = vessel.heading === "northbound" ? -baseOffset : 
+                            vessel.heading === "southbound" ? baseOffset : 0;
+
+        // For mobile, alternate label positions (left/right) to reduce overlap
+        const labelSide = compact && !isUser ? (index % 2 === 0 ? 'left' : 'right') : null;
 
         return (
           <div
@@ -238,34 +243,55 @@ export const RiverVisualization = ({
               ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
               hover:scale-125 transition-transform
             `}>
-              {/* Direction indicator */}
-              <div className={`
-                absolute -top-3 md:-top-4 left-1/2 -translate-x-1/2
-                ${isUser ? 'text-cyan-400' : 'text-amber-400'}
-              `}>
-                {getDirectionIcon(vessel.heading)}
-              </div>
+              {/* Direction indicator - hide on compact to reduce clutter */}
+              {!compact && (
+                <div className={`
+                  absolute -top-3 md:-top-4 left-1/2 -translate-x-1/2
+                  ${isUser ? 'text-cyan-400' : 'text-amber-400'}
+                `}>
+                  {getDirectionIcon(vessel.heading)}
+                </div>
+              )}
             </div>
 
             {/* Vessel info card - simplified on compact */}
-            <div className={`
-              absolute top-full mt-1 md:mt-2 whitespace-nowrap
-              ${isUser ? 'left-1/2 -translate-x-1/2' : '-left-1 md:-left-2'}
-            `}>
+            {compact ? (
+              // Mobile: Minimal label positioned to side to avoid overlap
               <div className={`
-                glass-panel px-1.5 md:px-2 py-0.5 md:py-1 rounded text-[10px] md:text-xs
-                ${isUser ? 'border border-cyan-500/50' : 'border border-amber-500/30'}
+                absolute top-1/2 -translate-y-1/2 whitespace-nowrap
+                ${isUser ? 'left-full ml-2' : labelSide === 'left' ? 'right-full mr-2 text-right' : 'left-full ml-2'}
               `}>
-                <div className={`font-semibold ${isUser ? 'text-cyan-400' : 'text-amber-400'}`}>
-                  {compact ? getVesselShortName(vessel, showVesselNames, 8) : getVesselDisplayName(vessel, showVesselNames)}
-                </div>
-                <div className="flex items-center gap-1 md:gap-2 text-slate-300">
-                  <span className="font-mono">{speedMph}</span>
-                  {!compact && <span className="text-slate-500">|</span>}
-                  {!compact && <span className="font-mono">RM {vessel.river_mile?.toFixed(1)}</span>}
+                <div className={`
+                  px-1 py-0.5 rounded text-[9px] leading-tight
+                  ${isUser ? 'bg-cyan-950/90 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/90 border border-amber-500/30 text-amber-400'}
+                `}>
+                  <div className="font-semibold truncate max-w-[60px]">
+                    {getVesselShortName(vessel, showVesselNames, 6)}
+                  </div>
+                  <div className="text-slate-400 font-mono text-[8px]">{speedMph} mph</div>
                 </div>
               </div>
-            </div>
+            ) : (
+              // Desktop: Full label below vessel
+              <div className={`
+                absolute top-full mt-2 whitespace-nowrap
+                ${isUser ? 'left-1/2 -translate-x-1/2' : '-left-2'}
+              `}>
+                <div className={`
+                  glass-panel px-2 py-1 rounded text-xs
+                  ${isUser ? 'border border-cyan-500/50' : 'border border-amber-500/30'}
+                `}>
+                  <div className={`font-semibold ${isUser ? 'text-cyan-400' : 'text-amber-400'}`}>
+                    {getVesselDisplayName(vessel, showVesselNames)}
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-300">
+                    <span className="font-mono">{speedMph}</span>
+                    <span className="text-slate-500">|</span>
+                    <span className="font-mono">RM {vessel.river_mile?.toFixed(1)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
       })}

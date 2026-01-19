@@ -1081,11 +1081,16 @@ async def update_user_position(data: dict):
     if lat is None or lon is None:
         return {"success": False, "error": "lat and lon required"}
     
-    # Use configured MMSI or default
-    mmsi = user_mmsi or data.get("mmsi", "USER_VESSEL")
+    # Use MMSI from request, then global user_mmsi, then default
+    mmsi = data.get("mmsi") or user_mmsi or "USER_VESSEL"
     
-    # Get boat name from cache or settings
-    boat_name = "Your Vessel"
+    # If MMSI provided in request, also update the global user_mmsi
+    if data.get("mmsi") and data.get("mmsi") != user_mmsi:
+        user_mmsi = data.get("mmsi")
+        logger.info(f"Updated user_mmsi to: {user_mmsi}")
+    
+    # Get boat name - prefer request, then cache, then default
+    boat_name = data.get("name") or "Your Vessel"
     if mmsi in vessel_static_cache:
         boat_name = vessel_static_cache[mmsi].get("name", boat_name)
     

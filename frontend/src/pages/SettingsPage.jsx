@@ -183,7 +183,15 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
       const response = await fetch(`${API}/user-position`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lon, speed, course, source })
+        body: JSON.stringify({ 
+          lat, 
+          lon, 
+          speed, 
+          course, 
+          source,
+          mmsi: settings.user_mmsi || undefined,  // Pass configured MMSI
+          name: settings.boat_name || undefined    // Pass boat name too
+        })
       });
       
       if (response.ok) {

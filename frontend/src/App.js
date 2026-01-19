@@ -37,6 +37,93 @@ function App() {
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const geoWatchRef = useRef(null);
+  const autoRefreshRef = useRef(null);
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
+
+  // Full app refresh - clears stale data and reconnects
+  const performFullRefresh = useCallback(() => {
+    console.log("Performing full refresh...");
+    
+    // Clear vessels to prevent stale data accumulation
+    setVessels([]);
+    setRaceAnalysis(null);
+    
+    // Close and reconnect WebSocket
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    
+    // Update refresh timestamp
+    setLastRefresh(Date.now());
+    
+    // Refetch all data
+    window.location.reload();
+  }, []);
+
+  // Soft refresh - just refetch data without page reload
+  const performSoftRefresh = useCallback(async () => {
+    console.log("Performing soft refresh...");
+    
+    // Clear accumulated vessels older than 5 minutes
+    setVessels(prev => {
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      return prev.filter(v => {
+        const timestamp = new Date(v.timestamp).getTime();
+        return timestamp > fiveMinutesAgo;
+      });
+    });
+    
+    setLastRefresh(Date.now());
+    
+    // Force refetch lock status and lockage times
+    try {
+      const [lockStatusRes, lockageRes] = await Promise.all([
+        fetch(`${API}/locks/status`),
+        fetch(`${API}/locks/lockage-times`)
+      ]);
+      
+      if (lockStatusRes.ok) {
+        const statusData = await lockStatusRes.json();
+        const statusMap = {};
+        statusData.forEach(lock => {
+          statusMap[lock.lock_id] = lock;
+        });
+        setLockStatus(statusMap);
+      }
+      
+      if (lockageRes.ok) {
+        const lockageData = await lockageRes.json();
+        const timesMap = {};
+        lockageData.forEach(lock => {
+          timesMap[lock.lock_id] = {
+            avg_tow_lockage_minutes: lock.avg_tow_lockage_minutes,
+            avg_recreational_lockage_minutes: lock.avg_recreational_lockage_minutes,
+            avg_tow_wait_minutes: lock.avg_tow_wait_minutes,
+            avg_recreational_wait_minutes: lock.avg_recreational_wait_minutes,
+            sample_count: lock.sample_count,
+            is_baseline: lock.is_baseline,
+          };
+        });
+        setLockageTimes(timesMap);
+      }
+    } catch (error) {
+      console.error("Soft refresh failed:", error);
+    }
+  }, []);
+
+  // Auto-refresh every 15 minutes to prevent memory buildup
+  useEffect(() => {
+    autoRefreshRef.current = setInterval(() => {
+      console.log("Auto soft-refresh triggered");
+      performSoftRefresh();
+    }, 15 * 60 * 1000); // 15 minutes
+    
+    return () => {
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current);
+      }
+    };
+  }, [performSoftRefresh]);
 
   // Load saved settings on mount
   useEffect(() => {

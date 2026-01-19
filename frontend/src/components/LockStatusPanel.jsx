@@ -5,8 +5,25 @@ import {
   Lock, Phone, Clock, AlertTriangle, CheckCircle2, 
   XCircle, Users, ChevronUp, ChevronDown, Timer
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 export const LockStatusPanel = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, compact = false }) => {
+  // Refs for auto-scrolling to selected lock
+  const lockRefs = useRef({});
+  const scrollAreaRef = useRef(null);
+  
+  // Auto-scroll to selected lock when it changes
+  useEffect(() => {
+    if (selectedLock && lockRefs.current[selectedLock]) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        lockRefs.current[selectedLock]?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+      }, 100);
+    }
+  }, [selectedLock]);
   
   const getStatusColor = (status) => {
     switch (status?.toUpperCase()) {

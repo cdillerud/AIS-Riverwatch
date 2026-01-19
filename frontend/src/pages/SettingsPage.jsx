@@ -42,11 +42,73 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [newVesselMmsi, setNewVesselMmsi] = useState("");
   const [newVesselName, setNewVesselName] = useState("");
   
+  // Blocked MMSI management
+  const [blockedMmsi, setBlockedMmsi] = useState([]);
+  const [newBlockedMmsi, setNewBlockedMmsi] = useState("");
+  const [newBlockedReason, setNewBlockedReason] = useState("");
+  
   // Self-position management
   const [manualLat, setManualLat] = useState("");
   const [manualLon, setManualLon] = useState("");
   const [geoStatus, setGeoStatus] = useState("idle"); // "idle", "getting", "active", "error"
   const [lastGeoUpdate, setLastGeoUpdate] = useState(null);
+
+  // Load blocked MMSIs
+  const loadBlockedMmsi = async () => {
+    try {
+      const response = await fetch(`${API}/blocked-mmsi`);
+      if (response.ok) {
+        const data = await response.json();
+        setBlockedMmsi(data.blocked || []);
+      }
+    } catch (error) {
+      console.error("Failed to load blocked MMSIs:", error);
+    }
+  };
+
+  // Add MMSI to block list
+  const addBlockedMmsi = async () => {
+    if (!newBlockedMmsi.trim()) {
+      toast.error("Please enter an MMSI to block");
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API}/blocked-mmsi`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          mmsi: newBlockedMmsi.trim(),
+          reason: newBlockedReason.trim() || "User blocked"
+        })
+      });
+      
+      if (response.ok) {
+        toast.success(`Blocked MMSI ${newBlockedMmsi}`);
+        setNewBlockedMmsi("");
+        setNewBlockedReason("");
+        loadBlockedMmsi();
+      }
+    } catch (error) {
+      toast.error("Failed to block MMSI");
+    }
+  };
+
+  // Remove MMSI from block list
+  const removeBlockedMmsi = async (mmsi) => {
+    try {
+      const response = await fetch(`${API}/blocked-mmsi/${mmsi}`, {
+        method: "DELETE"
+      });
+      
+      if (response.ok) {
+        toast.success(`Unblocked MMSI ${mmsi}`);
+        loadBlockedMmsi();
+      }
+    } catch (error) {
+      toast.error("Failed to unblock MMSI");
+    }
+  };
 
   // Load vessel cache
   const loadVesselCache = async () => {

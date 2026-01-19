@@ -266,14 +266,65 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
                   <div className="font-mono text-white">{vessel.imo}</div>
                 </div>
               )}
-              <div>
+              {/* Editable Ship Type Field */}
+              <div className="col-span-2">
                 <span className="text-slate-500">Ship Type</span>
-                <div className="text-white">
-                  {getShipTypeDescription(vessel.ship_type)}
-                  {vessel.ship_type > 0 && (
-                    <span className="text-slate-500 ml-1">({vessel.ship_type})</span>
-                  )}
-                </div>
+                {isEditingType ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <select
+                      value={editedType}
+                      onChange={(e) => setEditedType(e.target.value)}
+                      className="bg-slate-950 border border-slate-600 text-white h-8 px-2 rounded flex-1"
+                      autoFocus
+                    >
+                      <option value="0">Not available (0)</option>
+                      <option value="30">Fishing (30)</option>
+                      <option value="31">Towing (31)</option>
+                      <option value="32">Towing - Large (32)</option>
+                      <option value="33">Dredging (33)</option>
+                      <option value="36">Sailing (36)</option>
+                      <option value="37">Pleasure Craft (37)</option>
+                      <option value="52">Tug (52)</option>
+                      <option value="60">Passenger (60)</option>
+                      <option value="70">Cargo (70)</option>
+                      <option value="80">Tanker (80)</option>
+                      <option value="90">Other (90)</option>
+                    </select>
+                    <Button
+                      size="sm"
+                      onClick={saveVesselType}
+                      className="bg-green-600 hover:bg-green-700 h-8 px-2"
+                    >
+                      <Check className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={cancelEditingType}
+                      className="border-slate-600 h-8 px-2"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-white">
+                      {getShipTypeDescription(vessel.ship_type)}
+                      {vessel.ship_type > 0 && (
+                        <span className="text-slate-500 ml-1">({vessel.ship_type})</span>
+                      )}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={startEditingType}
+                      className="h-6 px-2 text-slate-400 hover:text-cyan-400"
+                      title="Edit vessel type"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

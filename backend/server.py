@@ -761,6 +761,137 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     return averages
 
 
+async def track_vessel_lock_passage(vessel: dict):
+    """
+    Track a vessel's passage through locks based on position updates.
+    This function is called whenever a vessel position is updated.
+    
+    States: approaching -> waiting -> in_chamber -> cleared
+    """
+    global vessel_lock_tracking
+    
+    mmsi = vessel.get("mmsi")
+    river_mile = vessel.get("river_mile")
+    heading = vessel.get("heading")  # "northbound" or "southbound"
+    is_tow = vessel.get("is_tow", False)
+    
+    if not mmsi or not river_mile or not heading or heading == "stationary":
+        return
+    
+    now = datetime.now(timezone.utc)
+    
+    # Initialize tracking for this vessel if needed
+    if mmsi not in vessel_lock_tracking:
+        vessel_lock_tracking[mmsi] = {}
+    
+    # Check each lock for potential tracking
+    for lock_id, lock_info in LOCKS.items():
+        lock_rm = lock_info["river_mile"]
+        distance_to_lock = river_mile - lock_rm  # Positive = north of lock
+        
+        # Determine if vessel is approaching this lock based on heading
+        is_approaching = False
+        direction = None
+        
+        if heading == "southbound" and distance_to_lock > 0:
+            # Going south, north of lock = approaching
+            is_approaching = distance_to_lock <= LOCK_APPROACH_DISTANCE
+            direction = "downbound"
+        elif heading == "northbound" and distance_to_lock < 0:
+            # Going north, south of lock = approaching  
+            is_approaching = abs(distance_to_lock) <= LOCK_APPROACH_DISTANCE
+            direction = "upbound"
+        
+        abs_distance = abs(distance_to_lock)
+        tracking = vessel_lock_tracking[mmsi].get(lock_id, {})
+        current_state = tracking.get("state")
+        
+        # State machine for lock passage tracking
+        if is_approaching and not current_state:
+            # New approach detected - start tracking
+            vessel_lock_tracking[mmsi][lock_id] = {
+                "state": "approaching",
+                "direction": direction,
+                "arrival_time": now,
+                "vessel_name": vessel.get("name", "Unknown"),
+                "is_tow": is_tow,
+                "barge_count": vessel.get("barge_count", 0)
+            }
+            logger.info(f"🔒 Vessel {mmsi} ({vessel.get('name', 'Unknown')}) approaching {lock_id} ({direction})")
+        
+        elif current_state == "approaching" and abs_distance <= LOCK_CHAMBER_DISTANCE:
+            # Vessel has entered the lock chamber area
+            tracking["state"] = "in_chamber"
+            tracking["entry_time"] = now
+            tracking["wait_time_minutes"] = (now - tracking["arrival_time"]).total_seconds() / 60
+            vessel_lock_tracking[mmsi][lock_id] = tracking
+            logger.info(f"🚢 Vessel {mmsi} entering {lock_id} chamber (waited {tracking['wait_time_minutes']:.1f} min)")
+        
+        elif current_state == "in_chamber":
+            # Check if vessel has cleared the lock
+            has_cleared = False
+            if direction == "downbound" and distance_to_lock < -LOCK_CLEARED_DISTANCE:
+                has_cleared = True
+            elif direction == "upbound" and distance_to_lock > LOCK_CLEARED_DISTANCE:
+                has_cleared = True
+            
+            if has_cleared:
+                # Vessel has completed the lockage!
+                tracking["state"] = "cleared"
+                tracking["exit_time"] = now
+                tracking["lockage_duration_minutes"] = (now - tracking["entry_time"]).total_seconds() / 60
+                tracking["total_time_minutes"] = (now - tracking["arrival_time"]).total_seconds() / 60
+                
+                # Save to database
+                await save_lockage_record(lock_id, tracking)
+                
+                logger.info(f"✅ Vessel {mmsi} cleared {lock_id}: lockage={tracking['lockage_duration_minutes']:.1f}min, wait={tracking['wait_time_minutes']:.1f}min")
+                
+                # Clear tracking for this lock
+                del vessel_lock_tracking[mmsi][lock_id]
+        
+        elif current_state in ["approaching", "in_chamber"]:
+            # Check for abandoned tracking (vessel went the wrong way or timed out)
+            tracking_age = (now - tracking.get("arrival_time", now)).total_seconds() / 60
+            
+            # If tracking for more than 4 hours, abandon it
+            if tracking_age > 240:
+                logger.warning(f"⚠️ Abandoning stale lock tracking for {mmsi} at {lock_id}")
+                del vessel_lock_tracking[mmsi][lock_id]
+            
+            # If vessel is now far from lock in wrong direction, abandon
+            elif current_state == "approaching":
+                if direction == "downbound" and distance_to_lock < -LOCK_APPROACH_DISTANCE:
+                    del vessel_lock_tracking[mmsi][lock_id]
+                elif direction == "upbound" and distance_to_lock > LOCK_APPROACH_DISTANCE:
+                    del vessel_lock_tracking[mmsi][lock_id]
+
+
+async def save_lockage_record(lock_id: str, tracking: dict):
+    """Save a completed lockage record to the database."""
+    try:
+        record = {
+            "lock_id": lock_id,
+            "vessel_name": tracking.get("vessel_name", "Unknown"),
+            "direction": tracking.get("direction"),
+            "arrival_time": tracking.get("arrival_time"),
+            "entry_time": tracking.get("entry_time"),
+            "exit_time": tracking.get("exit_time"),
+            "wait_time_minutes": round(tracking.get("wait_time_minutes", 0), 1),
+            "lockage_duration_minutes": round(tracking.get("lockage_duration_minutes", 0), 1),
+            "total_time_minutes": round(tracking.get("total_time_minutes", 0), 1),
+            "is_tow": tracking.get("is_tow", False),
+            "barge_count": tracking.get("barge_count", 0),
+            "recorded_at": datetime.now(timezone.utc)
+        }
+        
+        await db.lockage_history.insert_one(record)
+        logger.info(f"📊 Saved lockage record for {lock_id}: {record['vessel_name']} - {record['lockage_duration_minutes']}min lockage, {record['wait_time_minutes']}min wait")
+        
+    except Exception as e:
+        logger.error(f"Error saving lockage record: {e}")
+
+
 def estimate_river_mile(lat: float, lon: float) -> float:
     """
     Estimate river mile based on latitude for Upper Mississippi (simplified linear approximation).

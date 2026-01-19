@@ -3,10 +3,10 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Lock, Phone, Clock, AlertTriangle, CheckCircle2, 
-  XCircle, Users, ChevronUp, ChevronDown 
+  XCircle, Users, ChevronUp, ChevronDown, Timer
 } from "lucide-react";
 
-export const LockStatusPanel = ({ locks, lockStatus, selectedLock, onSelectLock, compact = false }) => {
+export const LockStatusPanel = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, compact = false }) => {
   
   const getStatusColor = (status) => {
     switch (status?.toUpperCase()) {

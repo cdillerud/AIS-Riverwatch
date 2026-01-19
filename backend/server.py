@@ -579,7 +579,6 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     """
     # Get data from last 7 days
     seven_days_ago = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
-    from datetime import timedelta
     seven_days_ago = seven_days_ago - timedelta(days=7)
     
     query = {"recorded_at": {"$gte": seven_days_ago}}

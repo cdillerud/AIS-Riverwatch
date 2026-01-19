@@ -1563,7 +1563,19 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Load blocked MMSIs from database on startup."""
+    """Load settings and blocked MMSIs from database on startup."""
+    global user_mmsi
+    
+    # Load user MMSI from settings
+    try:
+        mmsi_setting = await db.settings.find_one({"key": "user_mmsi"})
+        if mmsi_setting and mmsi_setting.get("value"):
+            user_mmsi = mmsi_setting["value"]
+            logger.info(f"Loaded user MMSI from settings: {user_mmsi}")
+    except Exception as e:
+        logger.error(f"Failed to load user MMSI: {e}")
+    
+    # Load blocked MMSIs
     await load_blocked_mmsi()
 
 @app.on_event("shutdown")

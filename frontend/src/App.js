@@ -525,6 +525,7 @@ function App() {
                   userMmsi={userMmsi}
                   locks={locks}
                   lockStatus={lockStatus}
+                  lockageTimes={lockageTimes}
                   raceAnalysis={raceAnalysis}
                   selectedLock={selectedLock}
                   onSelectLock={setSelectedLock}

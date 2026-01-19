@@ -90,6 +90,16 @@ lpms_cache = {
     "cache_duration_seconds": 600  # 10 minutes
 }
 
+# Vessel Lock Passage Tracking
+# Tracks vessels as they approach and transit locks to calculate real lockage times
+# Structure: {mmsi: {lock_id: {state, arrival_time, entry_time, direction, ...}}}
+vessel_lock_tracking: Dict[str, Dict[str, dict]] = {}
+
+# Distance thresholds for lock tracking (in river miles)
+LOCK_APPROACH_DISTANCE = 2.0  # Start tracking when within 2 miles
+LOCK_CHAMBER_DISTANCE = 0.3   # Consider "in chamber" when within 0.3 miles
+LOCK_CLEARED_DISTANCE = 1.5   # Consider cleared when 1.5 miles past lock
+
 # Cache for vessel static data (names, ship types, dimensions)
 # AIS sends position data frequently (every 2-10s) but static data only every 6 minutes
 # This cache persists names once we receive them from Type 5 or Type 24 messages

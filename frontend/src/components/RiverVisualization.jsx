@@ -83,14 +83,16 @@ export const RiverVisualization = ({
   const rmMarkers = useMemo(() => {
     const markers = [];
     const range = maxRM - minRM;
-    // For zoomed mobile view (small range), use smaller steps
+    // Adaptive step sizes based on zoom level and screen size
     let step;
     if (range <= 30) {
       step = compact ? 10 : 5;  // Zoomed in tight
     } else if (range <= 100) {
       step = compact ? 25 : 10;  // Moderately zoomed
+    } else if (range <= 300) {
+      step = compact ? 100 : 50;  // Wide view
     } else {
-      step = compact ? 50 : 25;  // Full view
+      step = compact ? 150 : 100;  // Full river view - much wider spacing
     }
     const start = Math.ceil(minRM / step) * step;
     for (let rm = start; rm <= maxRM; rm += step) {

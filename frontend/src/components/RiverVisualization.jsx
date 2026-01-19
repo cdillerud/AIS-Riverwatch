@@ -465,4 +465,31 @@ const RiverVisualizationComponent = ({
   );
 };
 
+// Memoize the component to prevent unnecessary re-renders
+// Only re-render when vessels actually change position or when zoom/lock changes
+export const RiverVisualization = memo(RiverVisualizationComponent, (prevProps, nextProps) => {
+  // Custom comparison - only re-render if these actually changed
+  if (prevProps.selectedLock !== nextProps.selectedLock) return false;
+  if (prevProps.zoomRange !== nextProps.zoomRange) return false;
+  if (prevProps.compact !== nextProps.compact) return false;
+  if (prevProps.showVesselNames !== nextProps.showVesselNames) return false;
+  if (prevProps.userMmsi !== nextProps.userMmsi) return false;
+  
+  // Compare vessels array - only re-render if positions changed
+  if (prevProps.vessels.length !== nextProps.vessels.length) return false;
+  
+  // Quick check on first vessel position to detect changes
+  if (prevProps.vessels.length > 0 && nextProps.vessels.length > 0) {
+    const prevFirst = prevProps.vessels[0];
+    const nextFirst = nextProps.vessels[0];
+    if (prevFirst.lat !== nextFirst.lat || prevFirst.lon !== nextFirst.lon) return false;
+  }
+  
+  // Compare race analysis
+  if (prevProps.raceAnalysis?.analysis?.threatening_vessel?.mmsi !== 
+      nextProps.raceAnalysis?.analysis?.threatening_vessel?.mmsi) return false;
+  
+  return true; // Props are equal, don't re-render
+});
+
 export default RiverVisualization;

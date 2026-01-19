@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor } from "lucide-react";
 import { getVesselDisplayName, getVesselShortName } from "@/utils/vesselDisplay";
 
@@ -6,7 +6,7 @@ import { getVesselDisplayName, getVesselShortName } from "@/utils/vesselDisplay"
 const FULL_MIN_RM = 180;  // Chain of Rocks (RM 185) with buffer
 const FULL_MAX_RM = 850;  // Lock 1 Minneapolis (RM 847.6) with buffer
 
-export const RiverVisualization = ({ 
+const RiverVisualizationComponent = ({ 
   vessels, 
   userMmsi, 
   locks, 

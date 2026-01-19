@@ -273,6 +273,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     const speedKnots = speed * 0.868976;
     
     try {
+      // Disable continuous GPS tracking when setting manual position
+      if (settings.use_device_gps) {
+        updateSetting("use_device_gps", false);
+        toast.info("Disabled GPS tracking for manual testing");
+      }
+      
       const result = await sendPositionUpdate(lat, lon, speedKnots, course, "manual");
       if (result?.vessel) {
         setLastPositionResult(result.vessel);

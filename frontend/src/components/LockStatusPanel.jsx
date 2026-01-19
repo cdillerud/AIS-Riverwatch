@@ -141,20 +141,41 @@ export const LockStatusPanel = ({ locks, lockStatus, lockageTimes = {}, selected
                   </div>
                   
                   {/* Avg Lockage Times */}
-                  {lockageTimes[lock.id] && lockageTimes[lock.id].avg_tow_lockage_minutes && (
-                    <div className="flex gap-4 mt-2 text-xs bg-slate-800/50 rounded p-2">
-                      <div className="flex items-center gap-1">
+                  {lockageTimes[lock.id] && (
+                    <div className="mt-2 text-xs bg-slate-800/50 rounded p-2">
+                      <div className="flex items-center gap-1 mb-1.5">
                         <Timer className="w-3 h-3 text-cyan-400" />
-                        <span className="text-slate-400">Avg Lockage:</span>
+                        <span className="text-slate-400">Avg Times</span>
+                        {lockageTimes[lock.id].is_baseline && (
+                          <span className="text-[10px] text-slate-600">(baseline)</span>
+                        )}
                       </div>
-                      <span className="text-amber-400 font-mono">
-                        Tow: {lockageTimes[lock.id].avg_tow_lockage_minutes}min
-                      </span>
-                      {lockageTimes[lock.id].avg_recreational_lockage_minutes && (
-                        <span className="text-cyan-400 font-mono">
-                          Rec: {lockageTimes[lock.id].avg_recreational_lockage_minutes}min
-                        </span>
-                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Lockage times */}
+                        <div>
+                          <div className="text-[10px] text-slate-500 uppercase mb-0.5">Lockage</div>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-amber-400 font-mono">
+                              Tow: {lockageTimes[lock.id].avg_tow_lockage_minutes}m
+                            </span>
+                            <span className="text-cyan-400 font-mono">
+                              Rec: {lockageTimes[lock.id].avg_recreational_lockage_minutes}m
+                            </span>
+                          </div>
+                        </div>
+                        {/* Wait times */}
+                        <div>
+                          <div className="text-[10px] text-slate-500 uppercase mb-0.5">Wait</div>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-amber-400 font-mono">
+                              Tow: {lockageTimes[lock.id].avg_tow_wait_minutes}m
+                            </span>
+                            <span className="text-cyan-400 font-mono">
+                              Rec: {lockageTimes[lock.id].avg_recreational_wait_minutes}m
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                   

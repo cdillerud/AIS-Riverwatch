@@ -251,9 +251,9 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
         {!threat && (
           <div className="p-4 rounded-lg bg-green-900/20 border border-green-500/30 text-center">
             <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto mb-2" />
-            <div className="text-green-400 font-semibold">Clear Path to Lock</div>
+            <div className="text-green-400 font-semibold">Channel Open</div>
             <div className="text-sm text-slate-400 mt-1">
-              No commercial vessels threatening your approach
+              No commercial traffic ahead
             </div>
           </div>
         )}

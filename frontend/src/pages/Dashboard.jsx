@@ -120,6 +120,13 @@ export default function Dashboard({
   const isDangerous = raceAnalysis?.analysis?.required_speed_mph && 
                       raceAnalysis.analysis.required_speed_mph > 25;
 
+  // Reset alert dismissed state when danger condition changes
+  useEffect(() => {
+    if (isDangerous) {
+      setAlertDismissed(false);
+    }
+  }, [raceAnalysis?.analysis?.threatening_vessel?.mmsi]);
+
   // Get the selected lock object for the modal
   const selectedLockObj = useMemo(() => {
     return locks.find(l => l.id === selectedLock);

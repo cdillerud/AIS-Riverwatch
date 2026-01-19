@@ -290,22 +290,36 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                 )}
               </div>
 
-              {/* ETA to lock */}
+              {/* ETA to lock or "At Lock" status */}
               <div className="text-right ml-4">
-                <div className="text-xs text-slate-500 uppercase">ETA to Lock</div>
-                <div className={`font-mono text-lg ${eta ? 'text-white' : 'text-slate-600'}`}>
-                  {formatETA(eta)}
-                </div>
-                {isTow && vessel.estimated_lockage_time && (
-                  <div className="text-xs text-slate-500 mt-1">
-                    +{vessel.estimated_lockage_time}min lock
-                  </div>
+                {lockStatus ? (
+                  <>
+                    <div className="text-xs text-purple-400 uppercase">At Lock</div>
+                    <div className="font-mono text-lg text-purple-400">
+                      L{lockStatus.lockNum}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {lockStatus.distance}mi away
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs text-slate-500 uppercase">ETA to Lock</div>
+                    <div className={`font-mono text-lg ${eta ? 'text-white' : 'text-slate-600'}`}>
+                      {formatETA(eta)}
+                    </div>
+                    {isTow && vessel.estimated_lockage_time && (
+                      <div className="text-xs text-slate-500 mt-1">
+                        +{vessel.estimated_lockage_time}min lock
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
 
-            {/* Progress bar for ETA */}
-            {eta && eta < 120 && (
+            {/* Progress bar for ETA (only when not at lock) */}
+            {!lockStatus && eta && eta < 120 && (
               <div className="mt-2">
                 <div className="eta-bar">
                   <div 

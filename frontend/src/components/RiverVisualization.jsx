@@ -264,19 +264,31 @@ export const RiverVisualization = ({
 
             {/* Vessel info card - simplified on compact */}
             {compact ? (
-              // Mobile: Label positioned to side, expands on hover/tap
+              // Mobile: Label positioned to side with direction indicator
               <div className={`
                 absolute top-1/2 -translate-y-1/2 whitespace-nowrap group
                 ${isUser ? 'left-full ml-2' : labelSide === 'left' ? 'right-full mr-2 text-right' : 'left-full ml-2'}
               `}>
                 <div className={`
-                  px-1.5 py-1 rounded text-[10px] leading-tight transition-all duration-200
+                  px-1.5 py-1 rounded text-[10px] leading-tight transition-all duration-200 flex items-center gap-1
                   ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
                 `}>
-                  <div className="font-semibold">
-                    {getVesselDisplayName(vessel, showVesselNames)}
+                  {/* Direction arrow */}
+                  <div className={`flex-shrink-0 ${vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'}`}>
+                    {vessel.heading === 'northbound' ? (
+                      <ChevronUp className="w-3 h-3" />
+                    ) : vessel.heading === 'southbound' ? (
+                      <ChevronDown className="w-3 h-3" />
+                    ) : (
+                      <Minus className="w-3 h-3" />
+                    )}
                   </div>
-                  <div className="text-slate-400 font-mono text-[9px]">{speedMph} mph</div>
+                  <div>
+                    <div className="font-semibold">
+                      {getVesselDisplayName(vessel, showVesselNames)}
+                    </div>
+                    <div className="text-slate-400 font-mono text-[9px]">{speedMph} mph</div>
+                  </div>
                 </div>
               </div>
             ) : (

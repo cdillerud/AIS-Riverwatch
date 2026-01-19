@@ -1202,26 +1202,28 @@ async def get_lock_status(lock_id: str):
 @api_router.get("/locks/lockage-times")
 async def get_all_lockage_times():
     """Get recent lockage times and running averages for all locks."""
-    # Fetch fresh LPMS data
-    lockage_data = await fetch_lpms_lockage_data()
+    # Note: LPMS scraping is blocked by JS rendering, so we use baseline + observed data
+    # lockage_data = await fetch_lpms_lockage_data()  # Disabled - returns empty
     
-    # Get running averages
+    # Get running averages (includes baseline data)
     averages = await get_lockage_averages()
     
     result = []
     for lock_id, lock_info in LOCKS.items():
-        recent_lockages = lockage_data.get(lock_id, [])
         lock_averages = averages.get(lock_id, {})
         
         result.append({
             "lock_id": lock_id,
             "name": lock_info["name"],
             "river_mile": lock_info["river_mile"],
-            "recent_lockages": recent_lockages[:10],  # Last 10 lockages
-            "avg_lockage_minutes": lock_averages.get("avg_lockage_minutes"),
             "avg_tow_lockage_minutes": lock_averages.get("avg_tow_lockage_minutes"),
             "avg_recreational_lockage_minutes": lock_averages.get("avg_recreational_lockage_minutes"),
-            "sample_count": lock_averages.get("sample_count", 0)
+            "avg_tow_wait_minutes": lock_averages.get("avg_tow_wait_minutes"),
+            "avg_recreational_wait_minutes": lock_averages.get("avg_recreational_wait_minutes"),
+            "sample_count": lock_averages.get("sample_count", 0),
+            "is_baseline": lock_averages.get("combined", {}).get("is_baseline", True),
+            "upbound": lock_averages.get("upbound", {}),
+            "downbound": lock_averages.get("downbound", {})
         })
     
     return result

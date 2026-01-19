@@ -64,6 +64,36 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
   const [editedName, setEditedName] = useState("");
   const [isEditingType, setIsEditingType] = useState(false);
   const [editedType, setEditedType] = useState("");
+  const [lockageHistory, setLockageHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Fetch lockage history when modal opens
+  useEffect(() => {
+    if (isOpen && vessel?.name) {
+      fetchLockageHistory();
+    }
+  }, [isOpen, vessel?.name]);
+
+  const fetchLockageHistory = async () => {
+    if (!vessel?.name) return;
+    
+    setLoadingHistory(true);
+    try {
+      const response = await fetch(`${API}/lockage/history?days=30`);
+      if (response.ok) {
+        const data = await response.json();
+        // Filter to only this vessel's records
+        const vesselHistory = data.records.filter(
+          r => r.vessel_name?.toLowerCase() === vessel.name?.toLowerCase()
+        );
+        setLockageHistory(vesselHistory);
+      }
+    } catch (error) {
+      console.error("Error fetching lockage history:", error);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   if (!vessel) return null;
 

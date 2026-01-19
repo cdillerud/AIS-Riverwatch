@@ -56,6 +56,9 @@ export default function Dashboard({
   
   // Auto next lock tracking
   const [autoNextLock, setAutoNextLock] = useState(false);
+  
+  // Alert dismissal
+  const [alertDismissed, setAlertDismissed] = useState(false);
 
   // Find user vessel
   const userVessel = useMemo(() => {

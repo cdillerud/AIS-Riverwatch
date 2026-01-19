@@ -914,16 +914,31 @@ async def convert_rm_to_coords(rm: float):
 
 @api_router.post("/vessel-cache/{mmsi}")
 async def set_vessel_name(mmsi: str, data: dict):
-    """Manually set a vessel name in the cache (useful for known local vessels)."""
+    """
+    Manually set a vessel name in the cache.
+    This persists to MongoDB and is shared across all users/sessions.
+    """
     global vessel_static_cache
     
     if mmsi not in vessel_static_cache:
         vessel_static_cache[mmsi] = {}
     
+    update_data = {"mmsi": mmsi, "updated_at": datetime.now(timezone.utc).isoformat()}
+    
     if data.get('name'):
         vessel_static_cache[mmsi]['name'] = data['name']
+        update_data['name'] = data['name']
     if data.get('ship_type'):
         vessel_static_cache[mmsi]['ship_type'] = data['ship_type']
+        update_data['ship_type'] = data['ship_type']
+    
+    # Persist to MongoDB for sharing across users and sessions
+    await db.vessel_names.update_one(
+        {"mmsi": mmsi},
+        {"$set": update_data},
+        upsert=True
+    )
+    logger.info(f"Saved vessel name to database: MMSI {mmsi} = {data.get('name')}")
     
     # Also update active vessel if present
     if mmsi in active_vessels:
@@ -931,7 +946,29 @@ async def set_vessel_name(mmsi: str, data: dict):
         if data.get('name'):
             vessel.name = data['name']
     
-    return {"success": True, "cached": vessel_static_cache.get(mmsi)}
+    return {"success": True, "cached": vessel_static_cache.get(mmsi), "persisted": True}
+
+async def load_vessel_names_from_db():
+    """Load all persisted vessel names from MongoDB on startup."""
+    global vessel_static_cache
+    
+    try:
+        cursor = db.vessel_names.find({}, {"_id": 0})
+        vessels = await cursor.to_list(length=1000)
+        
+        for v in vessels:
+            mmsi = v.get("mmsi")
+            if mmsi:
+                if mmsi not in vessel_static_cache:
+                    vessel_static_cache[mmsi] = {}
+                if v.get("name"):
+                    vessel_static_cache[mmsi]["name"] = v["name"]
+                if v.get("ship_type"):
+                    vessel_static_cache[mmsi]["ship_type"] = v["ship_type"]
+        
+        logger.info(f"Loaded {len(vessels)} vessel names from database")
+    except Exception as e:
+        logger.error(f"Failed to load vessel names from database: {e}")
 
 @api_router.get("/vessels")
 async def get_vessels():

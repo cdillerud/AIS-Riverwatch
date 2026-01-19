@@ -23,7 +23,7 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - Calculate required speed to beat threatening vessels
 - Alert when required speed exceeds 25 MPH
 
-## What's Been Implemented (January 18, 2026)
+## What's Been Implemented (January 19, 2026)
 
 ### Backend (FastAPI)
 - AIS TCP connection via WebSocket bridge
@@ -41,6 +41,9 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - Docker support for local deployment
 - **Raw NMEA WebSocket** (`/ws/raw`) for debugging live data stream
 - **Self Position API** (`/api/user-position`) - bypasses AIS self-suppression
+- **River Mile to Coordinates API** (`/api/river-mile-to-coords/{rm}`)
+- **Blocked MMSI Management** (`/api/blocked-mmsi`) - filter noisy vessels
+- **MongoDB Integration** for persistent vessel names and blocked MMSIs
 
 ### Frontend (React)
 - Setup page for IP/Port/MMSI configuration
@@ -50,12 +53,16 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
     - Browser Geolocation API integration ("Get My Location" button)
     - Continuous GPS tracking toggle (auto-updates position as you move)
     - Manual lat/lon entry for testing
+    - **River Mile input** with auto-coordinate conversion
+    - Speed and Course fields for testing
     - Explanation of why AIS self-suppression occurs
   - AIS Connection: default IP/port
-  - Map Display: zoom range, show all locks, default lock
+  - Map Display: zoom range, show all locks, default lock, **show vessel names toggle**
   - Lock priority buffer (minutes before tow arrival)
   - Show/hide buoys toggle
-  - Known vessel names management
+  - **Show Vessel Names toggle** - Switch between displaying names or MMSIs globally
+  - Known vessel names management (persistent in MongoDB)
+  - **Blocked Vessels management** - Block noisy/invalid MMSIs
   - Alerts: sound toggle, speed threshold
   - All settings persist across sessions
 - Dashboard with:
@@ -66,6 +73,8 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
   - Direction indicators (north/southbound)
   - "Zoomed" / "Full Map" toggle button
   - Off-screen user vessel indicator
+  - **Quick Position Editor** (edit icon in status bar)
+  - **Auto Next Lock** feature - automatically tracks the next lock based on heading
 - Race to Lock panel:
   - Target lock selection (all 27 locks)
   - User distance and ETA
@@ -76,12 +85,18 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - Alert banner when speed > max speed required
 - Vessel list with tow/barge info (e.g., "+45min lock", "DOUBLE LOCK" for >9 barges)
 - **Vessel Detail Modal**: Click any vessel to see all AIS data (destination, ETA, callsign, etc.)
+  - **Editable vessel names** - click edit icon to add/update vessel name
 - Lock status panel (USACE open/closed status)
 - **Raw Data Debug Panel**: View live NMEA sentences from AIS feed
   - Filter by type: GPS, AIS, Own (AIVDO)
   - Pause/resume, clear, download log
   - Available on both desktop (right panel) and mobile ("Raw" tab)
-- Mobile-responsive design with tab navigation (Race, Locks, Map, Boats, Raw)
+- **Mobile-responsive design with FULL feature parity**:
+  - Tab navigation (Race, Locks, Map, Boats, Raw)
+  - Quick stats bar with Your RM, Speed Req, ETA
+  - Set Position button when no vessel position exists
+  - Map controls: Auto Next Lock, Zoom toggle
+  - Quick Position Editor in Your Vessel card
 - Dark nautical "Tactical Sonar" theme
 - Demo Mode for testing in cloud environment
 

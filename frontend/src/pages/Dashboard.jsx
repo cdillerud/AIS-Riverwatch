@@ -1167,17 +1167,24 @@ export default function Dashboard({
         </div>
       </main>
 
-      {/* Alert Overlay for Dangerous Speed */}
-      {isDangerous && (
+      {/* Alert Overlay for Traffic Delay */}
+      {isDangerous && !alertDismissed && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 animate-bounce">
           <div className="glass-panel border-2 border-red-500 alert-pulse px-6 py-4 rounded-lg flex items-center gap-3">
             <AlertTriangle className="w-6 h-6 text-red-400" />
             <div>
-              <div className="text-red-400 font-bold">Cannot Beat to Lock!</div>
+              <div className="text-red-400 font-bold">Traffic Delay Expected</div>
               <div className="text-sm text-slate-300">
                 Required speed ({raceAnalysis?.analysis?.required_speed_mph?.toFixed(1)} MPH) exceeds your max (25 MPH)
               </div>
             </div>
+            <button
+              onClick={() => setAlertDismissed(true)}
+              className="ml-2 p-1 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+              aria-label="Dismiss alert"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
       )}

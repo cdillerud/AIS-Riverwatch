@@ -389,6 +389,243 @@ async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
     
     return lock_status_data
 
+
+# LPMS Lockage Data Tracking
+class LockageRecord(BaseModel):
+    """Record of a single vessel lockage."""
+    model_config = ConfigDict(extra="ignore")
+    lock_id: str
+    vessel_name: str
+    direction: str  # "upbound" or "downbound"
+    arrival_time: Optional[datetime] = None
+    entry_time: Optional[datetime] = None
+    exit_time: Optional[datetime] = None
+    lockage_duration_minutes: Optional[float] = None
+    wait_time_minutes: Optional[float] = None
+    barge_count: int = 0
+    is_tow: bool = False
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+async def fetch_lpms_lockage_data(lock_number: int = None) -> Dict[str, list]:
+    """
+    Fetch recent lockage data from USACE LPMS system.
+    This provides actual lockage times we can use for running averages.
+    
+    Returns dict keyed by lock_id with list of recent lockage records.
+    """
+    global lpms_cache
+    
+    now = datetime.now(timezone.utc)
+    
+    # Check cache validity
+    if lpms_cache["last_updated"]:
+        cache_age = (now - lpms_cache["last_updated"]).total_seconds()
+        if cache_age < lpms_cache["cache_duration_seconds"] and lpms_cache["data"]:
+            return lpms_cache["data"]
+    
+    lockage_data = {}
+    
+    try:
+        # Map lock numbers to LPMS river/lock codes
+        # Upper Mississippi = "MISS", locks are numbered
+        locks_to_fetch = [lock_number] if lock_number else list(range(1, 28))
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for lock_num in locks_to_fetch:
+                if lock_num == 23:  # Lock 23 was never built
+                    continue
+                    
+                lock_id = f"lock_{lock_num}"
+                lockage_data[lock_id] = []
+                
+                try:
+                    # Fetch the Lock Flotilla Report which has detailed timing data
+                    # URL pattern: f?p=108:4:::NO:4:P4_RIVER,P4_LOCK:MISS,{lock_num}
+                    url = f"https://ndc.ops.usace.army.mil/ords/f?p=108:4:::NO:4:P4_RIVER,P4_LOCK:MISS,{lock_num}"
+                    
+                    response = await client.get(url)
+                    if response.status_code == 200:
+                        soup = BeautifulSoup(response.text, 'html.parser')
+                        
+                        # Find data tables - LPMS uses specific table structures
+                        tables = soup.find_all('table', {'class': re.compile(r'.*report.*', re.I)})
+                        if not tables:
+                            tables = soup.find_all('table')
+                        
+                        for table in tables:
+                            rows = table.find_all('tr')
+                            headers = []
+                            
+                            for row in rows:
+                                cells = row.find_all(['th', 'td'])
+                                
+                                # Get headers
+                                if row.find('th'):
+                                    headers = [c.get_text(strip=True).lower() for c in cells]
+                                    continue
+                                
+                                if not headers or len(cells) < 3:
+                                    continue
+                                
+                                cell_data = [c.get_text(strip=True) for c in cells]
+                                
+                                # Parse row data based on common LPMS fields
+                                record_data = dict(zip(headers, cell_data))
+                                
+                                vessel_name = record_data.get('vessel', record_data.get('vessel name', record_data.get('name', '')))
+                                if not vessel_name:
+                                    continue
+                                
+                                # Parse times if available
+                                lockage_mins = None
+                                wait_mins = None
+                                direction = 'unknown'
+                                barges = 0
+                                
+                                # Look for direction indicators
+                                dir_field = record_data.get('direction', record_data.get('dir', ''))
+                                if 'up' in dir_field.lower():
+                                    direction = 'upbound'
+                                elif 'down' in dir_field.lower() or 'dn' in dir_field.lower():
+                                    direction = 'downbound'
+                                
+                                # Look for lockage duration
+                                for key in ['lockage time', 'lock time', 'lockage', 'duration']:
+                                    if key in record_data:
+                                        try:
+                                            time_str = record_data[key]
+                                            # Parse HH:MM or minutes format
+                                            if ':' in time_str:
+                                                parts = time_str.split(':')
+                                                lockage_mins = int(parts[0]) * 60 + int(parts[1])
+                                            else:
+                                                lockage_mins = float(re.sub(r'[^\d.]', '', time_str))
+                                        except:
+                                            pass
+                                        break
+                                
+                                # Look for barge count
+                                for key in ['barges', 'barge count', 'cuts', 'flotilla']:
+                                    if key in record_data:
+                                        try:
+                                            barges = int(re.sub(r'[^\d]', '', record_data[key]) or 0)
+                                        except:
+                                            pass
+                                        break
+                                
+                                is_tow = barges > 0 or 'tow' in vessel_name.lower() or 'm/v' in vessel_name.lower()
+                                
+                                lockage_record = LockageRecord(
+                                    lock_id=lock_id,
+                                    vessel_name=vessel_name,
+                                    direction=direction,
+                                    lockage_duration_minutes=lockage_mins,
+                                    wait_time_minutes=wait_mins,
+                                    barge_count=barges,
+                                    is_tow=is_tow
+                                )
+                                
+                                lockage_data[lock_id].append(lockage_record.model_dump())
+                                
+                except Exception as e:
+                    logger.warning(f"Error fetching LPMS data for lock {lock_num}: {e}")
+                    continue
+        
+        # Update cache
+        lpms_cache["data"] = lockage_data
+        lpms_cache["last_updated"] = now
+        
+        # Store in MongoDB for persistence and historical analysis
+        for lock_id, records in lockage_data.items():
+            for record in records:
+                # Upsert based on lock_id, vessel_name, and approximate time
+                record["_lock_id"] = lock_id
+                await db.lockage_history.update_one(
+                    {
+                        "lock_id": lock_id,
+                        "vessel_name": record["vessel_name"],
+                        "recorded_at": {"$gte": now.replace(hour=0, minute=0, second=0)}
+                    },
+                    {"$set": record},
+                    upsert=True
+                )
+        
+        logger.info(f"Fetched LPMS lockage data for {len(lockage_data)} locks")
+        
+    except Exception as e:
+        logger.error(f"Error fetching LPMS lockage data: {e}")
+        
+        # Try to load from database cache
+        cached = await db.lockage_history.find(
+            {"recorded_at": {"$gte": now.replace(hour=0, minute=0, second=0)}},
+            {"_id": 0}
+        ).to_list(500)
+        
+        for item in cached:
+            lock_id = item.get("lock_id")
+            if lock_id:
+                if lock_id not in lockage_data:
+                    lockage_data[lock_id] = []
+                lockage_data[lock_id].append(item)
+    
+    return lockage_data
+
+
+async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
+    """
+    Calculate running averages for lockage times based on historical data.
+    Returns averages for tows vs recreational vessels.
+    """
+    # Get data from last 7 days
+    seven_days_ago = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
+    from datetime import timedelta
+    seven_days_ago = seven_days_ago - timedelta(days=7)
+    
+    query = {"recorded_at": {"$gte": seven_days_ago}}
+    if lock_id:
+        query["lock_id"] = lock_id
+    
+    records = await db.lockage_history.find(query, {"_id": 0}).to_list(1000)
+    
+    # Group by lock and calculate averages
+    averages = {}
+    lock_data = {}
+    
+    for record in records:
+        lid = record.get("lock_id")
+        if not lid:
+            continue
+            
+        if lid not in lock_data:
+            lock_data[lid] = {"tow_times": [], "rec_times": [], "all_times": []}
+        
+        duration = record.get("lockage_duration_minutes")
+        if duration and duration > 0:
+            lock_data[lid]["all_times"].append(duration)
+            
+            if record.get("is_tow"):
+                lock_data[lid]["tow_times"].append(duration)
+            else:
+                lock_data[lid]["rec_times"].append(duration)
+    
+    for lid, data in lock_data.items():
+        avg_all = sum(data["all_times"]) / len(data["all_times"]) if data["all_times"] else None
+        avg_tow = sum(data["tow_times"]) / len(data["tow_times"]) if data["tow_times"] else None
+        avg_rec = sum(data["rec_times"]) / len(data["rec_times"]) if data["rec_times"] else None
+        
+        averages[lid] = {
+            "avg_lockage_minutes": round(avg_all, 1) if avg_all else None,
+            "avg_tow_lockage_minutes": round(avg_tow, 1) if avg_tow else None,
+            "avg_recreational_lockage_minutes": round(avg_rec, 1) if avg_rec else None,
+            "sample_count": len(data["all_times"]),
+            "tow_sample_count": len(data["tow_times"]),
+            "rec_sample_count": len(data["rec_times"])
+        }
+    
+    return averages
+
+
 def estimate_river_mile(lat: float, lon: float) -> float:
     """
     Estimate river mile based on latitude for Upper Mississippi (simplified linear approximation).

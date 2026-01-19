@@ -855,7 +855,7 @@ export default function Dashboard({
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold text-cyan-400">Your Vessel</span>
                       <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-xs">
-                        {userVessel.name || userVessel.mmsi}
+                        {getVesselDisplayName(userVessel, userSettings.show_vessel_names !== false)}
                       </Badge>
                     </div>
                     <div className="grid grid-cols-4 gap-2 text-center">

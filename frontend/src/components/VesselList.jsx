@@ -99,6 +99,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
           const speedMph = (vessel.speed * 1.15078).toFixed(1);
           const eta = calculateETA(vessel);
           const isTow = vessel.is_tow || vessel.barge_count > 0;
+          const lockStatus = getVesselLockStatus(vessel);
 
           return (
             <div
@@ -123,9 +124,16 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                       YOU
                     </Badge>
                   )}
+                  {/* At Lock Badge */}
+                  {lockStatus && (
+                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/50 text-[10px] px-1">
+                      <Lock className="w-2.5 h-2.5 mr-0.5" />
+                      L{lockStatus.lockNum}
+                    </Badge>
+                  )}
                 </div>
                 <span className={`font-mono text-sm ${eta ? 'text-white' : 'text-slate-600'}`}>
-                  {formatETA(eta)}
+                  {lockStatus ? 'AT LOCK' : formatETA(eta)}
                 </span>
               </div>
               <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">

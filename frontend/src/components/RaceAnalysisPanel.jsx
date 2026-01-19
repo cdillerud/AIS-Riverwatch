@@ -99,7 +99,7 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
           {!threat && (
             <div className="p-3 rounded-lg bg-green-900/20 border border-green-500/30 text-center">
               <CheckCircle2 className="w-6 h-6 text-green-400 mx-auto mb-1" />
-              <div className="text-green-400 text-sm font-semibold">Clear Path</div>
+              <div className="text-green-400 text-sm font-semibold">Channel Open</div>
             </div>
           )}
         </CardContent>
@@ -121,16 +121,16 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
           {isDangerous ? (
             <Badge className="bg-red-900/50 text-red-300 border border-red-500">
               <AlertTriangle className="w-3 h-3 mr-1" />
-              Cannot Beat
+              Will Be Blocked
             </Badge>
           ) : analysis?.can_beat_at_25mph ? (
             <Badge className="bg-green-900/50 text-green-300 border border-green-500">
               <CheckCircle2 className="w-3 h-3 mr-1" />
-              Can Beat
+              Clear to Lock
             </Badge>
           ) : (
             <Badge className="bg-slate-700 text-slate-300">
-              No Threat
+              Open Channel
             </Badge>
           )}
         </CardTitle>

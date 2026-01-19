@@ -115,6 +115,37 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch lockage time averages from LPMS
+  useEffect(() => {
+    const fetchLockageTimes = async () => {
+      try {
+        const response = await fetch(`${API}/locks/lockage-times`);
+        if (response.ok) {
+          const data = await response.json();
+          // Convert to map by lock_id
+          const timesMap = {};
+          data.forEach(lock => {
+            timesMap[lock.lock_id] = {
+              avg_lockage_minutes: lock.avg_lockage_minutes,
+              avg_tow_lockage_minutes: lock.avg_tow_lockage_minutes,
+              avg_recreational_lockage_minutes: lock.avg_recreational_lockage_minutes,
+              sample_count: lock.sample_count,
+              recent_lockages: lock.recent_lockages
+            };
+          });
+          setLockageTimes(timesMap);
+        }
+      } catch (error) {
+        console.error("Failed to fetch lockage times:", error);
+      }
+    };
+
+    fetchLockageTimes();
+    // Refresh every 10 minutes
+    const interval = setInterval(fetchLockageTimes, 600000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Periodic vessel fetch (backup for when WebSocket isn't providing updates)
   useEffect(() => {
     const fetchVessels = async () => {

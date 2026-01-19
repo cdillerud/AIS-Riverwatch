@@ -5,9 +5,9 @@ import {
   Lock, Phone, Clock, AlertTriangle, CheckCircle2, 
   XCircle, Users, ChevronUp, ChevronDown, Timer
 } from "lucide-react";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, memo } from "react";
 
-export const LockStatusPanel = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, compact = false }) => {
+const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, compact = false }) => {
   // Refs for auto-scrolling to selected lock
   const lockRefs = useRef({});
   

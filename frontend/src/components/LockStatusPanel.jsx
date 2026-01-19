@@ -128,7 +128,7 @@ export const LockStatusPanel = ({ locks, lockStatus, lockageTimes = {}, selected
                     <div className="text-right">
                       {status.avg_wait_minutes !== undefined && status.avg_wait_minutes !== null && (
                         <div className={`text-lg font-mono ${status.avg_wait_minutes > 30 ? 'text-amber-400' : 'text-white'}`}>
-                          {status.avg_wait_minutes}<span className="text-xs text-slate-500 ml-1">min</span>
+                          {status.avg_wait_minutes}<span className="text-xs text-slate-500 ml-1">min wait</span>
                         </div>
                       )}
                       {totalQueue > 0 && (
@@ -139,6 +139,24 @@ export const LockStatusPanel = ({ locks, lockStatus, lockageTimes = {}, selected
                       )}
                     </div>
                   </div>
+                  
+                  {/* Avg Lockage Times */}
+                  {lockageTimes[lock.id] && lockageTimes[lock.id].avg_tow_lockage_minutes && (
+                    <div className="flex gap-4 mt-2 text-xs bg-slate-800/50 rounded p-2">
+                      <div className="flex items-center gap-1">
+                        <Timer className="w-3 h-3 text-cyan-400" />
+                        <span className="text-slate-400">Avg Lockage:</span>
+                      </div>
+                      <span className="text-amber-400 font-mono">
+                        Tow: {lockageTimes[lock.id].avg_tow_lockage_minutes}min
+                      </span>
+                      {lockageTimes[lock.id].avg_recreational_lockage_minutes && (
+                        <span className="text-cyan-400 font-mono">
+                          Rec: {lockageTimes[lock.id].avg_recreational_lockage_minutes}min
+                        </span>
+                      )}
+                    </div>
+                  )}
                   
                   {/* Queue breakdown */}
                   {(status.upbound_queue > 0 || status.downbound_queue > 0) && (

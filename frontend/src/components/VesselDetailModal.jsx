@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Dialog, 
   DialogContent, 
@@ -13,7 +13,7 @@ import {
   Ship, Navigation, Gauge, Compass, Anchor, 
   MapPin, Clock, Phone, Radio, Hash, Ruler,
   ArrowUp, ArrowDown, Minus, Box, Timer, AlertTriangle,
-  Edit3, Check, X
+  Edit3, Check, X, Lock, History
 } from "lucide-react";
 import { toast } from "sonner";
 

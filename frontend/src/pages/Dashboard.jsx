@@ -12,7 +12,7 @@ import {
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
   Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
   Play, Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
-  Edit3, Check
+  Edit3, Check, RefreshCw, RotateCcw
 } from "lucide-react";
 import { toast } from "sonner";
 import RiverVisualization from "@/components/RiverVisualization";
@@ -43,11 +43,49 @@ export default function Dashboard({
   onOpenSettings,
   connectionConfig,
   userSettings = {},
-  demoMode = false
+  demoMode = false,
+  onRefresh,
+  onFullRefresh,
+  lastRefresh
 }) {
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(20); // Zoom range in miles (10-500)
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Handle manual refresh with visual feedback
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    toast.info("Refreshing data...");
+    
+    if (onRefresh) {
+      await onRefresh();
+    }
+    
+    setTimeout(() => {
+      setIsRefreshing(false);
+      toast.success("Data refreshed");
+    }, 1000);
+  };
+
+  // Handle full page refresh
+  const handleFullRefresh = () => {
+    toast.info("Performing full refresh...");
+    if (onFullRefresh) {
+      onFullRefresh();
+    }
+  };
+
+  // Format time since last refresh
+  const getTimeSinceRefresh = () => {
+    if (!lastRefresh) return "";
+    const seconds = Math.floor((Date.now() - lastRefresh) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+  };
   const [selectedVessel, setSelectedVessel] = useState(null); // For vessel detail modal
   
   // Quick position editor state

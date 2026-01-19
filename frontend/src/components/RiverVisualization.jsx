@@ -261,7 +261,11 @@ export const RiverVisualization = ({
                 ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
                 hover:scale-125 transition-transform
               `}
-              style={{ left: '0', top: '50%', transform: 'translate(-50%, -50%)' }}
+              style={{ 
+                left: '0', 
+                top: '50%', 
+                transform: isUser ? 'translate(-50%, -50%)' : 'translate(-50%, -50%) rotate(45deg)'
+              }}
             />
 
             {/* Vessel info label - clearly to the right with gap */}

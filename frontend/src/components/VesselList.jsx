@@ -1,8 +1,9 @@
+import { memo } from "react";
 import { Ship, Navigation, Gauge, Clock, ChevronUp, ChevronDown, Minus, Box, Timer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
 
-export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false, onVesselClick = () => {}, showVesselNames = true }) => {
+const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false, onVesselClick = () => {}, showVesselNames = true }) => {
   if (vessels.length === 0) {
     return (
       <div className="empty-state py-8 md:py-12">

@@ -22,12 +22,14 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 ## What's Been Implemented
 
 ### January 2026 - Latest Session
+- ✅ **Touch Gesture Support** - Mobile map now supports drag-to-pan (touch drag up = view south)
+- ✅ **Lock Status on Desktop** - Added Lock Status panel to desktop right sidebar (was mobile-only)
 - ✅ **Zoom Slider** - Replaced binary zoom toggle with multi-level slider (10mi-500mi range)
 - ✅ **Diamond Vessel Markers** - Commercial vessels now render as orange diamonds, user vessel as cyan circle
 - ✅ **Scroll-to-Pan Map** - Mouse wheel scrolling pans the river map view up/down
 - ✅ **Default Zoom 20mi** - Changed from 25mi to 20mi
 - ✅ **Cleaner Map Title** - Simplified from "±20mi around Lock 2" to "River Map"
-- ✅ **View Range Indicator** - Shows "RM X – Y" with "Scroll to pan" hint
+- ✅ **View Range Indicator** - Shows "RM X – Y" with responsive hint ("Scroll to pan" on desktop, "Drag to pan" on mobile)
 
 ### Previous Sessions
 - ✅ Global "Show Vessel Names" toggle

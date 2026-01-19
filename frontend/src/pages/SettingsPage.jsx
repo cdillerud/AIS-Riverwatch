@@ -50,8 +50,11 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   // Self-position management
   const [manualLat, setManualLat] = useState("");
   const [manualLon, setManualLon] = useState("");
+  const [manualSpeed, setManualSpeed] = useState("");
+  const [manualCourse, setManualCourse] = useState("");
   const [geoStatus, setGeoStatus] = useState("idle"); // "idle", "getting", "active", "error"
   const [lastGeoUpdate, setLastGeoUpdate] = useState(null);
+  const [lastPositionResult, setLastPositionResult] = useState(null);
 
   // Load blocked MMSIs
   const loadBlockedMmsi = async () => {

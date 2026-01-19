@@ -704,6 +704,23 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                                 vessel_static_cache[mmsi] = {}
                             vessel_static_cache[mmsi].update(static_data)
                             logger.info(f"Cached static data for MMSI {mmsi}: {static_data.get('name', 'unnamed')}")
+                            
+                            # Persist vessel name to database if we got one from AIS
+                            if static_data.get('name'):
+                                try:
+                                    await db.vessel_names.update_one(
+                                        {"mmsi": mmsi},
+                                        {"$set": {
+                                            "mmsi": mmsi,
+                                            "name": static_data['name'],
+                                            "ship_type": static_data.get('ship_type'),
+                                            "source": "AIS",
+                                            "updated_at": datetime.now(timezone.utc).isoformat()
+                                        }},
+                                        upsert=True
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to persist vessel name to DB: {e}")
                     
                     # Handle position messages (Type 1,2,3,18,19)
                     if msg_type in [1, 2, 3, 18, 19]:

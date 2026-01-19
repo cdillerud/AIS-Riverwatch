@@ -77,7 +77,8 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const handleRiverMileChange = async (value) => {
     setManualRiverMile(value);
     const rm = parseFloat(value);
-    if (!isNaN(rm) && rm >= 500 && rm <= 900) {
+    // Upper Mississippi: Lock 27 at RM 185 to Lock 1 at RM 848
+    if (!isNaN(rm) && rm >= 100 && rm <= 900) {
       await convertRiverMileToCoords(rm);
     }
   };

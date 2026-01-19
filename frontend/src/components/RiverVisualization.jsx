@@ -332,7 +332,7 @@ export const RiverVisualization = ({
       )}
 
       {/* View range indicator */}
-      {zoomed && !compact && (
+      {zoomRange < 500 && !compact && (
         <div className="absolute top-2 left-2 glass-panel px-2 py-1 rounded text-xs text-slate-400">
           <span className="font-mono">RM {minRM.toFixed(0)} - {maxRM.toFixed(0)}</span>
         </div>

@@ -85,7 +85,7 @@
 
 .vessel-pip.commercial {
   background: hsl(38 92% 50%);
-  transform: translateX(-50%) rotate(45deg);
+  /* Note: rotation is applied via inline style to avoid transform conflicts */
 }
 
 /* ETA bar */

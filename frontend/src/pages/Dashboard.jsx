@@ -47,7 +47,7 @@ export default function Dashboard({
 }) {
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [mapZoomed, setMapZoomed] = useState(true); // Default to zoomed view
+  const [zoomLevel, setZoomLevel] = useState(25); // Zoom range in miles (10, 25, 50, 100, full)
   const [selectedVessel, setSelectedVessel] = useState(null); // For vessel detail modal
   
   // Quick position editor state

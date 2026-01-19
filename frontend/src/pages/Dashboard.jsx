@@ -77,6 +77,66 @@ export default function Dashboard({
     setSelectedVessel(vessel);
   };
 
+  // Open position editor with current values
+  const openPositionEditor = () => {
+    if (userVessel) {
+      setEditRM(userVessel.river_mile?.toFixed(1) || "");
+      setEditSpeed((userVessel.speed * 1.15078).toFixed(1) || "");
+      setEditCourse(userVessel.course?.toFixed(0) || "180");
+    }
+    setShowPositionEditor(true);
+  };
+
+  // Update position from quick editor
+  const updateQuickPosition = async () => {
+    const rm = parseFloat(editRM);
+    const speed = parseFloat(editSpeed);
+    const course = parseFloat(editCourse);
+    
+    if (isNaN(rm) || rm < 100 || rm > 900) {
+      toast.error("River Mile must be between 100 and 900");
+      return;
+    }
+    
+    try {
+      // First convert RM to lat/lon
+      const coordsResponse = await fetch(`${API}/river-mile-to-coords/${rm}`);
+      if (!coordsResponse.ok) {
+        toast.error("Failed to convert River Mile");
+        return;
+      }
+      const coords = await coordsResponse.json();
+      
+      // Convert speed from MPH to knots
+      const speedKnots = (speed || 0) * 0.868976;
+      
+      // Update position
+      const response = await fetch(`${API}/user-position`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lat: coords.lat,
+          lon: coords.lon,
+          speed: speedKnots,
+          course: course || 0,
+          source: "manual",
+          mmsi: userMmsi || userVessel?.mmsi,
+          name: userSettings.boat_name || userVessel?.name || "Your Vessel"
+        })
+      });
+      
+      if (response.ok) {
+        toast.success(`Position updated to RM ${rm}`);
+        setShowPositionEditor(false);
+      } else {
+        toast.error("Failed to update position");
+      }
+    } catch (error) {
+      console.error("Position update error:", error);
+      toast.error("Failed to update position");
+    }
+  };
+
   // Quick stats for mobile header
   const requiredSpeed = raceAnalysis?.analysis?.required_speed_mph;
   const userEta = raceAnalysis?.analysis?.user_eta_minutes;

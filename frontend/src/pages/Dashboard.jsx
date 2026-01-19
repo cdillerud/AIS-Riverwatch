@@ -5,11 +5,16 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
   Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
-  Play, Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal
+  Play, Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
+  Edit3, Check
 } from "lucide-react";
+import { toast } from "sonner";
 import RiverVisualization from "@/components/RiverVisualization";
 import RaceAnalysisPanel from "@/components/RaceAnalysisPanel";
 import VesselList from "@/components/VesselList";

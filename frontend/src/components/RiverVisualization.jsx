@@ -264,19 +264,19 @@ export const RiverVisualization = ({
 
             {/* Vessel info card - simplified on compact */}
             {compact ? (
-              // Mobile: Minimal label positioned to side to avoid overlap
+              // Mobile: Label positioned to side, expands on hover/tap
               <div className={`
-                absolute top-1/2 -translate-y-1/2 whitespace-nowrap
+                absolute top-1/2 -translate-y-1/2 whitespace-nowrap group
                 ${isUser ? 'left-full ml-2' : labelSide === 'left' ? 'right-full mr-2 text-right' : 'left-full ml-2'}
               `}>
                 <div className={`
-                  px-1 py-0.5 rounded text-[9px] leading-tight
-                  ${isUser ? 'bg-cyan-950/90 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/90 border border-amber-500/30 text-amber-400'}
+                  px-1.5 py-1 rounded text-[10px] leading-tight transition-all duration-200
+                  ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
                 `}>
-                  <div className="font-semibold truncate max-w-[60px]">
-                    {getVesselShortName(vessel, showVesselNames, 6)}
+                  <div className="font-semibold">
+                    {getVesselDisplayName(vessel, showVesselNames)}
                   </div>
-                  <div className="text-slate-400 font-mono text-[8px]">{speedMph} mph</div>
+                  <div className="text-slate-400 font-mono text-[9px]">{speedMph} mph</div>
                 </div>
               </div>
             ) : (

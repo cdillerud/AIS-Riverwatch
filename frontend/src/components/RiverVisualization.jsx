@@ -377,8 +377,21 @@ export const RiverVisualization = ({
 
       {/* View range indicator */}
       {zoomRange < 500 && !compact && (
-        <div className="absolute top-2 left-2 glass-panel px-2 py-1 rounded text-xs text-slate-400">
-          <span className="font-mono">RM {minRM.toFixed(0)} - {maxRM.toFixed(0)}</span>
+        <div className="absolute top-2 left-2 glass-panel px-3 py-2 rounded text-xs text-slate-400">
+          <div className="font-mono font-semibold text-slate-300">RM {minRM.toFixed(0)} – {maxRM.toFixed(0)}</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">Scroll to pan</div>
+        </div>
+      )}
+
+      {/* Scroll indicators on edges when not at boundary */}
+      {zoomRange < 500 && maxRM < FULL_MAX_RM && (
+        <div className="absolute top-8 left-1/2 -translate-x-1/2 text-slate-600 animate-pulse">
+          <ChevronUp className="w-4 h-4" />
+        </div>
+      )}
+      {zoomRange < 500 && minRM > FULL_MIN_RM && (
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-slate-600 animate-pulse">
+          <ChevronDown className="w-4 h-4" />
         </div>
       )}
 

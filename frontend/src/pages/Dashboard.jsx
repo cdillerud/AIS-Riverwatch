@@ -771,7 +771,7 @@ export default function Dashboard({
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg text-white flex items-center gap-2">
                     <Navigation className="w-5 h-5 text-cyan-400" />
-                    {mapZoomed ? `Around Lock ${selectedLock.replace('lock_', '').toUpperCase()}` : 'Locks 2-10 Overview'}
+                    {zoomLevel < 500 ? `±${zoomLevel}mi around Lock ${selectedLock.replace('lock_', '').toUpperCase()}` : 'Full River View'}
                     {autoNextLock && nextLock && (
                       <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-xs ml-2">
                         Auto
@@ -779,8 +779,8 @@ export default function Dashboard({
                     )}
                   </CardTitle>
                   
-                  {/* Lock Selector + Zoom Toggle */}
-                  <div className="flex items-center gap-2">
+                  {/* Lock Selector + Zoom Slider */}
+                  <div className="flex items-center gap-4">
                     {/* Auto Next Lock Toggle */}
                     <Button
                       variant="outline"
@@ -800,17 +800,22 @@ export default function Dashboard({
                       {autoNextLock ? 'Auto' : 'Next'}
                     </Button>
                     
-                    {/* Zoom Toggle */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMapZoomed(!mapZoomed)}
-                      className={`border-slate-600 ${mapZoomed ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50' : 'text-slate-300'}`}
-                      data-testid="zoom-toggle"
-                    >
-                      <MapPin className="w-4 h-4 mr-1" />
-                      {mapZoomed ? 'Zoomed' : 'Full'}
-                    </Button>
+                    {/* Zoom Slider */}
+                    <div className="flex items-center gap-2">
+                      <ZoomOut className="w-4 h-4 text-slate-400" />
+                      <input
+                        type="range"
+                        min="10"
+                        max="500"
+                        step="10"
+                        value={zoomLevel}
+                        onChange={(e) => setZoomLevel(parseInt(e.target.value))}
+                        className="w-24 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        data-testid="zoom-slider"
+                      />
+                      <ZoomIn className="w-4 h-4 text-slate-400" />
+                      <span className="text-xs text-slate-400 w-12">{zoomLevel < 500 ? `${zoomLevel}mi` : 'Full'}</span>
+                    </div>
                     
                     {/* Manual Lock Selector */}
                     <select
@@ -840,8 +845,7 @@ export default function Dashboard({
                   locks={locks}
                   selectedLock={selectedLock}
                   raceAnalysis={raceAnalysis}
-                  zoomed={mapZoomed}
-                  zoomRange={userSettings.map_zoom_miles || 25}
+                  zoomRange={zoomLevel}
                   onVesselClick={handleVesselClick}
                   showVesselNames={userSettings.show_vessel_names !== false}
                 />

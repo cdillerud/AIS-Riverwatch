@@ -297,6 +297,20 @@ export default function Dashboard({
                 Settings
               </Button>
               
+              {/* Refresh Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="border-slate-600 text-slate-300 hover:bg-slate-800"
+                data-testid="refresh-btn"
+                title={`Last refresh: ${getTimeSinceRefresh()}`}
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              
               <Button
                 variant="outline"
                 size="sm"

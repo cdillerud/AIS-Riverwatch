@@ -387,17 +387,37 @@ function App() {
       } else if (data.type === "error") {
         toast.error(data.message);
       } else if (data.type === "vessel_update") {
+        // Optimized: Use functional update with early bailout if no change needed
         setVessels(prev => {
-          const existing = prev.findIndex(v => v.mmsi === data.vessel.mmsi);
-          if (existing >= 0) {
+          const mmsi = data.vessel.mmsi;
+          const existingIdx = prev.findIndex(v => v.mmsi === mmsi);
+          
+          if (existingIdx >= 0) {
+            // Check if vessel data actually changed to avoid unnecessary re-renders
+            const existing = prev[existingIdx];
+            if (existing.lat === data.vessel.lat && 
+                existing.lon === data.vessel.lon && 
+                existing.speed === data.vessel.speed) {
+              return prev; // No change, return same reference
+            }
             const updated = [...prev];
-            updated[existing] = data.vessel;
+            updated[existingIdx] = data.vessel;
             return updated;
+          }
+          // Limit total vessels to prevent unbounded growth
+          if (prev.length >= 100) {
+            // Remove oldest vessel (by timestamp) before adding new one
+            const sorted = [...prev].sort((a, b) => 
+              new Date(a.timestamp) - new Date(b.timestamp)
+            );
+            return [...sorted.slice(1), data.vessel];
           }
           return [...prev, data.vessel];
         });
       } else if (data.type === "vessels") {
-        setVessels(data.vessels);
+        // Full vessel list update - limit size
+        const limited = data.vessels.slice(0, 100);
+        setVessels(limited);
       }
     };
 

@@ -1067,20 +1067,6 @@ export default function Dashboard({
               />
             )}
           </div>
-                        userMmsi={userMmsi}
-                        selectedLock={locks.find(l => l.id === selectedLock)}
-                        onVesselClick={handleVesselClick}
-                        showVesselNames={userSettings.show_vessel_names !== false}
-                      />
-                    </ScrollArea>
-                  </TabsContent>
-                </Tabs>
-              </CardContent>
-            </Card>
-
-            {/* Raw Data Panel - Debug */}
-            <RawDataPanel isConnected={isConnected} />
-          </div>
         </div>
 
         {/* Mobile Content Panels */}

@@ -964,7 +964,51 @@ export default function Dashboard({
           {/* Map Panel - Mobile */}
           {mobilePanel === "map" && (
             <Card className="glass-panel hud-border" data-testid="river-map-card-mobile">
-              <CardContent className="p-0 h-[calc(100vh-200px)] min-h-[400px]">
+              {/* Mobile Map Header with controls */}
+              <div className="border-b border-white/10 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Navigation className="w-4 h-4 text-cyan-400" />
+                    <span className="text-sm font-medium text-white">
+                      {mapZoomed ? `Lock ${selectedLock.replace('lock_', '')}` : 'Overview'}
+                    </span>
+                    {autoNextLock && (
+                      <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-[10px]">
+                        Auto
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {/* Auto Next Lock - Mobile */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setAutoNextLock(!autoNextLock);
+                        if (!autoNextLock && nextLock) {
+                          onSelectLock(nextLock.id);
+                          toast.success(`Auto: ${nextLock.name}`);
+                        }
+                      }}
+                      className={`h-7 px-2 ${autoNextLock ? 'bg-green-500/20 text-green-400' : 'text-slate-400'}`}
+                      data-testid="auto-next-lock-btn-mobile"
+                    >
+                      <Target className="w-3 h-3" />
+                    </Button>
+                    {/* Zoom Toggle - Mobile */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setMapZoomed(!mapZoomed)}
+                      className={`h-7 px-2 ${mapZoomed ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400'}`}
+                      data-testid="zoom-toggle-mobile"
+                    >
+                      {mapZoomed ? <ZoomIn className="w-3 h-3" /> : <ZoomOut className="w-3 h-3" />}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <CardContent className="p-0 h-[calc(100vh-260px)] min-h-[350px]">
                 <RiverVisualization
                   vessels={vessels}
                   userMmsi={userMmsi}
@@ -972,6 +1016,8 @@ export default function Dashboard({
                   selectedLock={selectedLock}
                   raceAnalysis={raceAnalysis}
                   compact={true}
+                  zoomed={mapZoomed}
+                  zoomRange={userSettings.map_zoom_miles || 25}
                   onVesselClick={handleVesselClick}
                   showVesselNames={userSettings.show_vessel_names !== false}
                 />

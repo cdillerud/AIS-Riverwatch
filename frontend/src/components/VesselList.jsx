@@ -164,7 +164,7 @@ export const VesselList = ({ vessels, userMmsi, selectedLock, compact = false, o
                     <div className="w-2 h-2 bg-amber-400 rotate-45" />
                   )}
                   <span className={`font-semibold ${isUser ? 'text-cyan-400' : 'text-white'}`}>
-                    {vessel.name || `MMSI: ${vessel.mmsi}`}
+                    {getVesselDisplayName(vessel, showVesselNames)}
                   </span>
                   {isUser && (
                     <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-xs">

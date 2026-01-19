@@ -120,7 +120,7 @@ export const RiverVisualization = ({
               <ChevronUp className="w-4 h-4 text-cyan-400" />
               <div className="text-xs">
                 <div className="text-cyan-400 font-semibold">
-                  {userVessel.name || 'YOUR BOAT'}
+                  {showVesselNames && userVessel.name ? userVessel.name : 'YOUR BOAT'}
                 </div>
                 <div className="text-slate-400 font-mono">
                   RM {userVessel.river_mile?.toFixed(1)} • {(userVessel.river_mile - maxRM).toFixed(1)} mi north
@@ -143,7 +143,7 @@ export const RiverVisualization = ({
               <ChevronDown className="w-4 h-4 text-cyan-400" />
               <div className="text-xs">
                 <div className="text-cyan-400 font-semibold">
-                  {userVessel.name || 'YOUR BOAT'}
+                  {showVesselNames && userVessel.name ? userVessel.name : 'YOUR BOAT'}
                 </div>
                 <div className="text-slate-400 font-mono">
                   RM {userVessel.river_mile?.toFixed(1)} • {(minRM - userVessel.river_mile).toFixed(1)} mi south

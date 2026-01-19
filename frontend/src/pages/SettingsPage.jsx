@@ -179,6 +179,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
 
   // Send position update to backend
   const sendPositionUpdate = async (lat, lon, speed = 0, course = 0, source = "manual") => {
+    // Require MMSI to be set
+    if (!settings.user_mmsi) {
+      toast.error("Please set your MMSI in the 'Your Vessel' section first");
+      return null;
+    }
+    
     try {
       const response = await fetch(`${API}/user-position`, {
         method: "POST",
@@ -189,8 +195,8 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
           speed, 
           course, 
           source,
-          mmsi: settings.user_mmsi || undefined,  // Pass configured MMSI
-          name: settings.boat_name || undefined    // Pass boat name too
+          mmsi: settings.user_mmsi,
+          name: settings.boat_name || "Your Vessel"
         })
       });
       
@@ -198,9 +204,13 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
         const data = await response.json();
         setLastGeoUpdate(new Date());
         return data;
+      } else {
+        toast.error("Failed to set position");
+        return null;
       }
     } catch (error) {
       console.error("Failed to update position:", error);
+      toast.error("Failed to set position");
       throw error;
     }
   };

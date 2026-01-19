@@ -660,10 +660,16 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
                 lock_data[key]["rec_waits"].append(wait)
     
     # Generate averages for all 27 locks (Lock 23 was never built)
-    for lock_num in range(1, 28):
+    # Also handle Lock 5A
+    lock_nums_to_process = list(range(1, 28)) + ["5a"]
+    
+    for lock_num in lock_nums_to_process:
         if lock_num == 23:
             continue
-            
+        
+        # Get lock-specific baseline
+        baseline = lock_baselines.get(lock_num, lock_baselines.get(10))  # Default to Lock 10 if missing
+        
         lid = f"lock_{lock_num}"
         
         for direction in ["upbound", "downbound"]:
@@ -671,26 +677,26 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
             data = lock_data.get(key, {"tow_times": [], "rec_times": [], "all_times": [],
                                        "tow_waits": [], "rec_waits": [], "all_waits": []})
             
-            # Calculate observed averages or use baseline
+            # Calculate observed averages or use lock-specific baseline
             if data["tow_times"]:
                 avg_tow = sum(data["tow_times"]) / len(data["tow_times"])
             else:
-                avg_tow = baseline_lockage["commercial_single"]["lockage"]
+                avg_tow = baseline["tow_lockage"]
                 
             if data["rec_times"]:
                 avg_rec = sum(data["rec_times"]) / len(data["rec_times"])
             else:
-                avg_rec = baseline_lockage["recreational"]["lockage"]
+                avg_rec = baseline["rec_lockage"]
             
             if data["tow_waits"]:
                 avg_tow_wait = sum(data["tow_waits"]) / len(data["tow_waits"])
             else:
-                avg_tow_wait = baseline_lockage["commercial_single"]["wait"]
+                avg_tow_wait = baseline["tow_wait"]
                 
             if data["rec_waits"]:
                 avg_rec_wait = sum(data["rec_waits"]) / len(data["rec_waits"])
             else:
-                avg_rec_wait = baseline_lockage["recreational"]["wait"]
+                avg_rec_wait = baseline["rec_wait"]
             
             if lid not in averages:
                 averages[lid] = {}

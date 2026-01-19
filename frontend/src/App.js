@@ -275,9 +275,10 @@ function App() {
     };
 
     fetchRaceAnalysis();
-    const interval = setInterval(fetchRaceAnalysis, 5000);
+    // Reduced frequency - race analysis doesn't need to update every 5s
+    const interval = setInterval(fetchRaceAnalysis, 10000);
     return () => clearInterval(interval);
-  }, [selectedLock, vessels, userSettings.lock_buffer_minutes]);
+  }, [selectedLock, userSettings.lock_buffer_minutes]); // Removed vessels dependency to prevent excessive re-fetches
 
   // Continuous GPS tracking (bypasses AIS self-suppression)
   useEffect(() => {

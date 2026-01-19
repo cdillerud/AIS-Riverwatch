@@ -253,8 +253,8 @@ function App() {
     // Fetch immediately on mount
     fetchVessels();
     
-    // Then poll every 5 seconds
-    const interval = setInterval(fetchVessels, 5000);
+    // Reduce polling to every 15 seconds (WebSocket handles real-time updates)
+    const interval = setInterval(fetchVessels, 15000);
     return () => clearInterval(interval);
   }, []);
 

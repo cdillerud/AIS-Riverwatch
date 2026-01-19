@@ -86,7 +86,7 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1 text-amber-400 text-xs">
                   <AlertTriangle className="w-3 h-3" />
-                  <span className="font-semibold">{threat.name || threat.mmsi}</span>
+                  <span className="font-semibold">{getVesselDisplayName(threat, showVesselNames)}</span>
                 </div>
                 <span className="text-amber-400 text-xs font-mono">
                   ETA: {threat.eta_minutes?.toFixed(0)}min

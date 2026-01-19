@@ -237,7 +237,7 @@ export const RiverVisualization = ({
         );
       })}
 
-      {/* Vessels - dots on CENTER, labels to the RIGHT */}
+      {/* Vessels - dots on CENTER, labels offset to the RIGHT with gap */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
         const topPosition = getRiverPosition(vessel.river_mile);
@@ -246,44 +246,49 @@ export const RiverVisualization = ({
         return (
           <div
             key={vessel.mmsi}
-            className="absolute left-1/2 z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
+            className="absolute z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
             style={{ 
               top: `${topPosition}%`,
-              transform: 'translate(-50%, -50%)'
+              left: '50%',
+              transform: 'translateY(-50%)'
             }}
             data-testid={`vessel-marker-${vessel.mmsi}`}
             onClick={() => onVesselClick(vessel)}
           >
-            <div className="flex items-center gap-2">
-              {/* Vessel pip - centered on the line */}
-              <div className={`
-                vessel-pip relative flex-shrink-0
+            {/* Vessel pip - exactly on centerline */}
+            <div 
+              className={`
+                vessel-pip absolute
                 ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
                 hover:scale-125 transition-transform
-              `} />
+              `}
+              style={{ left: '0', top: '50%', transform: 'translate(-50%, -50%)' }}
+            />
 
-              {/* Vessel info label - to the right of the pip */}
-              <div className={`
-                px-1.5 py-1 rounded text-[10px] leading-tight flex items-center gap-1 whitespace-nowrap
+            {/* Vessel info label - clearly to the right with gap */}
+            <div 
+              className={`
+                absolute px-1.5 py-1 rounded text-[10px] leading-tight flex items-center gap-1 whitespace-nowrap
                 ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
-              `}>
-                {/* Direction arrow */}
-                <div className={`flex-shrink-0 ${vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'}`}>
-                  {vessel.heading === 'northbound' ? (
-                    <ChevronUp className="w-3 h-3" />
-                  ) : vessel.heading === 'southbound' ? (
-                    <ChevronDown className="w-3 h-3" />
-                  ) : (
-                    <Minus className="w-3 h-3" />
-                  )}
+              `}
+              style={{ left: compact ? '15px' : '20px', top: '50%', transform: 'translateY(-50%)' }}
+            >
+              {/* Direction arrow */}
+              <div className={`flex-shrink-0 ${vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'}`}>
+                {vessel.heading === 'northbound' ? (
+                  <ChevronUp className="w-3 h-3" />
+                ) : vessel.heading === 'southbound' ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <Minus className="w-3 h-3" />
+                )}
+              </div>
+              <div>
+                <div className="font-semibold">
+                  {compact ? getVesselShortName(vessel, showVesselNames, 10) : getVesselDisplayName(vessel, showVesselNames)}
                 </div>
-                <div>
-                  <div className="font-semibold">
-                    {compact ? getVesselShortName(vessel, showVesselNames, 10) : getVesselDisplayName(vessel, showVesselNames)}
-                  </div>
-                  <div className="text-slate-400 font-mono text-[9px]">
-                    {speedMph} mph {!compact && `• RM ${vessel.river_mile?.toFixed(1)}`}
-                  </div>
+                <div className="text-slate-400 font-mono text-[9px]">
+                  {speedMph} mph {!compact && `• RM ${vessel.river_mile?.toFixed(1)}`}
                 </div>
               </div>
             </div>

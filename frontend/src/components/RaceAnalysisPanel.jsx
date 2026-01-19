@@ -171,7 +171,7 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               <span className="text-xs text-amber-400 uppercase tracking-wider">Threatening Vessel</span>
             </div>
-            <div className="text-white font-semibold">{threat.name || threat.mmsi}</div>
+            <div className="text-white font-semibold">{getVesselDisplayName(threat, showVesselNames)}</div>
             <div className="flex items-center gap-4 mt-2 text-sm">
               <span className="text-slate-400">
                 <Navigation className="w-3 h-3 inline mr-1" />

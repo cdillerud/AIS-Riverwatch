@@ -2148,6 +2148,10 @@ async def add_demo_tow(data: dict):
             vessel.estimated_lockage_time = 90 + (barge_count - 9) * 5
     
     active_vessels[vessel.mmsi] = vessel
+    
+    # Track vessel passage through locks (demo vessels too!)
+    await track_vessel_lock_passage(vessel.model_dump())
+    
     v_dict = vessel.model_dump()
     v_dict['timestamp'] = v_dict['timestamp'].isoformat()
     return {"success": True, "vessel": v_dict}

@@ -173,7 +173,7 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
 - [ ] Multiple user vessel support
 
 ## Known Issues
-- ~~User vessel (MMSI 338414076) not appearing with live Boat Beacon feed~~ **RESOLVED**: This is expected AIS self-suppression behavior. Use the new Self Position feature in Settings to inject your position directly.
+- ~~User vessel (MMSI 338414076) not appearing with live Boat Beacon feed~~ **RESOLVED**: This is expected AIS self-suppression behavior. Use the Self Position feature in Settings or Quick Position Editor on Dashboard.
 
 ## Next Tasks
 1. Sound/vibration alerts for critical "CANNOT BEAT" warnings

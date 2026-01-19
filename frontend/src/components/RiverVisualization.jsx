@@ -196,22 +196,23 @@ export const RiverVisualization = ({
         // Determine lock border color based on timing status (only for selected lock)
         const isSelected = lock.id === selectedLock;
         const analysis = raceAnalysis?.analysis;
+        let lockStyle = {};
         let lockStatusClass = '';
         
         if (isSelected && analysis) {
           if (analysis.required_speed_mph > 25) {
             // Can't beat - red
-            lockStatusClass = 'border-red-500 bg-red-500/20 shadow-red-500/30 shadow-lg';
+            lockStyle = { borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.2)', boxShadow: '0 0 12px rgba(239, 68, 68, 0.5)' };
           } else if (analysis.can_beat_at_25mph && analysis.threatening_vessel) {
             // Can arrive first - green
-            lockStatusClass = 'border-green-500 bg-green-500/20 shadow-green-500/30 shadow-lg';
+            lockStyle = { borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.2)', boxShadow: '0 0 12px rgba(34, 197, 94, 0.5)' };
           } else if (!analysis.threatening_vessel) {
-            // No traffic - amber/neutral
-            lockStatusClass = 'border-amber-500 bg-amber-500/20 shadow-amber-500/30 shadow-lg';
+            // No traffic - amber
+            lockStyle = { borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.2)', boxShadow: '0 0 12px rgba(245, 158, 11, 0.5)' };
           }
         } else if (isSelected) {
-          // Selected but no analysis yet
-          lockStatusClass = 'border-cyan-400 bg-cyan-500/20';
+          // Selected but no analysis yet - cyan
+          lockStyle = { borderColor: '#22d3ee', backgroundColor: 'rgba(34, 211, 238, 0.2)' };
         }
         
         return (
@@ -221,10 +222,10 @@ export const RiverVisualization = ({
             style={{ top: `${getRiverPosition(lock.river_mile)}%` }}
             data-testid={`lock-marker-${lock.id}`}
           >
-            <div className={`
-              lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6
-              ${lockStatusClass}
-            `}>
+            <div 
+              className={`lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6 ${lockStatusClass}`}
+              style={lockStyle}
+            >
               <Lock className="w-2 h-2 md:w-3 md:h-3 mr-0.5 md:mr-1" />
               <span>{lock.id.replace('lock_', 'L')}</span>
             </div>

@@ -575,9 +575,23 @@ async def fetch_lpms_lockage_data(lock_number: int = None) -> Dict[str, list]:
 async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     """
     Calculate running averages for lockage times based on historical data.
-    Returns averages for tows vs recreational vessels.
+    Returns averages for tows vs recreational vessels, plus wait times.
+    Uses baseline data from USACE historical statistics plus any observed passages.
     """
-    # Get data from last 7 days
+    # Baseline lockage times from USACE historical data (minutes)
+    # Upper Mississippi locks typically take:
+    # - Recreational vessels: 15-25 minutes
+    # - Commercial tows (single cut): 30-45 minutes
+    # - Commercial tows (double lockage for >9 barges): 60-90+ minutes
+    # Wait times vary by traffic - typically 0-60 minutes
+    
+    baseline_lockage = {
+        "recreational": {"lockage": 20, "wait": 5},    # Light traffic average
+        "commercial_single": {"lockage": 35, "wait": 15},
+        "commercial_double": {"lockage": 75, "wait": 30}
+    }
+    
+    # Get any observed data from last 7 days
     seven_days_ago = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
     seven_days_ago = seven_days_ago - timedelta(days=7)
     
@@ -587,40 +601,119 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     
     records = await db.lockage_history.find(query, {"_id": 0}).to_list(1000)
     
-    # Group by lock and calculate averages
+    # Group by lock and direction, calculate averages
     averages = {}
     lock_data = {}
     
     for record in records:
         lid = record.get("lock_id")
+        direction = record.get("direction", "unknown")
         if not lid:
             continue
             
-        if lid not in lock_data:
-            lock_data[lid] = {"tow_times": [], "rec_times": [], "all_times": []}
+        key = f"{lid}_{direction}"
+        if key not in lock_data:
+            lock_data[key] = {"tow_times": [], "rec_times": [], "all_times": [], 
+                             "tow_waits": [], "rec_waits": [], "all_waits": []}
         
         duration = record.get("lockage_duration_minutes")
-        if duration and duration > 0:
-            lock_data[lid]["all_times"].append(duration)
-            
-            if record.get("is_tow"):
-                lock_data[lid]["tow_times"].append(duration)
-            else:
-                lock_data[lid]["rec_times"].append(duration)
-    
-    for lid, data in lock_data.items():
-        avg_all = sum(data["all_times"]) / len(data["all_times"]) if data["all_times"] else None
-        avg_tow = sum(data["tow_times"]) / len(data["tow_times"]) if data["tow_times"] else None
-        avg_rec = sum(data["rec_times"]) / len(data["rec_times"]) if data["rec_times"] else None
+        wait = record.get("wait_time_minutes")
         
-        averages[lid] = {
-            "avg_lockage_minutes": round(avg_all, 1) if avg_all else None,
-            "avg_tow_lockage_minutes": round(avg_tow, 1) if avg_tow else None,
-            "avg_recreational_lockage_minutes": round(avg_rec, 1) if avg_rec else None,
-            "sample_count": len(data["all_times"]),
-            "tow_sample_count": len(data["tow_times"]),
-            "rec_sample_count": len(data["rec_times"])
+        if duration and duration > 0:
+            lock_data[key]["all_times"].append(duration)
+            if record.get("is_tow"):
+                lock_data[key]["tow_times"].append(duration)
+            else:
+                lock_data[key]["rec_times"].append(duration)
+        
+        if wait and wait >= 0:
+            lock_data[key]["all_waits"].append(wait)
+            if record.get("is_tow"):
+                lock_data[key]["tow_waits"].append(wait)
+            else:
+                lock_data[key]["rec_waits"].append(wait)
+    
+    # Generate averages for all 27 locks (Lock 23 was never built)
+    for lock_num in range(1, 28):
+        if lock_num == 23:
+            continue
+            
+        lid = f"lock_{lock_num}"
+        
+        for direction in ["upbound", "downbound"]:
+            key = f"{lid}_{direction}"
+            data = lock_data.get(key, {"tow_times": [], "rec_times": [], "all_times": [],
+                                       "tow_waits": [], "rec_waits": [], "all_waits": []})
+            
+            # Calculate observed averages or use baseline
+            if data["tow_times"]:
+                avg_tow = sum(data["tow_times"]) / len(data["tow_times"])
+            else:
+                avg_tow = baseline_lockage["commercial_single"]["lockage"]
+                
+            if data["rec_times"]:
+                avg_rec = sum(data["rec_times"]) / len(data["rec_times"])
+            else:
+                avg_rec = baseline_lockage["recreational"]["lockage"]
+            
+            if data["tow_waits"]:
+                avg_tow_wait = sum(data["tow_waits"]) / len(data["tow_waits"])
+            else:
+                avg_tow_wait = baseline_lockage["commercial_single"]["wait"]
+                
+            if data["rec_waits"]:
+                avg_rec_wait = sum(data["rec_waits"]) / len(data["rec_waits"])
+            else:
+                avg_rec_wait = baseline_lockage["recreational"]["wait"]
+            
+            if lid not in averages:
+                averages[lid] = {}
+            
+            averages[lid][direction] = {
+                "avg_tow_lockage_minutes": round(avg_tow, 1),
+                "avg_recreational_lockage_minutes": round(avg_rec, 1),
+                "avg_tow_wait_minutes": round(avg_tow_wait, 1),
+                "avg_recreational_wait_minutes": round(avg_rec_wait, 1),
+                "tow_sample_count": len(data["tow_times"]),
+                "rec_sample_count": len(data["rec_times"]),
+                "is_baseline": len(data["tow_times"]) == 0 and len(data["rec_times"]) == 0
+            }
+        
+        # Also provide combined averages (both directions)
+        all_tow_times = []
+        all_rec_times = []
+        all_tow_waits = []
+        all_rec_waits = []
+        
+        for direction in ["upbound", "downbound"]:
+            key = f"{lid}_{direction}"
+            data = lock_data.get(key, {})
+            all_tow_times.extend(data.get("tow_times", []))
+            all_rec_times.extend(data.get("rec_times", []))
+            all_tow_waits.extend(data.get("tow_waits", []))
+            all_rec_waits.extend(data.get("rec_waits", []))
+        
+        avg_tow = sum(all_tow_times) / len(all_tow_times) if all_tow_times else baseline_lockage["commercial_single"]["lockage"]
+        avg_rec = sum(all_rec_times) / len(all_rec_times) if all_rec_times else baseline_lockage["recreational"]["lockage"]
+        avg_tow_wait = sum(all_tow_waits) / len(all_tow_waits) if all_tow_waits else baseline_lockage["commercial_single"]["wait"]
+        avg_rec_wait = sum(all_rec_waits) / len(all_rec_waits) if all_rec_waits else baseline_lockage["recreational"]["wait"]
+        
+        averages[lid]["combined"] = {
+            "avg_tow_lockage_minutes": round(avg_tow, 1),
+            "avg_recreational_lockage_minutes": round(avg_rec, 1),
+            "avg_tow_wait_minutes": round(avg_tow_wait, 1),
+            "avg_recreational_wait_minutes": round(avg_rec_wait, 1),
+            "tow_sample_count": len(all_tow_times),
+            "rec_sample_count": len(all_rec_times),
+            "is_baseline": len(all_tow_times) == 0 and len(all_rec_times) == 0
         }
+        
+        # For backwards compatibility, also set top-level values
+        averages[lid]["avg_tow_lockage_minutes"] = round(avg_tow, 1)
+        averages[lid]["avg_recreational_lockage_minutes"] = round(avg_rec, 1)
+        averages[lid]["avg_tow_wait_minutes"] = round(avg_tow_wait, 1)
+        averages[lid]["avg_recreational_wait_minutes"] = round(avg_rec_wait, 1)
+        averages[lid]["sample_count"] = len(all_tow_times) + len(all_rec_times)
     
     return averages
 

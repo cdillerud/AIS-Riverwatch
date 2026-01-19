@@ -19,6 +19,38 @@ import { toast } from "sonner";
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
+// Lock positions for "At Lock" detection
+const LOCK_POSITIONS = {
+  lock_1: 847.6, lock_2: 815.2, lock_3: 796.9, lock_4: 752.8,
+  lock_5: 738.1, lock_5a: 728.3, lock_6: 714.2, lock_7: 702.4,
+  lock_8: 679.1, lock_9: 647.8, lock_10: 615.1, lock_11: 583.0,
+  lock_12: 556.6, lock_13: 522.4, lock_14: 493.2, lock_15: 482.9,
+  lock_16: 457.2, lock_17: 437.1, lock_18: 410.5, lock_19: 364.2,
+  lock_20: 343.2, lock_21: 324.9, lock_22: 301.2, lock_24: 273.4,
+  lock_25: 241.4, lock_26: 202.9, lock_27: 185.0
+};
+
+// Check if a vessel is "at" any lock (within 0.5 miles)
+const getVesselLockStatus = (vessel) => {
+  if (!vessel?.river_mile) return null;
+  
+  const AT_LOCK_DISTANCE = 0.5; // miles
+  
+  for (const [lockId, lockRM] of Object.entries(LOCK_POSITIONS)) {
+    const distance = Math.abs(vessel.river_mile - lockRM);
+    if (distance <= AT_LOCK_DISTANCE) {
+      const lockNum = lockId.replace('lock_', '').toUpperCase();
+      return {
+        lockId,
+        lockNum,
+        lockRM,
+        distance: distance.toFixed(2)
+      };
+    }
+  }
+  return null;
+};
+
 // Ship type descriptions
 const SHIP_TYPES = {
   0: "Not available",

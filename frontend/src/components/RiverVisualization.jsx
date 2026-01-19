@@ -193,7 +193,7 @@ export const RiverVisualization = ({
         ))}
       </div>
 
-      {/* Locks - positioned on LEFT side aligned with river mile markers */}
+      {/* Locks - positioned in CENTER of map */}
       {visibleLocks.map(lock => {
         // Determine lock border color based on timing status (only for selected lock)
         const isSelected = lock.id === selectedLock;
@@ -219,11 +219,10 @@ export const RiverVisualization = ({
         return (
           <div
             key={lock.id}
-            className="absolute z-10"
+            className="absolute left-1/2 transform -translate-x-1/2 z-10"
             style={{ 
               top: `${getRiverPosition(lock.river_mile)}%`,
-              left: compact ? '8px' : '45px',
-              transform: 'translateY(-50%)'
+              transform: 'translate(-50%, -50%)'
             }}
             data-testid={`lock-marker-${lock.id}`}
           >
@@ -238,36 +237,36 @@ export const RiverVisualization = ({
         );
       })}
 
-      {/* Vessels - positioned in CENTER of map */}
+      {/* Vessels - positioned slightly RIGHT of center to avoid lock overlap */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
         
-        // Slight vertical offset based on heading to help with overlapping vessels
-        const headingOffset = vessel.heading === "northbound" ? -5 : 
-                             vessel.heading === "southbound" ? 5 : 0;
+        // Offset vessels to the right of center
+        const horizontalOffset = compact ? 35 : 50;
 
         return (
           <div
             key={vessel.mmsi}
-            className="absolute left-1/2 transform -translate-x-1/2 z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
+            className="absolute z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
             style={{ 
               top: `${topPosition}%`,
-              transform: `translate(-50%, calc(-50% + ${headingOffset}px))`
+              left: `calc(50% + ${horizontalOffset}px)`,
+              transform: 'translateY(-50%)'
             }}
             data-testid={`vessel-marker-${vessel.mmsi}`}
             onClick={() => onVesselClick(vessel)}
           >
-            {/* Vessel pip */}
-            <div className={`
-              vessel-pip relative mx-auto
-              ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
-              hover:scale-125 transition-transform
-            `} />
+            <div className="flex items-center gap-2">
+              {/* Vessel pip */}
+              <div className={`
+                vessel-pip relative flex-shrink-0
+                ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
+                hover:scale-125 transition-transform
+              `} />
 
-            {/* Vessel info label - positioned to the right of center */}
-            <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap">
+              {/* Vessel info label */}
               <div className={`
                 px-1.5 py-1 rounded text-[10px] leading-tight flex items-center gap-1
                 ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}

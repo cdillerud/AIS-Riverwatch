@@ -121,6 +121,10 @@ export const RiverVisualization = ({
     return <Minus className="w-3 h-3" />;
   };
 
+  // Touch gesture state for mobile drag-to-pan
+  const touchStartY = useRef(null);
+  const lastTouchY = useRef(null);
+
   // Handle mouse wheel scroll on map
   const handleWheel = useCallback((e) => {
     // Don't scroll if showing full river
@@ -142,19 +146,64 @@ export const RiverVisualization = ({
     });
   }, [zoomRange, selectedLockRM]);
 
-  // Add wheel event listener
+  // Handle touch start for mobile drag
+  const handleTouchStart = useCallback((e) => {
+    if (zoomRange >= 500) return;
+    touchStartY.current = e.touches[0].clientY;
+    lastTouchY.current = e.touches[0].clientY;
+  }, [zoomRange]);
+
+  // Handle touch move for mobile drag-to-pan
+  const handleTouchMove = useCallback((e) => {
+    if (zoomRange >= 500 || touchStartY.current === null) return;
+    
+    e.preventDefault();
+    
+    const currentY = e.touches[0].clientY;
+    const deltaY = lastTouchY.current - currentY; // Positive = dragging up = go south
+    lastTouchY.current = currentY;
+    
+    // Convert pixel delta to river miles
+    // Approximate: map height ~500px covers zoomRange*2 miles
+    const mapHeight = mapRef.current?.clientHeight || 500;
+    const milesPerPixel = (zoomRange * 2) / mapHeight;
+    const deltaMiles = deltaY * milesPerPixel * 2; // Multiply for responsiveness
+    
+    setScrollOffset(prev => {
+      const newOffset = prev - deltaMiles; // Negative because drag up = view shifts south
+      const maxScroll = FULL_MAX_RM - selectedLockRM - zoomRange;
+      const minScroll = FULL_MIN_RM - selectedLockRM + zoomRange;
+      return Math.max(minScroll, Math.min(maxScroll, newOffset));
+    });
+  }, [zoomRange, selectedLockRM]);
+
+  // Handle touch end
+  const handleTouchEnd = useCallback(() => {
+    touchStartY.current = null;
+    lastTouchY.current = null;
+  }, []);
+
+  // Add wheel and touch event listeners
   useEffect(() => {
     const mapElement = mapRef.current;
     if (mapElement) {
       mapElement.addEventListener('wheel', handleWheel, { passive: false });
-      return () => mapElement.removeEventListener('wheel', handleWheel);
+      mapElement.addEventListener('touchstart', handleTouchStart, { passive: true });
+      mapElement.addEventListener('touchmove', handleTouchMove, { passive: false });
+      mapElement.addEventListener('touchend', handleTouchEnd, { passive: true });
+      return () => {
+        mapElement.removeEventListener('wheel', handleWheel);
+        mapElement.removeEventListener('touchstart', handleTouchStart);
+        mapElement.removeEventListener('touchmove', handleTouchMove);
+        mapElement.removeEventListener('touchend', handleTouchEnd);
+      };
     }
-  }, [handleWheel]);
+  }, [handleWheel, handleTouchStart, handleTouchMove, handleTouchEnd]);
 
   return (
     <div 
       ref={mapRef}
-      className="river-map relative w-full h-full min-h-[400px] md:min-h-[500px] overflow-hidden cursor-ns-resize" 
+      className="river-map relative w-full h-full min-h-[400px] md:min-h-[500px] overflow-hidden cursor-ns-resize touch-none" 
       data-testid="river-visualization"
     >
       {/* Radar sweep effect */}

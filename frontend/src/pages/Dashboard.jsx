@@ -369,7 +369,7 @@ export default function Dashboard({
                 {userVessel ? (
                   <>
                     <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
-                      {userVessel.name || userSettings.boat_name || 'MMSI: ' + userVessel.mmsi}
+                      {getVesselDisplayName(userVessel, userSettings.show_vessel_names !== false)}
                     </Badge>
                     {userVessel.source && (
                       <Badge className={`text-xs ${userVessel.source === 'GPS' ? 'bg-green-900/30 text-green-400 border-green-500/30' : 'bg-blue-900/30 text-blue-400 border-blue-500/30'}`}>

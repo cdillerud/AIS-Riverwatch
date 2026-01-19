@@ -415,7 +415,7 @@ function App() {
     toast.success("Demo vessels added");
   };
 
-  const handleSettingsUpdate = (newSettings) => {
+  const handleSettingsUpdate = async (newSettings) => {
     setUserSettings(prev => ({ ...prev, ...newSettings }));
     if (newSettings.user_mmsi) {
       setUserMmsi(newSettings.user_mmsi);
@@ -424,6 +424,17 @@ function App() {
       setSelectedLock(newSettings.default_lock);
     }
     setShowSettings(false);
+    
+    // Refresh vessels after settings update (in case position was set manually)
+    try {
+      const response = await fetch(`${API}/vessels`);
+      if (response.ok) {
+        const data = await response.json();
+        setVessels(data);
+      }
+    } catch (error) {
+      console.error("Failed to refresh vessels after settings:", error);
+    }
   };
 
   // If showing settings page

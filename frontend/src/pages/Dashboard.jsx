@@ -699,17 +699,6 @@ export default function Dashboard({
               Timing
             </button>
             <button
-              onClick={() => setMobilePanel("locks")}
-              className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
-                mobilePanel === "locks" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <Lock className="w-4 h-4 mx-auto mb-0.5" />
-              Locks
-            </button>
-            <button
               onClick={() => setMobilePanel("map")}
               className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
                 mobilePanel === "map" 
@@ -737,6 +726,17 @@ export default function Dashboard({
                   </span>
                 )}
               </span>
+            </button>
+            <button
+              onClick={() => setMobilePanel("locks")}
+              className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition-colors ${
+                mobilePanel === "locks" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Lock className="w-4 h-4 mx-auto mb-0.5" />
+              Locks
             </button>
             <button
               onClick={() => setMobilePanel("debug")}

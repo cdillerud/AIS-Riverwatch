@@ -298,13 +298,16 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
       }
       
       const result = await sendPositionUpdate(lat, lon, speedKnots, course, "manual");
+      if (!result) {
+        // sendPositionUpdate already showed an error toast
+        return;
+      }
+      
       if (result?.vessel) {
         setLastPositionResult(result.vessel);
-        toast.success(`Position set! River Mile: ${result.vessel.river_mile?.toFixed(1) || 'N/A'}`);
-      } else {
-        toast.success("Manual position set!");
+        toast.success(`Position set! River Mile: ${result.vessel.river_mile?.toFixed(1) || 'N/A'}, MMSI: ${result.vessel.mmsi}`);
+        setGeoStatus("active");
       }
-      setGeoStatus("active");
     } catch (error) {
       toast.error("Failed to set position");
     }

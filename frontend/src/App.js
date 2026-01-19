@@ -111,6 +111,28 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Periodic vessel fetch (backup for when WebSocket isn't providing updates)
+  useEffect(() => {
+    const fetchVessels = async () => {
+      try {
+        const response = await fetch(`${API}/vessels`);
+        if (response.ok) {
+          const data = await response.json();
+          setVessels(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch vessels:", error);
+      }
+    };
+
+    // Fetch immediately on mount
+    fetchVessels();
+    
+    // Then poll every 5 seconds
+    const interval = setInterval(fetchVessels, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Fetch race analysis periodically
   useEffect(() => {
     const fetchRaceAnalysis = async () => {

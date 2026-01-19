@@ -52,11 +52,60 @@ export default function Dashboard({
   const [editRM, setEditRM] = useState("");
   const [editSpeed, setEditSpeed] = useState("");
   const [editCourse, setEditCourse] = useState("");
+  
+  // Auto next lock tracking
+  const [autoNextLock, setAutoNextLock] = useState(false);
 
   // Find user vessel
   const userVessel = useMemo(() => {
     return vessels.find(v => v.mmsi === userMmsi || v.is_user_vessel);
   }, [vessels, userMmsi]);
+
+  // Calculate next lock based on vessel position and heading
+  const nextLock = useMemo(() => {
+    if (!userVessel || !userVessel.river_mile || !locks.length) return null;
+    
+    const userRM = userVessel.river_mile;
+    const heading = userVessel.heading;
+    
+    // Sort locks by river mile
+    const sortedLocks = [...locks].sort((a, b) => a.river_mile - b.river_mile);
+    
+    if (heading === 'southbound') {
+      // Going downriver (decreasing RM) - find nearest lock with RM < user's RM
+      for (let i = sortedLocks.length - 1; i >= 0; i--) {
+        if (sortedLocks[i].river_mile < userRM) {
+          return sortedLocks[i];
+        }
+      }
+    } else if (heading === 'northbound') {
+      // Going upriver (increasing RM) - find nearest lock with RM > user's RM
+      for (let i = 0; i < sortedLocks.length; i++) {
+        if (sortedLocks[i].river_mile > userRM) {
+          return sortedLocks[i];
+        }
+      }
+    }
+    
+    // If no lock found in heading direction, return closest lock
+    let closest = sortedLocks[0];
+    let minDist = Math.abs(sortedLocks[0].river_mile - userRM);
+    for (const lock of sortedLocks) {
+      const dist = Math.abs(lock.river_mile - userRM);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = lock;
+      }
+    }
+    return closest;
+  }, [userVessel, locks]);
+
+  // Auto-update selected lock when autoNextLock is enabled
+  useMemo(() => {
+    if (autoNextLock && nextLock && nextLock.id !== selectedLock) {
+      onSelectLock(nextLock.id);
+    }
+  }, [autoNextLock, nextLock, selectedLock, onSelectLock]);
 
   // Commercial vessels (non-user)
   const commercialVessels = useMemo(() => {

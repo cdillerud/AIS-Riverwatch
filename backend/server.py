@@ -950,6 +950,8 @@ async def set_vessel_name(mmsi: str, data: dict):
         vessel = active_vessels[mmsi]
         if data.get('name'):
             vessel.name = data['name']
+        if data.get('ship_type') is not None:
+            vessel.ship_type = data['ship_type']
     
     return {"success": True, "cached": vessel_static_cache.get(mmsi), "persisted": True}
 

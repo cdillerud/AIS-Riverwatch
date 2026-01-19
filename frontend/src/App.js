@@ -503,6 +503,7 @@ function App() {
                   onOpenSettings={() => setShowSettings(true)}
                   connectionConfig={connectionConfig}
                   userSettings={userSettings}
+                  demoMode={demoMode}
                 />
               ) : (
                 <SetupPage onConnect={handleConnect} />

@@ -192,32 +192,55 @@ export const RiverVisualization = ({
       </div>
 
       {/* Locks */}
-      {visibleLocks.map(lock => (
-        <div
-          key={lock.id}
-          className="absolute left-1/2 transform -translate-x-1/2 z-10"
-          style={{ top: `${getRiverPosition(lock.river_mile)}%` }}
-          data-testid={`lock-marker-${lock.id}`}
-        >
-          <div className={`
-            lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6
-            ${lock.id === selectedLock ? 'border-cyan-400 bg-cyan-500/20' : ''}
-          `}>
-            <Lock className="w-2 h-2 md:w-3 md:h-3 mr-0.5 md:mr-1" />
-            <span>{lock.id.replace('lock_', 'L')}</span>
-          </div>
-          
-          {/* Lock info tooltip - hide on compact */}
-          {!compact && (
-            <div className="absolute left-full ml-2 md:ml-4 top-1/2 -translate-y-1/2 whitespace-nowrap hidden md:block">
-              <div className="glass-panel px-2 md:px-3 py-1 md:py-2 rounded text-xs">
-                <div className="font-semibold text-white">{lock.name}</div>
-                <div className="text-slate-400 font-mono">RM {lock.river_mile}</div>
-              </div>
+      {visibleLocks.map(lock => {
+        // Determine lock border color based on timing status (only for selected lock)
+        const isSelected = lock.id === selectedLock;
+        const analysis = raceAnalysis?.analysis;
+        let lockStatusClass = '';
+        
+        if (isSelected && analysis) {
+          if (analysis.required_speed_mph > 25) {
+            // Can't beat - red
+            lockStatusClass = 'border-red-500 bg-red-500/20 shadow-red-500/30 shadow-lg';
+          } else if (analysis.can_beat_at_25mph && analysis.threatening_vessel) {
+            // Can arrive first - green
+            lockStatusClass = 'border-green-500 bg-green-500/20 shadow-green-500/30 shadow-lg';
+          } else if (!analysis.threatening_vessel) {
+            // No traffic - amber/neutral
+            lockStatusClass = 'border-amber-500 bg-amber-500/20 shadow-amber-500/30 shadow-lg';
+          }
+        } else if (isSelected) {
+          // Selected but no analysis yet
+          lockStatusClass = 'border-cyan-400 bg-cyan-500/20';
+        }
+        
+        return (
+          <div
+            key={lock.id}
+            className="absolute left-1/2 transform -translate-x-1/2 z-10"
+            style={{ top: `${getRiverPosition(lock.river_mile)}%` }}
+            data-testid={`lock-marker-${lock.id}`}
+          >
+            <div className={`
+              lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6
+              ${lockStatusClass}
+            `}>
+              <Lock className="w-2 h-2 md:w-3 md:h-3 mr-0.5 md:mr-1" />
+              <span>{lock.id.replace('lock_', 'L')}</span>
             </div>
-          )}
-        </div>
-      ))}
+            
+            {/* Lock info tooltip - hide on compact */}
+            {!compact && (
+              <div className="absolute left-full ml-2 md:ml-4 top-1/2 -translate-y-1/2 whitespace-nowrap hidden md:block">
+                <div className="glass-panel px-2 md:px-3 py-1 md:py-2 rounded text-xs">
+                  <div className="font-semibold text-white">{lock.name}</div>
+                  <div className="text-slate-400 font-mono">RM {lock.river_mile}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* Vessels */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {

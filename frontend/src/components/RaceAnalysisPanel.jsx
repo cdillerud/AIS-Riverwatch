@@ -40,7 +40,7 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Target className="w-4 h-4 text-cyan-400" />
-              <span className="font-semibold text-white text-sm">Race to Lock</span>
+              <span className="font-semibold text-white text-sm">Lock Timing</span>
             </div>
             {isDangerous ? (
               <Badge className="bg-red-900/50 text-red-300 border border-red-500 text-xs">
@@ -116,7 +116,7 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
         <CardTitle className="text-lg text-white flex items-center justify-between">
           <span className="flex items-center gap-2">
             <Target className="w-5 h-5 text-cyan-400" />
-            Race to Lock
+            Lock Timing
           </span>
           {isDangerous ? (
             <Badge className="bg-red-900/50 text-red-300 border border-red-500">

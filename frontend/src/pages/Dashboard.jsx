@@ -693,7 +693,7 @@ export default function Dashboard({
               }`}
             >
               <Target className="w-4 h-4 mx-auto mb-0.5" />
-              Race
+              Timing
             </button>
             <button
               onClick={() => setMobilePanel("locks")}

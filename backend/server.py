@@ -578,17 +578,43 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     Returns averages for tows vs recreational vessels, plus wait times.
     Uses baseline data from USACE historical statistics plus any observed passages.
     """
-    # Baseline lockage times from USACE historical data (minutes)
-    # Upper Mississippi locks typically take:
-    # - Recreational vessels: 15-25 minutes
-    # - Commercial tows (single cut): 30-45 minutes
-    # - Commercial tows (double lockage for >9 barges): 60-90+ minutes
-    # Wait times vary by traffic - typically 0-60 minutes
+    # Lock-specific baseline data from USACE statistics and studies
+    # Sources: USACE LPMS, Iowa DOT studies, bridgecalculator.com live data
+    # All Upper Mississippi locks are 110' x 600' except Lock 19 (1200') and Lock 26/27
+    # 600' locks require double lockage for 15-barge tows (90-120 min)
+    # Wait times based on traffic volume - busier locks at southern end
     
-    baseline_lockage = {
-        "recreational": {"lockage": 20, "wait": 5},    # Light traffic average
-        "commercial_single": {"lockage": 35, "wait": 15},
-        "commercial_double": {"lockage": 75, "wait": 30}
+    # Lock-specific baselines: {lock_num: {tow_lockage, rec_lockage, tow_wait, rec_wait}}
+    # Traffic increases going south (more commercial traffic)
+    lock_baselines = {
+        1:  {"tow_lockage": 45, "rec_lockage": 15, "tow_wait": 10, "rec_wait": 5},   # Minneapolis - lower traffic
+        2:  {"tow_lockage": 50, "rec_lockage": 15, "tow_wait": 15, "rec_wait": 5},   # Hastings
+        3:  {"tow_lockage": 55, "rec_lockage": 18, "tow_wait": 20, "rec_wait": 8},   # Welch - moderate
+        4:  {"tow_lockage": 60, "rec_lockage": 18, "tow_wait": 25, "rec_wait": 10},  # Alma
+        5:  {"tow_lockage": 55, "rec_lockage": 15, "tow_wait": 15, "rec_wait": 5},   # Winona area - lower
+        "5a": {"tow_lockage": 50, "rec_lockage": 15, "tow_wait": 10, "rec_wait": 0}, # Winona - very low wait
+        6:  {"tow_lockage": 55, "rec_lockage": 18, "tow_wait": 20, "rec_wait": 8},   # Trempealeau
+        7:  {"tow_lockage": 60, "rec_lockage": 18, "tow_wait": 25, "rec_wait": 10},  # La Crescent - busier
+        8:  {"tow_lockage": 60, "rec_lockage": 18, "tow_wait": 30, "rec_wait": 12},  # Genoa
+        9:  {"tow_lockage": 65, "rec_lockage": 20, "tow_wait": 35, "rec_wait": 15},  # Harpers Ferry
+        10: {"tow_lockage": 70, "rec_lockage": 20, "tow_wait": 40, "rec_wait": 15},  # Guttenberg - high traffic
+        11: {"tow_lockage": 70, "rec_lockage": 20, "tow_wait": 45, "rec_wait": 18},  # Dubuque
+        12: {"tow_lockage": 75, "rec_lockage": 20, "tow_wait": 50, "rec_wait": 20},  # Bellevue
+        13: {"tow_lockage": 80, "rec_lockage": 22, "tow_wait": 70, "rec_wait": 25},  # Fulton - high congestion
+        14: {"tow_lockage": 85, "rec_lockage": 22, "tow_wait": 80, "rec_wait": 30},  # Le Claire - very high delays
+        15: {"tow_lockage": 70, "rec_lockage": 18, "tow_wait": 25, "rec_wait": 10},  # Rock Island - aux lock helps
+        16: {"tow_lockage": 75, "rec_lockage": 20, "tow_wait": 55, "rec_wait": 20},  # Muscatine
+        17: {"tow_lockage": 80, "rec_lockage": 20, "tow_wait": 60, "rec_wait": 22},  # New Boston
+        18: {"tow_lockage": 85, "rec_lockage": 22, "tow_wait": 115, "rec_wait": 35}, # Gladstone - very high wait
+        19: {"tow_lockage": 45, "rec_lockage": 12, "tow_wait": 25, "rec_wait": 8},   # Keokuk - 1200' lock, faster
+        20: {"tow_lockage": 90, "rec_lockage": 22, "tow_wait": 90, "rec_wait": 30},  # Canton - high congestion
+        21: {"tow_lockage": 90, "rec_lockage": 22, "tow_wait": 85, "rec_wait": 28},  # Quincy
+        22: {"tow_lockage": 95, "rec_lockage": 25, "tow_wait": 100, "rec_wait": 35}, # Saverton - major bottleneck
+        # Lock 23 was never built
+        24: {"tow_lockage": 95, "rec_lockage": 25, "tow_wait": 95, "rec_wait": 32},  # Clarksville - high delays
+        25: {"tow_lockage": 100, "rec_lockage": 25, "tow_wait": 108, "rec_wait": 38},# Winfield - highest delays
+        26: {"tow_lockage": 50, "rec_lockage": 15, "tow_wait": 70, "rec_wait": 25},  # Alton - 1200' lock
+        27: {"tow_lockage": 55, "rec_lockage": 18, "tow_wait": 72, "rec_wait": 28},  # Chain of Rocks
     }
     
     # Get any observed data from last 7 days

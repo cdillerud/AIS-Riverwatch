@@ -895,6 +895,7 @@ export default function Dashboard({
                   raceAnalysis={raceAnalysis}
                   compact={true}
                   onVesselClick={handleVesselClick}
+                  showVesselNames={userSettings.show_vessel_names !== false}
                 />
               </CardContent>
             </Card>
@@ -928,6 +929,7 @@ export default function Dashboard({
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         compact={true}
                         onVesselClick={handleVesselClick}
+                        showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>
                   </TabsContent>
@@ -940,6 +942,7 @@ export default function Dashboard({
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         compact={true}
                         onVesselClick={handleVesselClick}
+                        showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>
                   </TabsContent>

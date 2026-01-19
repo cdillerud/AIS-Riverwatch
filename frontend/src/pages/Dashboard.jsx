@@ -366,6 +366,27 @@ export default function Dashboard({
                     Settings
                   </Button>
                   
+                  {/* Mobile Refresh Button */}
+                  <Button
+                    variant="outline"
+                    onClick={() => { handleRefresh(); setShowMobileMenu(false); }}
+                    disabled={isRefreshing}
+                    className="border-slate-600 text-slate-300 justify-start"
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    Refresh Data
+                  </Button>
+                  
+                  {/* Full Refresh Button */}
+                  <Button
+                    variant="outline"
+                    onClick={() => { handleFullRefresh(); setShowMobileMenu(false); }}
+                    className="border-amber-500/50 text-amber-400 justify-start"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Full Reload
+                  </Button>
+                  
                   <Button
                     variant="outline"
                     onClick={() => { onResetConnection(); setShowMobileMenu(false); }}

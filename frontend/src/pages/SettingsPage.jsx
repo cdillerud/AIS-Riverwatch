@@ -225,6 +225,8 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const submitManualPosition = async () => {
     const lat = parseFloat(manualLat);
     const lon = parseFloat(manualLon);
+    const speed = parseFloat(manualSpeed) || 0;
+    const course = parseFloat(manualCourse) || 0;
     
     if (isNaN(lat) || isNaN(lon)) {
       toast.error("Please enter valid latitude and longitude values");
@@ -241,9 +243,17 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
       return;
     }
     
+    // Convert speed from MPH to knots for the API
+    const speedKnots = speed * 0.868976;
+    
     try {
-      await sendPositionUpdate(lat, lon, 0, 0, "manual");
-      toast.success("Manual position set!");
+      const result = await sendPositionUpdate(lat, lon, speedKnots, course, "manual");
+      if (result?.vessel) {
+        setLastPositionResult(result.vessel);
+        toast.success(`Position set! River Mile: ${result.vessel.river_mile?.toFixed(1) || 'N/A'}`);
+      } else {
+        toast.success("Manual position set!");
+      }
       setGeoStatus("active");
     } catch (error) {
       toast.error("Failed to set position");

@@ -1106,6 +1106,87 @@ async def get_lock_status(lock_id: str):
         "last_updated": status.last_updated
     }
 
+
+@api_router.get("/locks/lockage-times")
+async def get_all_lockage_times():
+    """Get recent lockage times and running averages for all locks."""
+    # Fetch fresh LPMS data
+    lockage_data = await fetch_lpms_lockage_data()
+    
+    # Get running averages
+    averages = await get_lockage_averages()
+    
+    result = []
+    for lock_id, lock_info in LOCKS.items():
+        recent_lockages = lockage_data.get(lock_id, [])
+        lock_averages = averages.get(lock_id, {})
+        
+        result.append({
+            "lock_id": lock_id,
+            "name": lock_info["name"],
+            "river_mile": lock_info["river_mile"],
+            "recent_lockages": recent_lockages[:10],  # Last 10 lockages
+            "avg_lockage_minutes": lock_averages.get("avg_lockage_minutes"),
+            "avg_tow_lockage_minutes": lock_averages.get("avg_tow_lockage_minutes"),
+            "avg_recreational_lockage_minutes": lock_averages.get("avg_recreational_lockage_minutes"),
+            "sample_count": lock_averages.get("sample_count", 0)
+        })
+    
+    return result
+
+
+@api_router.get("/locks/{lock_id}/lockage-times")
+async def get_lock_lockage_times(lock_id: str):
+    """Get recent lockage times and averages for a specific lock."""
+    if lock_id not in LOCKS:
+        return {"error": "Invalid lock ID"}
+    
+    lock_info = LOCKS[lock_id]
+    lock_num = int(lock_id.replace("lock_", ""))
+    
+    # Fetch LPMS data for this lock
+    lockage_data = await fetch_lpms_lockage_data(lock_num)
+    
+    # Get averages
+    averages = await get_lockage_averages(lock_id)
+    lock_averages = averages.get(lock_id, {})
+    
+    return {
+        "lock_id": lock_id,
+        "name": lock_info["name"],
+        "river_mile": lock_info["river_mile"],
+        "recent_lockages": lockage_data.get(lock_id, []),
+        "avg_lockage_minutes": lock_averages.get("avg_lockage_minutes"),
+        "avg_tow_lockage_minutes": lock_averages.get("avg_tow_lockage_minutes"),
+        "avg_recreational_lockage_minutes": lock_averages.get("avg_recreational_lockage_minutes"),
+        "sample_count": lock_averages.get("sample_count", 0),
+        "tow_sample_count": lock_averages.get("tow_sample_count", 0),
+        "rec_sample_count": lock_averages.get("rec_sample_count", 0)
+    }
+
+
+@api_router.post("/lockage/record")
+async def record_lockage(lock_id: str, vessel_name: str, duration_minutes: float, is_tow: bool = False, barge_count: int = 0, direction: str = "unknown"):
+    """Manually record a lockage time (for when live data isn't available)."""
+    if lock_id not in LOCKS:
+        return {"error": "Invalid lock ID"}
+    
+    record = {
+        "lock_id": lock_id,
+        "vessel_name": vessel_name,
+        "direction": direction,
+        "lockage_duration_minutes": duration_minutes,
+        "barge_count": barge_count,
+        "is_tow": is_tow,
+        "recorded_at": datetime.now(timezone.utc),
+        "source": "manual"
+    }
+    
+    await db.lockage_history.insert_one(record)
+    
+    return {"success": True, "message": "Lockage time recorded", "record": {k: v for k, v in record.items() if k != "_id"}}
+
+
 @api_router.get("/debug/state")
 async def get_debug_state():
     """Get current application state for debugging."""

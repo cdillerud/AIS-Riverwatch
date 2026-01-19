@@ -934,19 +934,24 @@ export default function Dashboard({
                           {getVesselDisplayName(userVessel, userSettings.show_vessel_names !== false)}
                         </Badge>
                         {/* Quick Position Edit - Mobile */}
-                        <Popover open={showPositionEditor} onOpenChange={setShowPositionEditor}>
+                        <Popover open={showPositionEditor} onOpenChange={(open) => {
+                          if (open) {
+                            openPositionEditor();
+                          } else {
+                            setShowPositionEditor(false);
+                          }
+                        }}>
                           <PopoverTrigger asChild>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={openPositionEditor}
                               className="h-6 w-6 p-0 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10"
                               data-testid="quick-position-edit-btn-mobile"
                             >
                               <Edit3 className="w-3 h-3" />
                             </Button>
                           </PopoverTrigger>
-                          <PopoverContent className="w-64 bg-slate-900 border-slate-700" align="end">
+                          <PopoverContent className="w-64 bg-slate-900 border-slate-700" align="end" sideOffset={5}>
                             <div className="space-y-3">
                               <div className="flex items-center justify-between">
                                 <h4 className="text-sm font-medium text-white">Edit Position</h4>

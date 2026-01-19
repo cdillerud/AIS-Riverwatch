@@ -41,7 +41,8 @@ export default function Dashboard({
   onAddDemoVessels,
   onOpenSettings,
   connectionConfig,
-  userSettings = {}
+  userSettings = {},
+  demoMode = false
 }) {
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);

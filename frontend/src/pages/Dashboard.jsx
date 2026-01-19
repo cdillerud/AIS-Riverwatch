@@ -1158,6 +1158,7 @@ export default function Dashboard({
             <LockStatusPanel
               locks={locks}
               lockStatus={lockStatus}
+              lockageTimes={lockageTimes}
               selectedLock={selectedLock}
               onSelectLock={onSelectLock}
               compact={true}

@@ -191,13 +191,12 @@ export const RiverVisualization = ({
         ))}
       </div>
 
-      {/* Locks - positioned on RIGHT side of river */}
+      {/* Locks - positioned on LEFT side aligned with river mile markers */}
       {visibleLocks.map(lock => {
         // Determine lock border color based on timing status (only for selected lock)
         const isSelected = lock.id === selectedLock;
         const analysis = raceAnalysis?.analysis;
         let lockStyle = {};
-        let lockStatusClass = '';
         
         if (isSelected && analysis) {
           if (analysis.required_speed_mph > 25) {
@@ -221,65 +220,52 @@ export const RiverVisualization = ({
             className="absolute z-10"
             style={{ 
               top: `${getRiverPosition(lock.river_mile)}%`,
-              right: compact ? '8px' : '20px',
+              left: compact ? '8px' : '45px',
               transform: 'translateY(-50%)'
             }}
             data-testid={`lock-marker-${lock.id}`}
           >
-            <div className="flex items-center gap-2">
-              <div 
-                className={`lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6 ${lockStatusClass}`}
-                style={lockStyle}
-              >
-                <Lock className="w-2 h-2 md:w-3 md:h-3 mr-0.5 md:mr-1" />
-                <span>{lock.id.replace('lock_', 'L')}</span>
-              </div>
-              
-              {/* Lock info tooltip - show inline on desktop */}
-              {!compact && (
-                <div className="whitespace-nowrap hidden md:block">
-                  <div className="glass-panel px-2 py-1 rounded text-xs">
-                    <div className="font-semibold text-white">{lock.name}</div>
-                    <div className="text-slate-400 font-mono">RM {lock.river_mile}</div>
-                  </div>
-                </div>
-              )}
+            <div 
+              className={`lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6`}
+              style={lockStyle}
+            >
+              <Lock className="w-2 h-2 md:w-3 md:h-3 mr-0.5 md:mr-1" />
+              <span>{lock.id.replace('lock_', 'L')}</span>
             </div>
           </div>
         );
       })}
 
-      {/* Vessels - positioned on LEFT side of river */}
+      {/* Vessels - positioned in CENTER of map */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
         
-        // Position vessels on the left side with slight offset based on heading
-        const headingOffset = vessel.heading === "northbound" ? -8 : 
-                             vessel.heading === "southbound" ? 8 : 0;
+        // Slight vertical offset based on heading to help with overlapping vessels
+        const headingOffset = vessel.heading === "northbound" ? -5 : 
+                             vessel.heading === "southbound" ? 5 : 0;
 
         return (
           <div
             key={vessel.mmsi}
-            className="absolute z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
+            className="absolute left-1/2 transform -translate-x-1/2 z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
             style={{ 
               top: `${topPosition}%`,
-              left: compact ? '8px' : '20px',
-              transform: `translateY(-50%) translateY(${headingOffset}px)`
+              transform: `translate(-50%, calc(-50% + ${headingOffset}px))`
             }}
             data-testid={`vessel-marker-${vessel.mmsi}`}
             onClick={() => onVesselClick(vessel)}
           >
-            <div className="flex items-center gap-2">
-              {/* Vessel pip */}
-              <div className={`
-                vessel-pip relative flex-shrink-0
-                ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
-                hover:scale-125 transition-transform
-              `} />
+            {/* Vessel pip */}
+            <div className={`
+              vessel-pip relative mx-auto
+              ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
+              hover:scale-125 transition-transform
+            `} />
 
-              {/* Vessel info label */}
+            {/* Vessel info label - positioned to the right of center */}
+            <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap">
               <div className={`
                 px-1.5 py-1 rounded text-[10px] leading-tight flex items-center gap-1
                 ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
@@ -296,7 +282,7 @@ export const RiverVisualization = ({
                 </div>
                 <div>
                   <div className="font-semibold">
-                    {compact ? getVesselShortName(vessel, showVesselNames, 12) : getVesselDisplayName(vessel, showVesselNames)}
+                    {compact ? getVesselShortName(vessel, showVesselNames, 10) : getVesselDisplayName(vessel, showVesselNames)}
                   </div>
                   <div className="text-slate-400 font-mono text-[9px]">
                     {speedMph} mph {!compact && `• RM ${vessel.river_mile?.toFixed(1)}`}

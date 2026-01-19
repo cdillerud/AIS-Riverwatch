@@ -685,10 +685,35 @@ export default function Dashboard({
                   <CardTitle className="text-lg text-white flex items-center gap-2">
                     <Navigation className="w-5 h-5 text-cyan-400" />
                     {mapZoomed ? `Around Lock ${selectedLock.replace('lock_', '').toUpperCase()}` : 'Locks 2-10 Overview'}
+                    {autoNextLock && nextLock && (
+                      <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-xs ml-2">
+                        Auto
+                      </Badge>
+                    )}
                   </CardTitle>
                   
                   {/* Lock Selector + Zoom Toggle */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    {/* Auto Next Lock Toggle */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAutoNextLock(!autoNextLock);
+                        if (!autoNextLock && nextLock) {
+                          onSelectLock(nextLock.id);
+                          toast.success(`Auto-tracking: ${nextLock.name}`);
+                        }
+                      }}
+                      className={`border-slate-600 ${autoNextLock ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'text-slate-400'}`}
+                      data-testid="auto-next-lock-btn"
+                      title={nextLock ? `Next lock: ${nextLock.name} (RM ${nextLock.river_mile})` : 'No vessel heading detected'}
+                    >
+                      <Target className="w-4 h-4 mr-1" />
+                      {autoNextLock ? 'Auto' : 'Next'}
+                    </Button>
+                    
+                    {/* Zoom Toggle */}
                     <Button
                       variant="outline"
                       size="sm"
@@ -697,19 +722,23 @@ export default function Dashboard({
                       data-testid="zoom-toggle"
                     >
                       <MapPin className="w-4 h-4 mr-1" />
-                      {mapZoomed ? 'Zoomed' : 'Full Map'}
+                      {mapZoomed ? 'Zoomed' : 'Full'}
                     </Button>
                     
-                    <span className="text-sm text-slate-400">Target:</span>
+                    {/* Manual Lock Selector */}
                     <select
                       value={selectedLock}
-                      onChange={(e) => onSelectLock(e.target.value)}
-                      className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-white text-sm font-mono focus:border-cyan-500 focus:outline-none"
+                      onChange={(e) => {
+                        setAutoNextLock(false); // Disable auto when manually selecting
+                        onSelectLock(e.target.value);
+                      }}
+                      disabled={autoNextLock}
+                      className={`bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm font-mono focus:border-cyan-500 focus:outline-none ${autoNextLock ? 'opacity-50 cursor-not-allowed' : ''}`}
                       data-testid="lock-selector"
                     >
                       {locks.map(lock => (
                         <option key={lock.id} value={lock.id}>
-                          {lock.name} (RM {lock.river_mile})
+                          Lock {lock.id.replace('lock_', '')} (RM {lock.river_mile})
                         </option>
                       ))}
                     </select>

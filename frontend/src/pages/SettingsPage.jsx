@@ -814,6 +814,18 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 />
               </div>
 
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300">Show Vessel Names</Label>
+                  <p className="text-xs text-slate-500">Display vessel names when available (otherwise show MMSI)</p>
+                </div>
+                <Switch
+                  checked={settings.show_vessel_names}
+                  onCheckedChange={(checked) => updateSetting("show_vessel_names", checked)}
+                  data-testid="settings-showvesselnames"
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label className="text-slate-300">
                   Zoom Range: <span className="text-cyan-400 font-mono">±{settings.map_zoom_miles} miles</span>

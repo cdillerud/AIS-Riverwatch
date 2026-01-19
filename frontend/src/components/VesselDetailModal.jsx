@@ -158,12 +158,57 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
                 <span className="text-slate-500">MMSI</span>
                 <div className="font-mono text-white">{vessel.mmsi}</div>
               </div>
-              {vessel.name && (
-                <div>
-                  <span className="text-slate-500">Name</span>
-                  <div className="text-white">{vessel.name}</div>
-                </div>
-              )}
+              
+              {/* Editable Name Field */}
+              <div className="col-span-2">
+                <span className="text-slate-500">Name</span>
+                {isEditingName ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Input
+                      value={editedName}
+                      onChange={(e) => setEditedName(e.target.value)}
+                      placeholder="Enter vessel name"
+                      className="bg-slate-950 border-slate-600 text-white h-8 flex-1"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveVesselName();
+                        if (e.key === 'Escape') cancelEditingName();
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={saveVesselName}
+                      className="bg-green-600 hover:bg-green-700 h-8 px-2"
+                    >
+                      <Check className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={cancelEditingName}
+                      className="border-slate-600 h-8 px-2"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className={vessel.name ? "text-white" : "text-slate-500 italic"}>
+                      {vessel.name || "Unknown - click to add"}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={startEditingName}
+                      className="h-6 px-2 text-slate-400 hover:text-cyan-400"
+                      title="Edit vessel name"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+              
               {vessel.callsign && (
                 <div>
                   <span className="text-slate-500">Call Sign</span>

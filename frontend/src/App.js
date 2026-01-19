@@ -627,6 +627,9 @@ function App() {
                   connectionConfig={connectionConfig}
                   userSettings={userSettings}
                   demoMode={demoMode}
+                  onRefresh={performSoftRefresh}
+                  onFullRefresh={performFullRefresh}
+                  lastRefresh={lastRefresh}
                 />
               ) : (
                 <SetupPage onConnect={handleConnect} />

@@ -25,8 +25,9 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks
   - Shows Tow vs Recreational breakdown
   - Displays both lockage duration and wait times
-  - Uses USACE baseline data (35m tow, 20m rec lockage; 15m tow, 5m rec wait)
-  - Will use observed data as vessels are tracked through locks
+  - Uses USACE baseline data that varies by lock (busier southern locks have higher times)
+  - **Real-time vessel passage tracking** - automatically records actual lockage times as vessels transit
+  - Data stored in MongoDB and incorporated into running averages
   - Direction breakdown (upbound/downbound) available in API
 - ✅ **Touch Gesture Support** - Mobile map now supports drag-to-pan (touch drag up = view south)
 - ✅ **Lock Status on Desktop** - Added Lock Status panel to desktop right sidebar (was mobile-only)

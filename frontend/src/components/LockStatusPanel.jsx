@@ -62,6 +62,7 @@ export const LockStatusPanel = ({ locks, lockStatus, lockageTimes = {}, selected
                 return (
                   <button
                     key={lock.id}
+                    ref={el => lockRefs.current[lock.id] = el}
                     onClick={() => onSelectLock(lock.id)}
                     className={`w-full p-3 text-left transition-colors ${
                       isSelected ? 'bg-cyan-500/10 border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'

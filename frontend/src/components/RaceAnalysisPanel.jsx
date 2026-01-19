@@ -44,15 +44,15 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
             </div>
             {isDangerous ? (
               <Badge className="bg-red-900/50 text-red-300 border border-red-500 text-xs">
-                BLOCKED
+                TRAFFIC DELAY
               </Badge>
             ) : analysis?.can_beat_at_25mph ? (
               <Badge className="bg-green-900/50 text-green-300 border border-green-500 text-xs">
-                CLEAR
+                ARRIVE FIRST
               </Badge>
             ) : (
               <Badge className="bg-slate-700 text-slate-300 text-xs">
-                OPEN
+                NO TRAFFIC
               </Badge>
             )}
           </div>
@@ -121,16 +121,16 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
           {isDangerous ? (
             <Badge className="bg-red-900/50 text-red-300 border border-red-500">
               <AlertTriangle className="w-3 h-3 mr-1" />
-              Will Be Blocked
+              Traffic Delay
             </Badge>
           ) : analysis?.can_beat_at_25mph ? (
             <Badge className="bg-green-900/50 text-green-300 border border-green-500">
               <CheckCircle2 className="w-3 h-3 mr-1" />
-              Clear to Lock
+              Arrive Before Traffic
             </Badge>
           ) : (
             <Badge className="bg-slate-700 text-slate-300">
-              Open Channel
+              No Traffic
             </Badge>
           )}
         </CardTitle>

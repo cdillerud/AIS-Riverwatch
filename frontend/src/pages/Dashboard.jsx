@@ -101,7 +101,7 @@ export default function Dashboard({
   }, [userVessel, locks]);
 
   // Auto-update selected lock when autoNextLock is enabled
-  useMemo(() => {
+  useEffect(() => {
     if (autoNextLock && nextLock && nextLock.id !== selectedLock) {
       onSelectLock(nextLock.id);
     }

@@ -1605,7 +1605,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Load settings and blocked MMSIs from database on startup."""
+    """Load settings, blocked MMSIs, and vessel names from database on startup."""
     global user_mmsi
     
     # Load user MMSI from settings
@@ -1619,6 +1619,9 @@ async def startup_event():
     
     # Load blocked MMSIs
     await load_blocked_mmsi()
+    
+    # Load persisted vessel names (shared across all users)
+    await load_vessel_names_from_db()
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

@@ -248,4 +248,7 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
   );
 };
 
+// Memoize to prevent unnecessary re-renders
+export const LockStatusPanel = memo(LockStatusPanelComponent);
+
 export default LockStatusPanel;

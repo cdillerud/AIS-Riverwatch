@@ -340,7 +340,7 @@ export default function Dashboard({
             </div>
             
             {userVessel ? (
-              <div className="flex items-center gap-6">
+              <div className="flex items-center gap-4 md:gap-6">
                 <div className="text-center">
                   <div className="text-[10px] text-slate-500 uppercase tracking-wider">River Mile</div>
                   <div className="text-lg font-mono text-white">
@@ -353,22 +353,201 @@ export default function Dashboard({
                     {(userVessel.speed * 1.15078).toFixed(1)} <span className="text-xs text-slate-400">MPH</span>
                   </div>
                 </div>
-                <div className="text-center">
+                <div className="text-center hidden sm:block">
                   <div className="text-[10px] text-slate-500 uppercase tracking-wider">Course</div>
                   <div className="text-lg font-mono text-white">
                     {userVessel.course?.toFixed(0)}°
                   </div>
                 </div>
-                <div className="text-center">
+                <div className="text-center hidden md:block">
                   <div className="text-[10px] text-slate-500 uppercase tracking-wider">Direction</div>
                   <div className="text-lg font-semibold text-white capitalize">
                     {userVessel.heading || '--'}
                   </div>
                 </div>
+                
+                {/* Quick Position Edit Button */}
+                <Popover open={showPositionEditor} onOpenChange={setShowPositionEditor}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={openPositionEditor}
+                      className="text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10"
+                      data-testid="quick-position-edit-btn"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 bg-slate-900 border-slate-700" align="end">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-white">Quick Position Edit</h4>
+                        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">
+                          Testing
+                        </Badge>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <div>
+                          <Label className="text-xs text-slate-400">River Mile</Label>
+                          <Input
+                            type="number"
+                            placeholder="830"
+                            value={editRM}
+                            onChange={(e) => setEditRM(e.target.value)}
+                            className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                            data-testid="quick-edit-rm"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs text-slate-400">Speed (MPH)</Label>
+                            <Input
+                              type="number"
+                              placeholder="15"
+                              value={editSpeed}
+                              onChange={(e) => setEditSpeed(e.target.value)}
+                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              data-testid="quick-edit-speed"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-slate-400">Course (°)</Label>
+                            <Input
+                              type="number"
+                              placeholder="180"
+                              value={editCourse}
+                              onChange={(e) => setEditCourse(e.target.value)}
+                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              data-testid="quick-edit-course"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowPositionEditor(false)}
+                          className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={updateQuickPosition}
+                          className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
+                          data-testid="quick-edit-save-btn"
+                        >
+                          <Check className="w-4 h-4 mr-1" />
+                          Update
+                        </Button>
+                      </div>
+                      
+                      <p className="text-[10px] text-slate-500">
+                        0°=North, 180°=South (downriver)
+                      </p>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             ) : (
-              <div className="text-sm text-slate-500">
-                {isConnected ? 'Waiting for your vessel position from AIS feed...' : 'Not connected to AIS'}
+              <div className="flex items-center gap-3">
+                <div className="text-sm text-slate-500">
+                  {isConnected ? 'Waiting for your vessel position from AIS feed...' : 'Not connected to AIS'}
+                </div>
+                {/* Allow setting position even without existing vessel data */}
+                {userMmsi && (
+                  <Popover open={showPositionEditor} onOpenChange={setShowPositionEditor}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditRM("");
+                          setEditSpeed("15");
+                          setEditCourse("180");
+                          setShowPositionEditor(true);
+                        }}
+                        className="text-cyan-400 border-cyan-500/50 hover:bg-cyan-500/10"
+                        data-testid="set-position-btn"
+                      >
+                        <MapPin className="w-4 h-4 mr-1" />
+                        Set Position
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72 bg-slate-900 border-slate-700" align="end">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-medium text-white">Set Your Position</h4>
+                          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">
+                            Testing
+                          </Badge>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <div>
+                            <Label className="text-xs text-slate-400">River Mile</Label>
+                            <Input
+                              type="number"
+                              placeholder="830"
+                              value={editRM}
+                              onChange={(e) => setEditRM(e.target.value)}
+                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-xs text-slate-400">Speed (MPH)</Label>
+                              <Input
+                                type="number"
+                                placeholder="15"
+                                value={editSpeed}
+                                onChange={(e) => setEditSpeed(e.target.value)}
+                                className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-slate-400">Course (°)</Label>
+                              <Input
+                                type="number"
+                                placeholder="180"
+                                value={editCourse}
+                                onChange={(e) => setEditCourse(e.target.value)}
+                                className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowPositionEditor(false)}
+                            className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={updateQuickPosition}
+                            className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
+                          >
+                            <Check className="w-4 h-4 mr-1" />
+                            Set
+                          </Button>
+                        </div>
+                        
+                        <p className="text-[10px] text-slate-500">
+                          0°=North, 180°=South (downriver)
+                        </p>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
               </div>
             )}
           </div>

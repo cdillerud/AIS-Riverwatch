@@ -427,7 +427,8 @@ export const RiverVisualization = ({
       {zoomRange < 500 && !compact && (
         <div className="absolute top-2 left-2 glass-panel px-3 py-2 rounded text-xs text-slate-400">
           <div className="font-mono font-semibold text-slate-300">RM {minRM.toFixed(0)} – {maxRM.toFixed(0)}</div>
-          <div className="text-[10px] text-slate-500 mt-0.5">Scroll to pan</div>
+          <div className="text-[10px] text-slate-500 mt-0.5 hidden md:block">Scroll to pan</div>
+          <div className="text-[10px] text-slate-500 mt-0.5 md:hidden">Drag to pan</div>
         </div>
       )}
 

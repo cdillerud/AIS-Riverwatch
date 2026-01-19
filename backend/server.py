@@ -83,6 +83,13 @@ usace_cache = {
     "cache_duration_seconds": 300  # 5 minutes
 }
 
+# Cache for LPMS lockage times data
+lpms_cache = {
+    "data": {},
+    "last_updated": None,
+    "cache_duration_seconds": 600  # 10 minutes
+}
+
 # Cache for vessel static data (names, ship types, dimensions)
 # AIS sends position data frequently (every 2-10s) but static data only every 6 minutes
 # This cache persists names once we receive them from Type 5 or Type 24 messages

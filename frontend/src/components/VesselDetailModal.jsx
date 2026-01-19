@@ -133,6 +133,7 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
   const isUser = vessel.is_user_vessel;
   const isTow = vessel.is_tow || vessel.barge_count > 0 || 
     (vessel.name && (vessel.name.includes('M/V') || vessel.name.includes('CAPT')));
+  const lockStatus = getVesselLockStatus(vessel);
 
   // Calculate distance to selected lock
   const distanceToLock = selectedLock && vessel.river_mile 

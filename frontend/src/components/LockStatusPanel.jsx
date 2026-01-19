@@ -5,23 +5,35 @@ import {
   Lock, Phone, Clock, AlertTriangle, CheckCircle2, 
   XCircle, Users, ChevronUp, ChevronDown, Timer
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 export const LockStatusPanel = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, compact = false }) => {
   // Refs for auto-scrolling to selected lock
   const lockRefs = useRef({});
-  const scrollAreaRef = useRef(null);
   
   // Auto-scroll to selected lock when it changes
   useEffect(() => {
     if (selectedLock && lockRefs.current[selectedLock]) {
-      // Small delay to ensure DOM is ready
-      setTimeout(() => {
-        lockRefs.current[selectedLock]?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center'
-        });
-      }, 100);
+      // Use requestAnimationFrame for smoother scroll timing
+      requestAnimationFrame(() => {
+        const element = lockRefs.current[selectedLock];
+        if (element) {
+          // Find the scroll container (Radix ScrollArea viewport)
+          const scrollContainer = element.closest('[data-radix-scroll-area-viewport]');
+          if (scrollContainer) {
+            const containerRect = scrollContainer.getBoundingClientRect();
+            const elementRect = element.getBoundingClientRect();
+            const scrollOffset = elementRect.top - containerRect.top - (containerRect.height / 2) + (elementRect.height / 2);
+            scrollContainer.scrollTo({
+              top: scrollContainer.scrollTop + scrollOffset,
+              behavior: 'smooth'
+            });
+          } else {
+            // Fallback to scrollIntoView
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      });
     }
   }, [selectedLock]);
   

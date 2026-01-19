@@ -902,8 +902,8 @@ async def get_vessels():
     """Get all tracked vessels."""
     vessels = []
     for mmsi, vessel in active_vessels.items():
-        # Skip filtered MMSI
-        if mmsi in FILTERED_MMSI:
+        # Skip filtered/blocked MMSI
+        if is_mmsi_blocked(mmsi):
             continue
         v_dict = vessel.model_dump()
         v_dict['timestamp'] = v_dict['timestamp'].isoformat()

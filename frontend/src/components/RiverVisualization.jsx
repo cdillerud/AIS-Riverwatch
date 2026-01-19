@@ -122,8 +122,42 @@ export const RiverVisualization = ({
     return <Minus className="w-3 h-3" />;
   };
 
+  // Handle mouse wheel scroll on map
+  const handleWheel = useCallback((e) => {
+    // Don't scroll if showing full river
+    if (zoomRange >= 500) return;
+    
+    e.preventDefault();
+    
+    // Calculate scroll amount based on current zoom level
+    // Smaller zoom = finer scroll, larger zoom = bigger scroll
+    const scrollSpeed = Math.max(1, zoomRange / 20);
+    const delta = e.deltaY > 0 ? -scrollSpeed : scrollSpeed; // Scroll up = go north (higher RM)
+    
+    setScrollOffset(prev => {
+      const newOffset = prev + delta;
+      // Limit scroll to keep view within river boundaries
+      const maxScroll = FULL_MAX_RM - selectedLockRM - zoomRange;
+      const minScroll = FULL_MIN_RM - selectedLockRM + zoomRange;
+      return Math.max(minScroll, Math.min(maxScroll, newOffset));
+    });
+  }, [zoomRange, selectedLockRM]);
+
+  // Add wheel event listener
+  useEffect(() => {
+    const mapElement = mapRef.current;
+    if (mapElement) {
+      mapElement.addEventListener('wheel', handleWheel, { passive: false });
+      return () => mapElement.removeEventListener('wheel', handleWheel);
+    }
+  }, [handleWheel]);
+
   return (
-    <div className="river-map relative w-full h-full min-h-[400px] md:min-h-[500px] overflow-hidden" data-testid="river-visualization">
+    <div 
+      ref={mapRef}
+      className="river-map relative w-full h-full min-h-[400px] md:min-h-[500px] overflow-hidden cursor-ns-resize" 
+      data-testid="river-visualization"
+    >
       {/* Radar sweep effect */}
       <div className="absolute inset-0 radar-sweep opacity-30 pointer-events-none" />
       

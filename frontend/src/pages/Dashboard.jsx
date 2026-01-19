@@ -409,7 +409,7 @@ export default function Dashboard({
           {isDangerous && (
             <div className="flex items-center gap-1 text-red-400 text-xs font-semibold animate-pulse">
               <AlertTriangle className="w-4 h-4" />
-              CAN'T BEAT
+              BLOCKED
             </div>
           )}
           

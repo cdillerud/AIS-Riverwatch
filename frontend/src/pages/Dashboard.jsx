@@ -318,7 +318,78 @@ export default function Dashboard({
 
         {/* Mobile Quick Stats Bar */}
         <div className="md:hidden border-t border-white/5 px-3 py-2 flex items-center justify-between bg-slate-900/50">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Your Position */}
+            {userVessel ? (
+              <div className="text-center">
+                <div className="text-[10px] text-slate-500 uppercase">Your RM</div>
+                <div className="text-lg font-mono text-cyan-400">
+                  {userVessel.river_mile?.toFixed(1) || '--'}
+                </div>
+              </div>
+            ) : userMmsi ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto py-1 px-2 text-cyan-400 border border-cyan-500/30"
+                    data-testid="set-position-btn-mobile"
+                  >
+                    <MapPin className="w-3 h-3 mr-1" />
+                    <span className="text-xs">Set Pos</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 bg-slate-900 border-slate-700" align="start">
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium text-white">Set Your Position</h4>
+                    <div className="space-y-2">
+                      <div>
+                        <Label className="text-xs text-slate-400">River Mile</Label>
+                        <Input
+                          type="number"
+                          placeholder="830"
+                          value={editRM}
+                          onChange={(e) => setEditRM(e.target.value)}
+                          className="bg-slate-950 border-slate-700 text-white font-mono h-8"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs text-slate-400">Speed (MPH)</Label>
+                          <Input
+                            type="number"
+                            placeholder="15"
+                            value={editSpeed}
+                            onChange={(e) => setEditSpeed(e.target.value)}
+                            className="bg-slate-950 border-slate-700 text-white font-mono h-8"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-slate-400">Course (°)</Label>
+                          <Input
+                            type="number"
+                            placeholder="180"
+                            value={editCourse}
+                            onChange={(e) => setEditCourse(e.target.value)}
+                            className="bg-slate-950 border-slate-700 text-white font-mono h-8"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={updateQuickPosition}
+                      className="w-full bg-cyan-600 hover:bg-cyan-700 text-white h-8"
+                    >
+                      <Check className="w-3 h-3 mr-1" />
+                      Set Position
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            ) : null}
+            
             <div className="text-center">
               <div className="text-[10px] text-slate-500 uppercase">Speed Req</div>
               <div className={`text-lg font-mono font-bold ${isDangerous ? 'text-red-400' : requiredSpeed ? 'text-green-400' : 'text-slate-500'}`}>
@@ -345,13 +416,16 @@ export default function Dashboard({
           {/* Lock Selector - Mobile */}
           <select
             value={selectedLock}
-            onChange={(e) => onSelectLock(e.target.value)}
+            onChange={(e) => {
+              setAutoNextLock(false);
+              onSelectLock(e.target.value);
+            }}
             className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono"
             data-testid="lock-selector-mobile"
           >
             {locks.map(lock => (
               <option key={lock.id} value={lock.id}>
-                Lock {lock.id.replace('lock_', '')}
+                L{lock.id.replace('lock_', '')}
               </option>
             ))}
           </select>

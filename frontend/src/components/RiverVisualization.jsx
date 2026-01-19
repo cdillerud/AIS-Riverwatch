@@ -237,38 +237,34 @@ export const RiverVisualization = ({
         );
       })}
 
-      {/* Vessels - positioned slightly RIGHT of center to avoid lock overlap */}
+      {/* Vessels - dots on CENTER, labels to the RIGHT */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
-        
-        // Offset vessels to the right of center
-        const horizontalOffset = compact ? 35 : 50;
 
         return (
           <div
             key={vessel.mmsi}
-            className="absolute z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
+            className="absolute left-1/2 z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
             style={{ 
               top: `${topPosition}%`,
-              left: `calc(50% + ${horizontalOffset}px)`,
-              transform: 'translateY(-50%)'
+              transform: 'translate(-50%, -50%)'
             }}
             data-testid={`vessel-marker-${vessel.mmsi}`}
             onClick={() => onVesselClick(vessel)}
           >
             <div className="flex items-center gap-2">
-              {/* Vessel pip */}
+              {/* Vessel pip - centered on the line */}
               <div className={`
                 vessel-pip relative flex-shrink-0
                 ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
                 hover:scale-125 transition-transform
               `} />
 
-              {/* Vessel info label */}
+              {/* Vessel info label - to the right of the pip */}
               <div className={`
-                px-1.5 py-1 rounded text-[10px] leading-tight flex items-center gap-1
+                px-1.5 py-1 rounded text-[10px] leading-tight flex items-center gap-1 whitespace-nowrap
                 ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
               `}>
                 {/* Direction arrow */}

@@ -534,7 +534,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 <div className="flex items-center gap-2 mb-3">
                   <MapPin className="w-5 h-5 text-amber-400" />
                   <Label className="text-white font-medium">Manual Position Entry</Label>
+                  <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">
+                    Testing
+                  </Badge>
                 </div>
+                
+                {/* Lat/Lon Row */}
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div className="space-y-1">
                     <Label htmlFor="lat" className="text-slate-400 text-xs">Latitude</Label>
@@ -559,6 +564,35 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                     />
                   </div>
                 </div>
+                
+                {/* Speed/Course Row */}
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="speed" className="text-slate-400 text-xs">Speed (MPH)</Label>
+                    <Input
+                      id="speed"
+                      type="number"
+                      placeholder="0"
+                      value={manualSpeed}
+                      onChange={(e) => setManualSpeed(e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white font-mono text-sm"
+                      data-testid="manual-speed"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="course" className="text-slate-400 text-xs">Course (0-360°)</Label>
+                    <Input
+                      id="course"
+                      type="number"
+                      placeholder="180"
+                      value={manualCourse}
+                      onChange={(e) => setManualCourse(e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white font-mono text-sm"
+                      data-testid="manual-course"
+                    />
+                  </div>
+                </div>
+                
                 <Button
                   onClick={submitManualPosition}
                   disabled={!manualLat || !manualLon}
@@ -570,9 +604,35 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                   <MapPin className="w-4 h-4 mr-1" />
                   Set Position
                 </Button>
+                
+                {/* Result display */}
+                {lastPositionResult && (
+                  <div className="mt-3 p-2 rounded bg-green-950/30 border border-green-500/30 text-sm">
+                    <div className="flex items-center gap-2 text-green-400 font-medium mb-1">
+                      <Navigation className="w-4 h-4" />
+                      Position Set
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="text-slate-400">
+                        River Mile: <span className="text-white font-mono">{lastPositionResult.river_mile?.toFixed(1) || 'N/A'}</span>
+                      </div>
+                      <div className="text-slate-400">
+                        Speed: <span className="text-white font-mono">{((lastPositionResult.speed || 0) * 1.15078).toFixed(1)} MPH</span>
+                      </div>
+                      <div className="text-slate-400">
+                        Heading: <span className="text-white font-mono">{lastPositionResult.heading || 'N/A'}</span>
+                      </div>
+                      <div className="text-slate-400">
+                        Course: <span className="text-white font-mono">{lastPositionResult.course?.toFixed(0) || 0}°</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 <p className="text-xs text-slate-500 mt-2">
-                  Enter coordinates manually for testing or when GPS is unavailable. 
-                  Tip: Lock 2 (Hastings) is at 44.7433, -92.8506
+                  Enter coordinates and speed for testing. Course: 0°=North, 90°=East, 180°=South, 270°=West.
+                  <br />
+                  <span className="text-amber-400/70">Tip:</span> Lock 2 is at RM 815.2 (44.7433, -92.8506), Lock 3 at RM 796.9
                 </p>
               </div>
 

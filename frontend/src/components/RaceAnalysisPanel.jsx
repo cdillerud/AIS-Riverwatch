@@ -270,4 +270,7 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
   );
 };
 
+// Memoize to prevent unnecessary re-renders
+export const RaceAnalysisPanel = memo(RaceAnalysisPanelComponent);
+
 export default RaceAnalysisPanel;

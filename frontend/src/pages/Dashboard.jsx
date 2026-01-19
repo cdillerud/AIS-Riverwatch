@@ -811,6 +811,7 @@ export default function Dashboard({
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         onVesselClick={handleVesselClick}
+                        showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>
                   </TabsContent>
@@ -822,6 +823,7 @@ export default function Dashboard({
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         onVesselClick={handleVesselClick}
+                        showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>
                   </TabsContent>

@@ -23,6 +23,8 @@ import LockStatusPanel from "@/components/LockStatusPanel";
 import VesselDetailModal from "@/components/VesselDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
 
+const API = process.env.REACT_APP_BACKEND_URL + '/api';
+
 export default function Dashboard({ 
   isConnected, 
   vessels, 
@@ -44,6 +46,12 @@ export default function Dashboard({
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [mapZoomed, setMapZoomed] = useState(true); // Default to zoomed view
   const [selectedVessel, setSelectedVessel] = useState(null); // For vessel detail modal
+  
+  // Quick position editor state
+  const [showPositionEditor, setShowPositionEditor] = useState(false);
+  const [editRM, setEditRM] = useState("");
+  const [editSpeed, setEditSpeed] = useState("");
+  const [editCourse, setEditCourse] = useState("");
 
   // Find user vessel
   const userVessel = useMemo(() => {

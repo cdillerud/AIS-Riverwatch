@@ -1284,8 +1284,8 @@ async def websocket_ais(websocket: WebSocket):
                                         if vessel_data and vessel_data.get('mmsi'):
                                             mmsi_parsed = vessel_data['mmsi']
                                             
-                                            # Skip filtered MMSI (test beacons, known noise)
-                                            if mmsi_parsed in FILTERED_MMSI:
+                                            # Skip filtered/blocked MMSI (test beacons, user-blocked)
+                                            if is_mmsi_blocked(mmsi_parsed):
                                                 continue
                                             
                                             # Calculate river mile and heading

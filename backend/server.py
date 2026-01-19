@@ -399,6 +399,29 @@ def estimate_river_mile(lat: float, lon: float) -> float:
     estimated_rm = ref_rm + (lat - ref_lat) * slope
     return round(estimated_rm, 1)
 
+def river_mile_to_coords(rm: float) -> tuple:
+    """
+    Convert a river mile to approximate lat/lon coordinates.
+    This is the reverse of estimate_river_mile().
+    Returns (lat, lon) tuple.
+    """
+    # Using same linear model as estimate_river_mile but reversed
+    # RM = ref_rm + (lat - ref_lat) * slope
+    # lat = ref_lat + (RM - ref_rm) / slope
+    slope = 102.6
+    ref_lat = 44.74
+    ref_rm = 815.2
+    
+    # Average longitude for the Upper Mississippi in this region
+    # Roughly -91.5 to -93.0, we'll use a slight adjustment based on RM
+    ref_lon = -92.0
+    lon_slope = 0.003  # slight eastward drift as you go north
+    
+    lat = ref_lat + (rm - ref_rm) / slope
+    lon = ref_lon + (rm - ref_rm) * lon_slope
+    
+    return (round(lat, 6), round(lon, 6))
+
 def determine_heading(speed: float, course: float) -> str:
     """Determine if vessel is heading northbound or southbound based on course."""
     if speed < 0.5:

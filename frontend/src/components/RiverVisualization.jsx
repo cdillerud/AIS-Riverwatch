@@ -13,8 +13,7 @@ export const RiverVisualization = ({
   selectedLock,
   raceAnalysis,
   compact = false,
-  zoomed = false,
-  zoomRange = 25,
+  zoomRange = 25, // Range in miles (10-500, 500+ = full view)
   onVesselClick = () => {},
   showVesselNames = true
 }) => {
@@ -24,32 +23,32 @@ export const RiverVisualization = ({
     return lock?.river_mile || 815;
   }, [locks, selectedLock]);
 
-  // Calculate the visible river mile range
-  // When zoomed, center on the selected lock with ±zoomRange miles
-  // If we hit the river boundary, shift the window to show the full zoom range
+  // Calculate the visible river mile range based on zoomRange
   const { minRM, maxRM } = useMemo(() => {
-    if (zoomed) {
-      // Use smaller range for mobile/compact view
-      const effectiveRange = compact ? Math.min(zoomRange, 15) : zoomRange;
-      const totalRange = effectiveRange * 2; // Total miles to show
-      let min = selectedLockRM - effectiveRange;
-      let max = selectedLockRM + effectiveRange;
-      
-      // If we exceed the north boundary (high RM), shift window south
-      if (max > FULL_MAX_RM) {
-        max = FULL_MAX_RM;
-        min = Math.max(FULL_MIN_RM, FULL_MAX_RM - totalRange);
-      }
-      // If we exceed the south boundary (low RM), shift window north
-      else if (min < FULL_MIN_RM) {
-        min = FULL_MIN_RM;
-        max = Math.min(FULL_MAX_RM, FULL_MIN_RM + totalRange);
-      }
-      
-      return { minRM: min, maxRM: max };
+    // If zoomRange >= 500, show full river
+    if (zoomRange >= 500) {
+      return { minRM: FULL_MIN_RM, maxRM: FULL_MAX_RM };
     }
-    return { minRM: FULL_MIN_RM, maxRM: FULL_MAX_RM };
-  }, [zoomed, compact, selectedLockRM, zoomRange]);
+    
+    // Otherwise, center on selected lock with ±zoomRange miles
+    const effectiveRange = zoomRange;
+    const totalRange = effectiveRange * 2;
+    let min = selectedLockRM - effectiveRange;
+    let max = selectedLockRM + effectiveRange;
+    
+    // If we exceed the north boundary (high RM), shift window south
+    if (max > FULL_MAX_RM) {
+      max = FULL_MAX_RM;
+      min = Math.max(FULL_MIN_RM, FULL_MAX_RM - totalRange);
+    }
+    // If we exceed the south boundary (low RM), shift window north
+    else if (min < FULL_MIN_RM) {
+      min = FULL_MIN_RM;
+      max = Math.min(FULL_MAX_RM, FULL_MIN_RM + totalRange);
+    }
+    
+    return { minRM: min, maxRM: max };
+  }, [selectedLockRM, zoomRange]);
 
   // Calculate position percentage for a river mile
   const getRiverPosition = (riverMile) => {

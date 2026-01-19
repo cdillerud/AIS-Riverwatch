@@ -279,6 +279,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     };
     loadSettings();
     loadVesselCache();
+    loadBlockedMmsi();
   }, []);
 
   const handleSave = async () => {

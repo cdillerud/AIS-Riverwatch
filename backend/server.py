@@ -1419,6 +1419,23 @@ async def websocket_ais(websocket: WebSocket):
                                             
                                             active_vessels[vessel.mmsi] = vessel
                                             
+                                            # Persist vessel name to database if we got one from AIS
+                                            if vessel_data.get('name') and vessel_data.get('_persist_to_db'):
+                                                try:
+                                                    await db.vessel_names.update_one(
+                                                        {"mmsi": mmsi_parsed},
+                                                        {"$set": {
+                                                            "mmsi": mmsi_parsed,
+                                                            "name": vessel_data['name'],
+                                                            "ship_type": vessel_data.get('ship_type'),
+                                                            "source": "AIS",
+                                                            "updated_at": datetime.now(timezone.utc).isoformat()
+                                                        }},
+                                                        upsert=True
+                                                    )
+                                                except Exception as e:
+                                                    logger.error(f"Failed to persist vessel name to DB: {e}")
+                                            
                                             # Send update to client
                                             v_dict = vessel.model_dump()
                                             v_dict['timestamp'] = v_dict['timestamp'].isoformat()

@@ -855,9 +855,87 @@ export default function Dashboard({
                   <CardContent className="p-3">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold text-cyan-400">Your Vessel</span>
-                      <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-xs">
-                        {getVesselDisplayName(userVessel, userSettings.show_vessel_names !== false)}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-xs">
+                          {getVesselDisplayName(userVessel, userSettings.show_vessel_names !== false)}
+                        </Badge>
+                        {/* Quick Position Edit - Mobile */}
+                        <Popover open={showPositionEditor} onOpenChange={setShowPositionEditor}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={openPositionEditor}
+                              className="h-6 w-6 p-0 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10"
+                              data-testid="quick-position-edit-btn-mobile"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 bg-slate-900 border-slate-700" align="end">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-medium text-white">Edit Position</h4>
+                                <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">
+                                  Testing
+                                </Badge>
+                              </div>
+                              <div className="space-y-2">
+                                <div>
+                                  <Label className="text-xs text-slate-400">River Mile</Label>
+                                  <Input
+                                    type="number"
+                                    placeholder="830"
+                                    value={editRM}
+                                    onChange={(e) => setEditRM(e.target.value)}
+                                    className="bg-slate-950 border-slate-700 text-white font-mono h-8"
+                                  />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <Label className="text-xs text-slate-400">Speed (MPH)</Label>
+                                    <Input
+                                      type="number"
+                                      placeholder="15"
+                                      value={editSpeed}
+                                      onChange={(e) => setEditSpeed(e.target.value)}
+                                      className="bg-slate-950 border-slate-700 text-white font-mono h-8"
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs text-slate-400">Course (°)</Label>
+                                    <Input
+                                      type="number"
+                                      placeholder="180"
+                                      value={editCourse}
+                                      onChange={(e) => setEditCourse(e.target.value)}
+                                      className="bg-slate-950 border-slate-700 text-white font-mono h-8"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setShowPositionEditor(false)}
+                                  className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800 h-8"
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={updateQuickPosition}
+                                  className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white h-8"
+                                >
+                                  <Check className="w-3 h-3 mr-1" />
+                                  Update
+                                </Button>
+                              </div>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
                     </div>
                     <div className="grid grid-cols-4 gap-2 text-center">
                       <div>

@@ -5,8 +5,9 @@ import {
   Target, AlertTriangle, Gauge, Clock, TrendingUp, 
   CheckCircle2, XCircle, Zap, Navigation 
 } from "lucide-react";
+import { getVesselDisplayName } from "@/utils/vesselDisplay";
 
-export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compact = false }) => {
+export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compact = false, showVesselNames = true }) => {
   const analysis = raceAnalysis?.analysis;
   const threat = analysis?.threatening_vessel;
 

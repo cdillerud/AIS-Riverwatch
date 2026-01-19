@@ -1467,6 +1467,95 @@ async def get_debug_state():
         "filtered_mmsis": list(FILTERED_MMSI),
     }
 
+
+@api_router.get("/lockage/tracking")
+async def get_lockage_tracking():
+    """Get current vessel lock passage tracking state."""
+    tracking_info = {}
+    for mmsi, locks in vessel_lock_tracking.items():
+        if locks:
+            tracking_info[mmsi] = {}
+            for lock_id, data in locks.items():
+                tracking_info[mmsi][lock_id] = {
+                    "state": data.get("state"),
+                    "direction": data.get("direction"),
+                    "vessel_name": data.get("vessel_name"),
+                    "is_tow": data.get("is_tow"),
+                    "arrival_time": data.get("arrival_time").isoformat() if data.get("arrival_time") else None,
+                    "entry_time": data.get("entry_time").isoformat() if data.get("entry_time") else None,
+                    "wait_time_minutes": round(data.get("wait_time_minutes", 0), 1) if data.get("wait_time_minutes") else None,
+                }
+    
+    return {
+        "vessels_being_tracked": len(tracking_info),
+        "tracking": tracking_info
+    }
+
+
+@api_router.get("/lockage/history")
+async def get_lockage_history(lock_id: str = None, days: int = 7):
+    """Get recent lockage history from the database."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    
+    query = {"recorded_at": {"$gte": cutoff}}
+    if lock_id:
+        query["lock_id"] = lock_id
+    
+    records = await db.lockage_history.find(query, {"_id": 0}).sort("recorded_at", -1).to_list(100)
+    
+    # Convert datetime objects to ISO strings
+    for record in records:
+        for key in ["arrival_time", "entry_time", "exit_time", "recorded_at"]:
+            if record.get(key) and isinstance(record[key], datetime):
+                record[key] = record[key].isoformat()
+    
+    return {
+        "count": len(records),
+        "records": records
+    }
+
+
+@api_router.get("/lockage/stats")
+async def get_lockage_stats():
+    """Get summary statistics of recorded lockages."""
+    # Count total records
+    total_count = await db.lockage_history.count_documents({})
+    
+    # Get records from last 7 days
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    recent_count = await db.lockage_history.count_documents({"recorded_at": {"$gte": seven_days_ago}})
+    
+    # Get averages by lock
+    pipeline = [
+        {"$match": {"recorded_at": {"$gte": seven_days_ago}}},
+        {"$group": {
+            "_id": "$lock_id",
+            "count": {"$sum": 1},
+            "avg_lockage": {"$avg": "$lockage_duration_minutes"},
+            "avg_wait": {"$avg": "$wait_time_minutes"},
+            "max_wait": {"$max": "$wait_time_minutes"}
+        }},
+        {"$sort": {"_id": 1}}
+    ]
+    
+    stats_by_lock = await db.lockage_history.aggregate(pipeline).to_list(50)
+    
+    return {
+        "total_records": total_count,
+        "records_last_7_days": recent_count,
+        "by_lock": [
+            {
+                "lock_id": s["_id"],
+                "count": s["count"],
+                "avg_lockage_minutes": round(s["avg_lockage"], 1) if s["avg_lockage"] else None,
+                "avg_wait_minutes": round(s["avg_wait"], 1) if s["avg_wait"] else None,
+                "max_wait_minutes": round(s["max_wait"], 1) if s["max_wait"] else None
+            }
+            for s in stats_by_lock
+        ]
+    }
+
+
 @api_router.post("/connection/test")
 async def test_connection(config: ConnectionConfig):
     """Test AIS TCP connection."""

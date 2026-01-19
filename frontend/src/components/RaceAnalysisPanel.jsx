@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -7,7 +8,7 @@ import {
 } from "lucide-react";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
 
-export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compact = false, showVesselNames = true }) => {
+const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, compact = false, showVesselNames = true }) => {
   const analysis = raceAnalysis?.analysis;
   const threat = analysis?.threatening_vessel;
 

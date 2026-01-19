@@ -60,6 +60,9 @@ const getDirectionIcon = (heading) => {
 };
 
 export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLock }) {
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState("");
+
   if (!vessel) return null;
 
   const speedMph = (vessel.speed * 1.15078).toFixed(1);
@@ -71,6 +74,46 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
   const distanceToLock = selectedLock && vessel.river_mile 
     ? Math.abs(vessel.river_mile - selectedLock.river_mile).toFixed(1)
     : null;
+
+  // Start editing name
+  const startEditingName = () => {
+    setEditedName(vessel.name || "");
+    setIsEditingName(true);
+  };
+
+  // Save vessel name
+  const saveVesselName = async () => {
+    if (!editedName.trim()) {
+      toast.error("Please enter a vessel name");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API}/vessel-cache/${vessel.mmsi}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editedName.trim() })
+      });
+
+      if (response.ok) {
+        toast.success(`Saved name "${editedName.trim()}" for MMSI ${vessel.mmsi}`);
+        setIsEditingName(false);
+        // Update the vessel object locally (will be refreshed on next poll)
+        vessel.name = editedName.trim();
+      } else {
+        toast.error("Failed to save vessel name");
+      }
+    } catch (error) {
+      console.error("Error saving vessel name:", error);
+      toast.error("Failed to save vessel name");
+    }
+  };
+
+  // Cancel editing
+  const cancelEditingName = () => {
+    setIsEditingName(false);
+    setEditedName("");
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>

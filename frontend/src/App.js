@@ -438,6 +438,7 @@ function App() {
     }
     
     toast.success("Demo vessels added");
+    setDemoMode(true);
   };
 
   const handleSettingsUpdate = async (newSettings) => {

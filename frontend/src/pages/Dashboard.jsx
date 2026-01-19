@@ -1052,7 +1052,7 @@ export default function Dashboard({
                   <div className="flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-cyan-400" />
                     <span className="text-sm font-medium text-white">
-                      {mapZoomed ? `Lock ${selectedLock.replace('lock_', '')}` : 'Overview'}
+                      {zoomLevel < 500 ? `±${zoomLevel}mi` : 'Full'}
                     </span>
                     {autoNextLock && (
                       <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-[10px]">
@@ -1060,7 +1060,7 @@ export default function Dashboard({
                       </Badge>
                     )}
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-2">
                     {/* Auto Next Lock - Mobile */}
                     <Button
                       variant="ghost"
@@ -1077,16 +1077,19 @@ export default function Dashboard({
                     >
                       <Target className="w-3 h-3" />
                     </Button>
-                    {/* Zoom Toggle - Mobile */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setMapZoomed(!mapZoomed)}
-                      className={`h-7 px-2 ${mapZoomed ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400'}`}
-                      data-testid="zoom-toggle-mobile"
-                    >
-                      {mapZoomed ? <ZoomIn className="w-3 h-3" /> : <ZoomOut className="w-3 h-3" />}
-                    </Button>
+                    {/* Zoom Slider - Mobile */}
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="range"
+                        min="10"
+                        max="500"
+                        step="10"
+                        value={zoomLevel}
+                        onChange={(e) => setZoomLevel(parseInt(e.target.value))}
+                        className="w-16 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        data-testid="zoom-slider-mobile"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1098,8 +1101,7 @@ export default function Dashboard({
                   selectedLock={selectedLock}
                   raceAnalysis={raceAnalysis}
                   compact={true}
-                  zoomed={mapZoomed}
-                  zoomRange={userSettings.map_zoom_miles || 25}
+                  zoomRange={zoomLevel}
                   onVesselClick={handleVesselClick}
                   showVesselNames={userSettings.show_vessel_names !== false}
                 />

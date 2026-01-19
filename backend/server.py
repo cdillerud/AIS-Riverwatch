@@ -42,6 +42,9 @@ FILTERED_MMSI = {
     "2339005",   # Boat Beacon UK test signal
 }
 
+# User-blocked MMSIs (loaded from database on startup)
+user_blocked_mmsi: set = set()
+
 # Lock positions (River Mile markers) - All Upper Mississippi Locks (1-27, excluding 23 which was never built)
 LOCKS = {
     "lock_1": {"name": "Lock & Dam #1 (Minneapolis)", "river_mile": 847.6, "lat": 44.9178, "lon": -93.2056, "phone": "612-724-2971"},

@@ -1098,6 +1098,77 @@ async def save_settings(data: dict):
         )
     return {"success": True}
 
+# Blocked MMSI Management
+@api_router.get("/blocked-mmsi")
+async def get_blocked_mmsi():
+    """Get list of user-blocked MMSIs."""
+    blocked = await db.blocked_mmsi.find({}, {"_id": 0}).to_list(100)
+    return {
+        "blocked": blocked,
+        "system_filtered": list(FILTERED_MMSI)
+    }
+
+@api_router.post("/blocked-mmsi")
+async def add_blocked_mmsi(data: dict):
+    """Add an MMSI to the block list."""
+    global user_blocked_mmsi
+    
+    mmsi = str(data.get("mmsi", "")).strip()
+    reason = data.get("reason", "User blocked")
+    
+    if not mmsi:
+        return {"success": False, "error": "MMSI required"}
+    
+    # Add to database
+    await db.blocked_mmsi.update_one(
+        {"mmsi": mmsi},
+        {"$set": {
+            "mmsi": mmsi,
+            "reason": reason,
+            "blocked_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+    
+    # Add to in-memory set
+    user_blocked_mmsi.add(mmsi)
+    
+    # Remove from active vessels if present
+    if mmsi in active_vessels:
+        del active_vessels[mmsi]
+        logger.info(f"Removed blocked vessel {mmsi} from active vessels")
+    
+    logger.info(f"Blocked MMSI {mmsi}: {reason}")
+    return {"success": True, "mmsi": mmsi}
+
+@api_router.delete("/blocked-mmsi/{mmsi}")
+async def remove_blocked_mmsi(mmsi: str):
+    """Remove an MMSI from the block list."""
+    global user_blocked_mmsi
+    
+    # Remove from database
+    result = await db.blocked_mmsi.delete_one({"mmsi": mmsi})
+    
+    # Remove from in-memory set
+    user_blocked_mmsi.discard(mmsi)
+    
+    if result.deleted_count > 0:
+        logger.info(f"Unblocked MMSI {mmsi}")
+        return {"success": True, "mmsi": mmsi}
+    else:
+        return {"success": False, "error": "MMSI not found in block list"}
+
+async def load_blocked_mmsi():
+    """Load user-blocked MMSIs from database on startup."""
+    global user_blocked_mmsi
+    blocked = await db.blocked_mmsi.find({}, {"_id": 0}).to_list(100)
+    user_blocked_mmsi = {item["mmsi"] for item in blocked}
+    logger.info(f"Loaded {len(user_blocked_mmsi)} blocked MMSIs from database")
+
+def is_mmsi_blocked(mmsi: str) -> bool:
+    """Check if an MMSI is blocked (system or user)."""
+    return mmsi in FILTERED_MMSI or mmsi in user_blocked_mmsi
+
 # WebSocket for real-time AIS data
 @app.websocket("/ws/ais")
 async def websocket_ais(websocket: WebSocket):

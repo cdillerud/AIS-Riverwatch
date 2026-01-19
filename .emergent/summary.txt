@@ -4,64 +4,81 @@ The user wants to build a local application named River Watch to track vessels o
 **PRODUCT REQUIREMENTS:**
 1.  **AIS/GPS Data Integration:** Connect to a TCP feed to receive and parse AIS and NMEA GPS data.
 2.  **Vessel Tracking:** Display the user's vessel and other commercial vessels on a simplified river map covering all 27 Upper Mississippi locks.
-3.  **Race to the Lock Calculation:** Calculate the required speed for the user's vessel to reach a target lock before a competing commercial vessel, including a configurable time buffer.
+3.  **Lock Timing Calculation:** Calculate the required speed for the user's vessel to reach a target lock before a competing commercial vessel, including a configurable time buffer.
 4.  **Alert System:** Trigger a visual alert if the required speed exceeds the user's boat's maximum speed.
 5.  **Connection Management:** Allow the user to configure and manage connection settings (IP, Port, MMSI).
 6.  **Local Deployment:** Provide a  setup.
 7.  **Persistent Configuration:** A Settings page for persisting vessel MMSI, name, max speed, and other UI preferences.
 8.  **Mobile-Friendly UI:** The application must be responsive.
-9.  **USACE Data Integration:** Fetch and display lock status from the U.S. Army Corps of Engineers.
+9.  **USACE Data Integration:** Fetch and display lock status and historical lockage times from the U.S. Army Corps of Engineers.
 10. **Tow/Barge Estimation:** Identify commercial tows, estimate barge count, and warn about potential DOUBLE LOCK delays.
-11. **Map Features:** Include a map zoom feature and always display the user's vessel.
+11. **Map Features:** Include a map with variable zoom and always display the user's vessel.
 12. **Data Visibility:** Show all available AIS data for any vessel in a detail view and provide a raw data feed for debugging.
 13. **Filtering:** Persistently filter out irrelevant MMSIs.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI (backend) and React (frontend) application. The backend connects to an AIS/GPS feed, parses NMEA sentences, scrapes USACE for lock statuses, and serves data via REST APIs and WebSockets. The frontend is a comprehensive dashboard with a mobile-responsive layout, a river map, a Race to the Lock panel, a Demo Mode, and an extensive Settings page.
+A full-stack FastAPI/React application, River Watch v1.0. The backend connects to an AIS/GPS feed, parses data, and scrapes USACE for lock statuses. It serves data via REST APIs and WebSockets. The frontend is a feature-rich, mobile-responsive dashboard with a river map, Lock Timing panel, Demo Mode, and a Settings page.
 
-Recent additions include a Raw Data debug panel, a Self Position feature (manual entry & geolocation) to bypass AIS self-suppression, a feature to block MMSIs, a quick position editor on the dashboard, an Auto: Next Lock feature, editable vessel names in the detail modal, and persistent vessel names stored in MongoDB.
+Recent work focused heavily on UI/UX refinement, including:
+*   A global setting to toggle between vessel names and MMSIs.
+*   Achieving feature parity between desktop and mobile views (position editor, map controls).
+*   Refining map layout to prevent visual clutter by centering vessel/lock markers and offsetting labels.
+*   Updating application terminology to be more professional (e.g., Lock Timing instead of Race to the Lock).
+*   Adding editable vessel types, dismissible alerts, dynamic lock border colors based on traffic, and vessel direction indicators.
+*   Implementing the backend structure for fetching historical lockage times from USACE LPMS, though the data scraping itself is currently blocked.
 
 **Last working item**:
--   **Last item agent was working**: The user requested a global setting to switch between displaying vessel names and MMSIs. The agent started implementing this by adding a  setting, creating a  utility function, and updating , , and  to use it.
+-   **Last item agent was working**: The user requested two UI changes: replacing the binary map zoom toggle with a multi-level zoom slider, and fixing the commercial vessel markers to be diamond-shaped instead of square. The agent began implementing a  state with a  component in  and started refactoring  to use a numeric zoom range. It also correctly identified that an inline  style was overriding the CSS  required for the diamond shape but did not apply the fix.
 -   **Status**: IN PROGRESS
 -   **Agent Testing Done**: N
--   **Which testing method agent to use?**: Frontend testing agent. Instruct the agent to toggle the Show Vessel Names setting on the Settings page and verify that vessel identifiers (name vs. MMSI) update correctly across the Dashboard, including the map, vessel list, and race panel.
+-   **Which testing method agent to use?**: Frontend testing agent. Instruct the agent to:
+    1.  Test the new zoom slider on both desktop and mobile, verifying that it correctly adjusts the map's visible river mile range.
+    2.  Verify that commercial vessel markers on the map are now rendered as diamonds.
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: User's vessel (MMSI 338414076) does not appear with live data (P0)**
-    -   **Description**: The core problem where the user's own vessel did not appear on the map when connected to their live Boat Beacon feed.
-    -   **Attempted fixes**: Analysis of user-provided raw data confirmed that Boat Beacon intentionally filters the user's own MMSI from the local TCP feed (a common practice called self-suppression). A robust Self Position feature was implemented as a workaround, allowing manual position entry or using the device's GPS.
-    -   **Status**: RESOLVED (via workaround). This is the correct, industry-standard solution.
+-   **Issue 1: Implement Zoom Slider and Fix Vessel Shape (P0)**
+    -   **Description**: User wants a slider for more granular map zoom control and for commercial vessels to be rendered as diamonds, not squares.
+    -   **Status**: IN PROGRESS
+    -   **Is recurring issue?**: N
+    -   **Should Test frontend/backend/both after fix?**: Frontend
+    -   **Blocked on other issue**: None.
+    -   **Attempted fixes**: A  state and  component were added to .  was partially refactored to use a numeric . The cause of the square vessel shape was identified as an inline  style overriding the CSS .
+    -   **Next debug checklist**:
+        1.  In , locate the commercial vessel . Combine the existing  with the required rotation in the inline style: .
+        2.  Complete the refactoring of  to correctly calculate the visible map range (, ) based on the new  prop.
+        3.  Ensure the  component is correctly wired up in  to control the  state for both mobile and desktop views.
+    -   **Why fix this issue?**: To provide the user-requested UI/UX improvements for better map control and accurate vessel representation.
 
 **In progress Task List**:
--   **Task 1: Implement Global Show Vessel Names Setting (P1)**
-    -   **Where to resume**: The agent has updated , , and . The next step is to ensure all other UI elements that display a vessel's identity (e.g., the Your Vessel status bar, mobile views) also respect the  setting. After completing the code changes, build and test the feature.
-    -   **What will be achieved with this?**: The user will have a global toggle in the Settings to consistently display either vessel names (when known) or MMSIs across the entire application.
-    -   **Status**: IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?**: Frontend
-    -   **Blocked on something**: No.
+-   **Task 1: USACE LPMS Integration for Lockage Times (P1)**
+    -   **Description**: Integrate the USACE Lock Performance Monitoring System (LPMS) to fetch and display historical/average lockage times.
+    -   **Status**: BLOCKED
+    -   **Should Test frontend/backend/both after fix?**: Both
+    -   **Blocked on something**: The target USACE website requires JavaScript to render data, which cannot be scraped using . A headless browser (e.g., Playwright, Selenium) is needed, but is not available in the current environment.
+    -   **Where to resume**: The backend () has placeholder scraping logic and API endpoints. The frontend (, ) is wired to display the data. Once the scraping blocker is resolved, the  function in  needs to be rewritten to correctly parse the data.
+    -   **What will be achieved with this?**: The app will display real, data-driven average lockage times, providing valuable insight for trip planning.
 
 **Upcoming and Future Tasks**
 **Upcoming Tasks:**
--   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for CANNOT BEAT alerts. (Files: ).
--   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster name lookups and additional data. (Files: ).
+-   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (Files: ).
+-   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster and more reliable vessel name lookups. (Files: ).
 
 **Future Tasks:**
--   **USACE Lock Wait Time API (P2)**: Replace the web scraper with a real-time API if one becomes available.
+-   **Running Lockage Average (P2)**: Use the data gathered from the (currently blocked) LPMS integration to calculate and display a running average for lockage times.
 -   **Offline Mode (P2)**: Cache data to provide graceful degradation when cellular service is lost.
--   **Multiple Target Locks (P3)**: Enhance the UI to show ETAs to the next 2-3 locks.
+-   **Multiple Target Locks (P3)**: Enhance the UI to show ETAs to the next 2-3 locks simultaneously.
 
 **Completed work in this session**
--   **Raw Data Debug Panel**: Implemented to diagnose the live feed issue.
--   **Self Position Feature**: Added manual position entry (by Lat/Lon or River Mile) and browser geolocation to bypass AIS self-suppression, effectively solving the main blocker.
--   **Manual Position Enhancements**: Added speed and course fields to the manual entry form and an automatic River Mile-to-coordinate converter.
--   **MMSI Blocking**: Implemented a feature to block unwanted MMSIs, with data persisted in MongoDB.
--   **Quick Position Editor**: Added a popover on the Dashboard's Your Vessel bar for quick editing of position, speed, and course.
--   **Auto-Track Next Lock**: Added a feature that automatically selects the next upcoming lock as the race target based on the vessel's heading.
--   **Persistent & Editable Vessel Names**: Migrated the vessel name cache to MongoDB, making it persistent and shared. Added the ability to edit names directly from the Vessel Detail modal.
+-   **Global Show Vessel Names Toggle**: Implemented a global setting to switch between displaying vessel names and MMSIs.
+-   **Mobile Feature Parity & UI Overhaul**: Added quick position editor, map controls, and fixed zoom/labeling issues, bringing the mobile experience in line with desktop. Replaced a non-functional popover with a  component for a better mobile UX.
+-   **UI & Terminology Refinements**: Added the RIVER WATCH v1.0 title, replaced Race with Lock Timing, and updated status badges to more professional terms (Arrive First, Traffic Delay).
+-   **Editable Vessel Type**: The Vessel Detail Modal now allows editing a vessel's type, which is saved to the database.
+-   **Map Enhancements**: Added vessel direction indicators, dynamic border colors on the target lock to reflect timing status, and iteratively improved the layout to reduce clutter.
+-   **Dismissible Alert**: The main Traffic Delay alert can now be closed by the user.
+-   **Demo Mode Indicator**: Changed the connection status indicator to Demo when demo mode is active.
 
 **Earlier issues found/mentioned but not fixed**
 -   None.
@@ -69,79 +86,78 @@ Recent additions include a Raw Data debug panel, a Self Position feature (manual
 **Known issue recurrence from previous fork**
 -   **Issue recurrence in previous fork**: User's vessel not appearing with live data.
 -   **Recurrence count**: High.
--   **Status**: RESOLVED. The root cause was identified as intentional self-suppression by the Boat Beacon app, and a robust workaround (Self Position feature) was successfully implemented.
+-   **Status**: RESOLVED. The root cause was identified as intentional self-suppression by the Boat Beacon app. The Self Position feature is the correct and robust workaround.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend**: FastAPI, , , , , .
--   **Frontend**: React, , , , WebSocket API.
--   **State Management**: React hooks (, ) and component prop drilling. Settings persisted via .
--   **Database**: MongoDB is now used for persisting vessel names and blocked MMSIs.
+-   **Backend**: FastAPI, , WebSockets,  (for scraping), , .
+-   **Frontend**: React, , , .
+-   **State Management**: React Hooks (, ) and prop drilling.
+-   **Database**: MongoDB for persisting vessel names, blocked MMSIs, and lockage data.
 -   **Deployment**: Docker and .
 
 **key DB schema**
 -   **db.vessel_names**: 
 -   **db.blocked_mmsis**: 
+-   **db.lpms_lockages**: 
 
 **changes in tech stack**
--   ****: Added to the backend for MongoDB interaction.
+-   No new dependencies were added.
 
 **All files of reference**
--   : Heavily modified to add new APIs (MMSI blocking, position management), WebSockets (), and MongoDB integration.
--   : Heavily modified to add UI for Self-Positioning, MMSI blocking, and new display settings.
--   : Heavily modified to include the Raw Data panel, a quick position editor, and an auto-track lock feature.
--   : Updated to allow inline editing of vessel names.
--   : New file created to centralize vessel display logic.
--   : Updated for continuous GPS tracking and new global settings.
+-   : Modified to add (non-functional) LPMS scraping logic and API endpoints ().
+-   : Heavily modified to add mobile features, new terminology, the dismissible alert, and the in-progress zoom slider.
+-   : Heavily modified for dynamic lock borders, improved label/marker layouts, and the in-progress zoom refactoring.
+-   : Updated with new terminology (Lock Timing).
+-   : Updated to allow editing of .
+-   : Updated to manage  state and fetch lockage data.
+-   : Updated to display Demo status.
+-   : Minor style additions for vessel shapes.
 
 **Areas that need refactoring**:
--   ****: This monolithic file is now over 1600 lines and urgently needs to be broken down into modules (e.g., , , ).
--   ** & **: These have become very large. Logic should be extracted into custom hooks to improve readability and state management.
+-   ****: Urgently needs to be broken down into modules (e.g., , , ). It is becoming unmanageably large.
+-   ****: This component is over 1200 lines long and handles an excessive amount of state and logic. This should be broken down into smaller components and custom hooks (e.g., , ).
 
 **key api endpoints**
--   : Sets the user's vessel position manually.
--   : Converts a River Mile to lat/lon coordinates.
--   : Retrieves the list of blocked MMSIs.
--   : Adds an MMSI to the blocklist.
--   : Removes an MMSI from the blocklist.
--   : Manually adds/updates a vessel name.
--   : WebSocket for streaming raw NMEA data.
+-   : Manually adds/updates a vessel name and type.
+-   : Retrieves average lockage times (currently returns empty data).
 
 **Critical Info for New Agent**
--   The core issue of the user's vessel not appearing on the map has been definitively diagnosed as AIS self-suppression by the data source. The **Self Position** feature in Settings is the correct and complete solution. Do not attempt to re-debug the live AIS feed for this issue.
--   Vessel names and blocked MMSIs are now persisted in a MongoDB database, making them shared and permanent.
--   You are resuming work on a new global setting to toggle between displaying vessel names and MMSIs. Several components have been updated, but the task is not yet complete or tested.
+-   **LPMS Scraping is BLOCKED**: The USACE website for lockage data requires JavaScript. The current  implementation in  will not work. Do not try to fix it. This requires a tool like Playwright or Selenium, which is unavailable. Manage user expectations about this feature.
+-   **Zoom Implementation is In-Progress**: The switch from a boolean  toggle to a numeric  slider is incomplete. You will need to finish the refactoring in  and .
+-   **Vessel Shape Fix**: The fix for the commercial vessel diamond shape has been identified (inline style override) but not yet implemented. This should be a quick fix in .
+-   The user is highly engaged and focused on UI/UX details. Pay close attention to their feedback on visual elements like layout, spacing, and terminology.
 
 **documents and test reports created in this job**
 -    (updated)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Requested a global setting to toggle between displaying vessel names and MMSIs. (IN PROGRESS)
-2.  **User**: Confirmed the vessel name display should be a global setting. (IN PROGRESS)
-3.  **User**: Requested the ability to add a vessel name from the vessel detail modal. (COMPLETED)
-4.  **User**: Requested that vessel names be stored universally and persist across sessions. (COMPLETED)
-5.  **User**: Requested a feature to automatically set the view to the next lock the vessel is heading towards. (COMPLETED)
-6.  **User**: Requested the ability to edit the vessel's position directly from the dashboard. (COMPLETED)
-7.  **User**: Reported that manual positioning was not working for all river miles. (COMPLETED)
-8.  **User**: Reported that the manual position was not being applied to their vessel. (COMPLETED)
-9.  **User**: Requested to use a River Mile field for manual positioning instead of just lat/lon. (COMPLETED)
-10. **User**: Pointed out that setting a manual position should disable continuous geolocation. (COMPLETED)
+1.  **User**: Requested a zoom slider and diamond-shaped commercial vessel markers. (IN PROGRESS)
+2.  **User**: Reported that the vessel dot was obscuring the label on the map. (FIXED)
+3.  **User**: Requested moving vessel dots to the centerline with labels to the right. (COMPLETED)
+4.  **User**: Reported the zoomed-out map was still messy. (FIXED by increasing marker spacing)
+5.  **User**: Requested offsetting locks to the left and keeping vessels in the center. (COMPLETED, then reverted by user)
+6.  **User**: Reported the map was messy with overlapping labels. (FIXED by offsetting vessels and locks)
+7.  **User**: Asked about adding historical lockage time data from USACE and changing the Offline text in demo mode. (PARTIALLY COMPLETED - text fixed, data scraping is BLOCKED)
+8.  **User**: Asked about connecting the mobile preview to their local network. (ANSWERED - explained limitations and recommended local deployment)
+9.  **User**: Requested to color-code the target lock's border based on timing status. (COMPLETED)
+10. **User**: Requested to make the Traffic Delay alert banner dismissible. (COMPLETED)
 
 **Project Health Check:**
--   **Working**: The application is highly functional, with numerous new features implemented successfully. The primary blocker has been resolved with a robust workaround.
--   **Broken**: The Show Vessel Names feature is mid-implementation and therefore not fully functional.
--   **Mocked**: All data in the cloud environment is generated via Demo Mode.
+-   **Working**: The application is highly functional with a polished and feature-rich UI. The core functionality is stable.
+-   **Broken**: The map zoom functionality is partially broken due to the in-progress refactoring from a toggle to a slider.
+-   **Mocked**: All data is generated via Demo Mode. The new LPMS integration is stubbed but provides no real data.
 
 **3rd Party Integrations**
--   **MongoDB**: Used for persisting  and .
--   **USACE (U.S. Army Corps of Engineers)**: Data acquired by web scraping.
--   **MarineTraffic / Other AIS APIs**: Discussed as a future integration.
+-   **MongoDB**: Used for persisting vessel names, blocked MMSIs, and lockage data.
+-   **USACE**: Data for lock status is acquired via web scraping.
+-   **USACE LPMS**: A second integration for historical lockage times is stubbed out but **non-functional** due to scraping limitations.
 
 **Testing status**
--   **Testing agent used after significant changes**: NO. Most features were tested manually by the agent.
--   **Troubleshoot agent used after agent stuck in loop**: NO.
+-   **Testing agent used after significant changes**: NO
+-   **Troubleshoot agent used after agent stuck in loop**: NO
 -   **Test files created**: None.
 -   **Known regressions**: None.
 
@@ -149,4 +165,4 @@ Recent additions include a Raw Data debug panel, a Self Position feature (manual
 -   No credentials required. Use Demo Mode on the dashboard for testing.
 
 **What agent forgot to execute**
--   The agent did not fully complete the implementation of the Show Vessel Names toggle. It needs to check all UI components where a vessel's identity is shown (including mobile views) and ensure they respect the new setting before testing.</analysis>
+-   The agent did not fully complete the implementation of the zoom slider and the fix for the diamond-shaped vessel icon. It correctly identified the CSS conflict causing the vessel shape issue but did not apply the fix. The refactoring of the zoom logic from a boolean to a numeric level is also unfinished.</analysis>

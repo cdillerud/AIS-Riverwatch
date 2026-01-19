@@ -58,7 +58,6 @@ export const RiverVisualization = ({
     
     return { minRM: min, maxRM: max };
   }, [selectedLockRM, zoomRange, scrollOffset]);
-  }, [selectedLockRM, zoomRange]);
 
   // Calculate position percentage for a river mile
   const getRiverPosition = (riverMile) => {

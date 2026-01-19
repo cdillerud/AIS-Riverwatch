@@ -1171,7 +1171,7 @@ export default function Dashboard({
       </main>
 
       {/* Alert Overlay for Traffic Delay */}
-      {isDangerous && !alertDismissed && (
+      {isDangerous && currentThreatMmsi !== dismissedThreatMmsi && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 animate-bounce">
           <div className="glass-panel border-2 border-red-500 alert-pulse px-6 py-4 rounded-lg flex items-center gap-3">
             <AlertTriangle className="w-6 h-6 text-red-400" />
@@ -1182,7 +1182,7 @@ export default function Dashboard({
               </div>
             </div>
             <button
-              onClick={() => setAlertDismissed(true)}
+              onClick={() => setDismissedThreatMmsi(currentThreatMmsi)}
               className="ml-2 p-1 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
               aria-label="Dismiss alert"
             >

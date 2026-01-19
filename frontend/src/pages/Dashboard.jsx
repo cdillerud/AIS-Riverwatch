@@ -32,6 +32,7 @@ export default function Dashboard({
   userMmsi, 
   locks, 
   lockStatus,
+  lockageTimes = {},
   raceAnalysis,
   selectedLock,
   onSelectLock,

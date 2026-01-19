@@ -2014,6 +2014,9 @@ async def websocket_ais(websocket: WebSocket):
                                             
                                             active_vessels[vessel.mmsi] = vessel
                                             
+                                            # Track vessel passage through locks
+                                            await track_vessel_lock_passage(vessel.model_dump())
+                                            
                                             # Persist vessel name to database if we got one from AIS
                                             if vessel_data.get('name') and vessel_data.get('_persist_to_db'):
                                                 try:

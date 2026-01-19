@@ -47,7 +47,7 @@ export default function Dashboard({
 }) {
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(25); // Zoom range in miles (10, 25, 50, 100, full)
+  const [zoomLevel, setZoomLevel] = useState(20); // Zoom range in miles (10-500)
   const [selectedVessel, setSelectedVessel] = useState(null); // For vessel detail modal
   
   // Quick position editor state
@@ -771,7 +771,7 @@ export default function Dashboard({
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg text-white flex items-center gap-2">
                     <Navigation className="w-5 h-5 text-cyan-400" />
-                    {zoomLevel < 500 ? `±${zoomLevel}mi around Lock ${selectedLock.replace('lock_', '').toUpperCase()}` : 'Full River View'}
+                    River Map
                     {autoNextLock && nextLock && (
                       <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-xs ml-2">
                         Auto
@@ -1051,9 +1051,7 @@ export default function Dashboard({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-cyan-400" />
-                    <span className="text-sm font-medium text-white">
-                      {zoomLevel < 500 ? `±${zoomLevel}mi` : 'Full'}
-                    </span>
+                    <span className="text-sm font-medium text-white">River Map</span>
                     {autoNextLock && (
                       <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-[10px]">
                         Auto

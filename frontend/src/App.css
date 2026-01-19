@@ -70,11 +70,10 @@
 /* Vessel on river viz */
 .vessel-pip {
   position: absolute;
-  left: 50%;
   width: 12px;
   height: 12px;
-  transform: translateX(-50%);
   z-index: 20;
+  /* Note: transform is applied via inline style for precise positioning */
 }
 
 .vessel-pip.user {

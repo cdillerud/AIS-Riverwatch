@@ -62,6 +62,8 @@ const getDirectionIcon = (heading) => {
 export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLock }) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState("");
+  const [isEditingType, setIsEditingType] = useState(false);
+  const [editedType, setEditedType] = useState("");
 
   if (!vessel) return null;
 

@@ -199,7 +199,7 @@ export const RaceAnalysisPanel = ({ raceAnalysis, userVessel, isDangerous, compa
           <div className={`p-4 rounded-lg ${isDangerous ? 'bg-red-900/20 border border-red-500/30' : 'bg-cyan-900/20 border border-cyan-500/30'}`}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs uppercase tracking-wider text-slate-400">
-                Speed Needed to Beat
+                Speed to Arrive First
               </span>
               <span className={`text-xs font-mono ${isDangerous ? 'text-red-400' : 'text-cyan-400'}`}>
                 Max: 25 mph

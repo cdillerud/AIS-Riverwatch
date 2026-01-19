@@ -145,6 +145,14 @@ Build an app that uses an AIS feed via TCP to track vessels on the upper Mississ
   - Browser Geolocation API integration
   - Continuous GPS tracking option
   - Manual lat/lon entry
+  - River Mile to coordinate conversion
+- [x] **Quick Position Editor** - Edit position from dashboard status bar
+- [x] **Auto Next Lock** - Auto-track next lock based on heading
+- [x] **Show Vessel Names Toggle** - Global setting to show names vs MMSIs
+- [x] **Mobile Feature Parity** - All desktop features now on mobile
+- [x] **Editable Vessel Names** - Add/update names from detail modal
+- [x] **MMSI Blocking** - Filter noisy/invalid vessels
+- [x] **MongoDB Integration** - Persistent vessel names & blocked MMSIs
 
 ### P1 (High Priority) - Upcoming
 - [ ] Sound/vibration alerts for "Cannot Beat" scenarios

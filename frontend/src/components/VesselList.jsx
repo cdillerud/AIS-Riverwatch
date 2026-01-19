@@ -274,4 +274,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
   );
 };
 
+// Memoize to prevent unnecessary re-renders
+export const VesselList = memo(VesselListComponent);
+
 export default VesselList;

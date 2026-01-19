@@ -829,10 +829,12 @@ async def track_vessel_lock_passage(vessel: dict):
         
         elif current_state == "in_chamber":
             # Check if vessel has cleared the lock
+            # Use stored direction from tracking state
+            tracked_direction = tracking.get("direction")
             has_cleared = False
-            if direction == "downbound" and distance_to_lock < -LOCK_CLEARED_DISTANCE:
+            if tracked_direction == "downbound" and distance_to_lock < -LOCK_CLEARED_DISTANCE:
                 has_cleared = True
-            elif direction == "upbound" and distance_to_lock > LOCK_CLEARED_DISTANCE:
+            elif tracked_direction == "upbound" and distance_to_lock > LOCK_CLEARED_DISTANCE:
                 has_cleared = True
             
             if has_cleared:

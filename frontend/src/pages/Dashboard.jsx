@@ -835,12 +835,71 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Desktop Grid Layout */}
-        <div className="hidden md:grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Desktop Tabbed Layout */}
+        <div className="hidden md:block">
+          {/* Tab Navigation */}
+          <div className="flex gap-1 mb-4 bg-slate-900/50 p-1 rounded-lg">
+            <button
+              onClick={() => setDesktopPanel("map")}
+              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
+                desktopPanel === "map" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+              }`}
+            >
+              <Navigation className="w-4 h-4 inline mr-2" />
+              Map
+            </button>
+            <button
+              onClick={() => setDesktopPanel("timing")}
+              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
+                desktopPanel === "timing" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+              }`}
+            >
+              <Target className="w-4 h-4 inline mr-2" />
+              Lock Timing
+            </button>
+            <button
+              onClick={() => setDesktopPanel("vessels")}
+              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
+                desktopPanel === "vessels" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+              }`}
+            >
+              <Ship className="w-4 h-4 inline mr-2" />
+              Vessels ({vessels.length})
+            </button>
+            <button
+              onClick={() => setDesktopPanel("locks")}
+              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
+                desktopPanel === "locks" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+              }`}
+            >
+              <Lock className="w-4 h-4 inline mr-2" />
+              Locks
+            </button>
+            <button
+              onClick={() => setDesktopPanel("debug")}
+              className={`px-4 py-2.5 rounded text-sm font-medium transition-colors ${
+                desktopPanel === "debug" 
+                  ? "bg-cyan-500/20 text-cyan-400" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+              }`}
+            >
+              <Terminal className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Tab Content - Only render active panel */}
           
-          {/* Left Panel - River Visualization */}
-          <div className="lg:col-span-8 xl:col-span-9">
-            <Card className="glass-panel hud-border h-full min-h-[600px]" data-testid="river-map-card">
+          {/* Map Panel */}
+          {desktopPanel === "map" && (
+            <Card className="glass-panel hud-border min-h-[600px]" data-testid="river-map-card">
               <CardHeader className="border-b border-white/10 pb-4">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg text-white flex items-center gap-2">
@@ -895,9 +954,132 @@ export default function Dashboard({
                     <select
                       value={selectedLock}
                       onChange={(e) => {
-                        setAutoNextLock(false); // Disable auto when manually selecting
+                        setAutoNextLock(false);
                         onSelectLock(e.target.value);
                       }}
+                      disabled={autoNextLock}
+                      className={`bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm font-mono focus:border-cyan-500 focus:outline-none ${autoNextLock ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      data-testid="lock-selector"
+                    >
+                      {locks.map(lock => (
+                        <option key={lock.id} value={lock.id}>
+                          Lock {lock.id.replace('lock_', '')} (RM {lock.river_mile})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </CardHeader>
+              
+              <CardContent className="p-0 h-[550px]">
+                <RiverVisualization
+                  vessels={vessels}
+                  userMmsi={userMmsi}
+                  locks={locks}
+                  selectedLock={selectedLock}
+                  raceAnalysis={raceAnalysis}
+                  zoomRange={zoomLevel}
+                  onVesselClick={handleVesselClick}
+                  showVesselNames={userSettings.show_vessel_names !== false}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Lock Timing Panel */}
+          {desktopPanel === "timing" && (
+            <RaceAnalysisPanel 
+              raceAnalysis={raceAnalysis}
+              userVessel={userVessel}
+              isDangerous={isDangerous}
+              showVesselNames={userSettings.show_vessel_names !== false}
+            />
+          )}
+
+          {/* Vessels Panel */}
+          {desktopPanel === "vessels" && (
+            <Card className="glass-panel hud-border" data-testid="vessel-list-card">
+              <CardHeader className="border-b border-white/10 pb-3">
+                <CardTitle className="text-lg text-white flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Ship className="w-5 h-5 text-cyan-400" />
+                    Tracked Vessels
+                  </span>
+                  <Badge variant="outline" className="border-cyan-500/50 text-cyan-400">
+                    {vessels.length}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              
+              <CardContent className="p-0">
+                <Tabs defaultValue="all" className="w-full">
+                  <TabsList className="w-full bg-slate-900/50 border-b border-white/10 rounded-none">
+                    <TabsTrigger 
+                      value="all" 
+                      className="flex-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400"
+                    >
+                      All ({vessels.length})
+                    </TabsTrigger>
+                    <TabsTrigger 
+                      value="commercial"
+                      className="flex-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400"
+                    >
+                      Commercial ({commercialVessels.length})
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="all" className="mt-0">
+                    <ScrollArea className="h-[500px]">
+                      <VesselList 
+                        vessels={vessels} 
+                        userMmsi={userMmsi}
+                        selectedLock={locks.find(l => l.id === selectedLock)}
+                        onVesselClick={handleVesselClick}
+                        showVesselNames={userSettings.show_vessel_names !== false}
+                      />
+                    </ScrollArea>
+                  </TabsContent>
+                  
+                  <TabsContent value="commercial" className="mt-0">
+                    <ScrollArea className="h-[500px]">
+                      <VesselList 
+                        vessels={commercialVessels}
+                        userMmsi={userMmsi}
+                        selectedLock={locks.find(l => l.id === selectedLock)}
+                        onVesselClick={handleVesselClick}
+                        showVesselNames={userSettings.show_vessel_names !== false}
+                      />
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Locks Panel */}
+          {desktopPanel === "locks" && (
+            <LockStatusPanel
+              locks={locks}
+              lockStatus={lockStatus}
+              lockageTimes={lockageTimes}
+              selectedLock={selectedLock}
+              onSelectLock={(lockId) => {
+                setAutoNextLock(false);
+                onSelectLock(lockId);
+              }}
+              compact={false}
+            />
+          )}
+
+          {/* Debug Panel */}
+          {desktopPanel === "debug" && (
+            <RawDataPanel 
+              vessels={vessels}
+              raceAnalysis={raceAnalysis}
+              connectionConfig={connectionConfig}
+            />
+          )}
+        </div>
                       disabled={autoNextLock}
                       className={`bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm font-mono focus:border-cyan-500 focus:outline-none ${autoNextLock ? 'opacity-50 cursor-not-allowed' : ''}`}
                       data-testid="lock-selector"

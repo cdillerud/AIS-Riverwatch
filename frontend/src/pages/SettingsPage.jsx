@@ -337,6 +337,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             show_buoys: data.show_buoys === "true",
             lock_buffer_minutes: parseInt(data.lock_buffer_minutes) || 20,
             use_device_gps: data.use_device_gps === "true",
+            show_vessel_names: data.show_vessel_names !== "false",
           }));
         }
       } catch (error) {

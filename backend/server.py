@@ -676,9 +676,9 @@ def estimate_tow_info(vessel_data: dict) -> dict:
     name = (vessel_data.get('shipname', '') or vessel_data.get('name', '') or '').upper()
     
     is_tow = False
-    barge_count = 0
+    barge_count = None  # None means unknown, not 0
     tow_config = None
-    estimated_lockage_time = 30  # Default for small vessels
+    estimated_lockage_time = None
     
     # Check if it's a towing vessel by ship type
     if ship_type in [31, 32, 52]:  # Towing, Towing and length > 200m, Tug
@@ -689,7 +689,7 @@ def estimate_tow_info(vessel_data: dict) -> dict:
     if any(kw in name for kw in tow_keywords):
         is_tow = True
     
-    # Estimate barge count from length if it's a tow
+    # Estimate barge count from length if it's a tow AND we have dimension data
     if is_tow and length > 0:
         # Towboat itself is about 100-200ft (30-60m)
         # Each barge adds ~195ft (59m) in length
@@ -712,15 +712,9 @@ def estimate_tow_info(vessel_data: dict) -> dict:
             barge_count = barges_long * barges_wide
             tow_config = f"{barges_wide}x{barges_long}"
     
-    # If no length data but it's a tow, estimate from vessel type
-    if is_tow and barge_count == 0:
-        # Default assumption for commercial tow
-        barge_count = 6  # Conservative estimate
-        tow_config = "2x3"
-    
-    # Calculate estimated lockage time
-    # Upper Mississippi locks are 600ft - anything over 9 barges requires double lockage
-    if barge_count > 0:
+    # Calculate estimated lockage time based on what we know
+    if barge_count is not None and barge_count > 0:
+        # We have actual barge count estimate
         if barge_count <= 6:
             estimated_lockage_time = 30  # Single cut, quick
         elif barge_count <= 9:
@@ -729,17 +723,20 @@ def estimate_tow_info(vessel_data: dict) -> dict:
             # Double lockage required (>9 barges)
             estimated_lockage_time = 90 + (barge_count - 9) * 5  # Base + extra per barge
     elif is_tow:
+        # It's a tow but we don't have dimension data - DON'T guess barge count
+        # Just estimate lockage time conservatively
         estimated_lockage_time = 45  # Unknown tow, assume medium
+        # Leave barge_count as None to indicate "unknown"
     else:
         # Non-tow vessel
         estimated_lockage_time = 20 if length < 30 else 30
     
     return {
         'is_tow': is_tow,
-        'barge_count': barge_count if barge_count > 0 else None,
-        'tow_config': tow_config,
+        'barge_count': barge_count,  # Will be None if unknown
+        'tow_config': tow_config,  # Will be None if unknown
         'estimated_lockage_time': estimated_lockage_time,
-        'is_double_lockage': barge_count > 9  # Flag for UI
+        'is_double_lockage': barge_count > 9 if barge_count else False
     }
 
 async def fetch_usace_lock_status() -> Dict[str, LockStatus]:

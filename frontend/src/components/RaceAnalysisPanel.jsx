@@ -200,8 +200,8 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           </div>
         )}
 
-        {/* Threatening Vessel */}
-        {threat && (
+        {/* Threatening Vessel (only when in range) */}
+        {!isOutOfRange && threat && (
           <div className="p-3 rounded-lg bg-amber-900/20 border border-amber-500/30">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
@@ -230,8 +230,8 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           </div>
         )}
 
-        {/* Required Speed */}
-        {analysis?.required_speed_mph && (
+        {/* Required Speed (only when in range) */}
+        {!isOutOfRange && analysis?.required_speed_mph && (
           <div className={`p-4 rounded-lg ${isDangerous ? 'bg-red-900/20 border border-red-500/30' : 'bg-cyan-900/20 border border-cyan-500/30'}`}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs uppercase tracking-wider text-slate-400">
@@ -283,8 +283,8 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           </div>
         )}
 
-        {/* No threat state */}
-        {!threat && (
+        {/* No threat state (only when in range) */}
+        {!isOutOfRange && !threat && (
           <div className="p-4 rounded-lg bg-green-900/20 border border-green-500/30 text-center">
             <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto mb-2" />
             <div className="text-green-400 font-semibold">No Traffic</div>
@@ -294,8 +294,8 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           </div>
         )}
 
-        {/* Competitors count */}
-        {raceAnalysis?.competitors?.length > 0 && (
+        {/* Competitors count (only when in range) */}
+        {!isOutOfRange && raceAnalysis?.competitors?.length > 0 && (
           <div className="text-xs text-slate-500 text-center">
             {raceAnalysis.competitors.length} vessel(s) heading to this lock
           </div>

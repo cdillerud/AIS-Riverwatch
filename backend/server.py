@@ -1899,9 +1899,18 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             
                             logger.debug(f"Using USACE data for {mmsi}: {usace_info['num_barges']} barges")
                         else:
-                            # Fall back to AIS-based estimation
+                            # NO USACE data - use AIS-based tow detection only
+                            # IMPORTANT: Clear any stale barge data - only show if USACE confirms
                             tow_info = estimate_tow_info(vessel)
                             vessel.update(tow_info)
+                            # Explicitly ensure no stale data
+                            vessel['barge_count'] = None
+                            vessel['tow_config'] = None
+                            vessel['estimated_lockage_time'] = None
+                            vessel['is_double_lockage'] = False
+                            vessel['usace_source'] = False
+                            vessel['usace_lock'] = None
+                            vessel['usace_status'] = None
                         
                         return vessel
                         

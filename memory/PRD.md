@@ -22,6 +22,9 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 ## What's Been Implemented
 
 ### January 2026 - Latest Session
+- ✅ **Demo Mode Conditional Visibility** - Demo Mode button only appears when MMSI is the default test value (123456789)
+  - Real vessel MMSIs won't see the demo option
+  - Cleaner UI for production use
 - ✅ **Cancel Demo Mode (P0)** - Users can now exit demo mode via "Exit Demo" button
   - Clears all demo vessels from state
   - Resets app to clean "Offline" state ready for live connection

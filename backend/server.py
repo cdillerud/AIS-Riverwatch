@@ -105,8 +105,464 @@ LOCK_CLEARED_DISTANCE = 1.5   # Consider cleared when 1.5 miles past lock
 # This cache persists names once we receive them from Type 5 or Type 24 messages
 vessel_static_cache: Dict[str, dict] = {}
 
-# Global state for AIS connections
-ais_connections: Dict[str, dict] = {}
+
+# =============================================================================
+# AIS Connection Manager - Singleton Pattern
+# =============================================================================
+# This class manages a SINGLE long-lived TCP connection to the AIS feed.
+# All frontend clients share this connection via WebSocket subscriptions.
+# =============================================================================
+
+class AISConnectionManager:
+    """
+    Singleton manager for AIS TCP connection.
+    
+    Key principles:
+    - Exactly ONE TCP connection to the AIS feed at any time
+    - All WebSocket clients share this connection
+    - Automatic reconnection with exponential backoff
+    - Thread-safe state management
+    """
+    
+    def __init__(self):
+        self._socket: Optional[socket.socket] = None
+        self._config: Optional[dict] = None
+        self._connected: bool = False
+        self._reconnect_task: Optional[asyncio.Task] = None
+        self._read_task: Optional[asyncio.Task] = None
+        self._subscribers: set = set()  # WebSocket clients subscribed to updates
+        self._lock = asyncio.Lock()
+        self._should_run: bool = False
+        self._reconnect_delay: float = 1.0  # Start with 1 second
+        self._max_reconnect_delay: float = 60.0  # Max 60 seconds
+        self._buffer: str = ""
+        self._last_data_time: Optional[datetime] = None
+        self._gps_update_count: int = 0
+        
+    @property
+    def is_connected(self) -> bool:
+        return self._connected and self._socket is not None
+    
+    @property
+    def config(self) -> Optional[dict]:
+        return self._config
+    
+    @property
+    def subscriber_count(self) -> int:
+        return len(self._subscribers)
+    
+    def get_status(self) -> dict:
+        """Get current connection status."""
+        return {
+            "connected": self._connected,
+            "config": self._config,
+            "subscriber_count": len(self._subscribers),
+            "last_data_time": self._last_data_time.isoformat() if self._last_data_time else None,
+            "reconnect_delay": self._reconnect_delay
+        }
+    
+    async def configure(self, ip_address: str, port: int, user_mmsi: str = "", boat_name: str = ""):
+        """
+        Configure and start the AIS connection.
+        If already connected with different config, reconnects.
+        """
+        global user_mmsi as global_user_mmsi
+        
+        new_config = {
+            "ip_address": ip_address,
+            "port": port,
+            "user_mmsi": user_mmsi,
+            "boat_name": boat_name
+        }
+        
+        async with self._lock:
+            # Update global user MMSI
+            global_user_mmsi = user_mmsi
+            
+            # Pre-populate user vessel in cache
+            if user_mmsi and boat_name:
+                vessel_static_cache[user_mmsi] = {
+                    'name': boat_name,
+                    'is_user': True
+                }
+                logger.info(f"Pre-cached user vessel: {user_mmsi} = {boat_name}")
+            
+            # Check if config changed
+            if self._config == new_config and self._connected:
+                logger.info("AIS connection already active with same config")
+                return True
+            
+            # Store new config
+            self._config = new_config
+            self._should_run = True
+            self._reconnect_delay = 1.0  # Reset backoff on new config
+            
+            # Start connection
+            await self._connect()
+            
+            return self._connected
+    
+    async def _connect(self):
+        """Internal method to establish TCP connection."""
+        if not self._config:
+            logger.warning("Cannot connect: no config set")
+            return
+        
+        # Close existing socket
+        await self._close_socket()
+        
+        ip = self._config["ip_address"]
+        port = self._config["port"]
+        
+        try:
+            logger.info(f"Connecting to AIS feed at {ip}:{port}...")
+            
+            # Create new socket
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._socket.settimeout(10)  # 10 second connection timeout
+            self._socket.connect((ip, port))
+            self._socket.setblocking(False)
+            
+            self._connected = True
+            self._buffer = ""
+            self._last_data_time = datetime.now(timezone.utc)
+            self._reconnect_delay = 1.0  # Reset backoff on success
+            
+            logger.info(f"✅ Connected to AIS feed at {ip}:{port}")
+            
+            # Notify all subscribers
+            await self._broadcast_status("connected", f"Connected to {ip}:{port}")
+            
+            # Start the read loop if not already running
+            if self._read_task is None or self._read_task.done():
+                self._read_task = asyncio.create_task(self._read_loop())
+                
+        except socket.timeout:
+            logger.error(f"Connection timeout to {ip}:{port}")
+            self._connected = False
+            await self._broadcast_status("error", f"Connection timeout to {ip}:{port}")
+            await self._schedule_reconnect()
+            
+        except ConnectionRefusedError:
+            logger.error(f"Connection refused by {ip}:{port}")
+            self._connected = False
+            await self._broadcast_status("error", f"Connection refused by {ip}:{port}")
+            await self._schedule_reconnect()
+            
+        except Exception as e:
+            logger.error(f"Failed to connect to AIS feed: {e}")
+            self._connected = False
+            await self._broadcast_status("error", f"Connection failed: {str(e)}")
+            await self._schedule_reconnect()
+    
+    async def _close_socket(self):
+        """Safely close the TCP socket."""
+        if self._socket:
+            try:
+                self._socket.close()
+            except Exception as e:
+                logger.debug(f"Error closing socket: {e}")
+            finally:
+                self._socket = None
+                self._connected = False
+    
+    async def _schedule_reconnect(self):
+        """Schedule a reconnection attempt with exponential backoff."""
+        if not self._should_run:
+            return
+        
+        # Cancel any existing reconnect task
+        if self._reconnect_task and not self._reconnect_task.done():
+            return  # Already scheduled
+        
+        async def reconnect_after_delay():
+            logger.info(f"Scheduling reconnect in {self._reconnect_delay:.1f}s...")
+            await asyncio.sleep(self._reconnect_delay)
+            
+            # Increase backoff for next time (exponential with cap)
+            self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
+            
+            if self._should_run:
+                await self._connect()
+        
+        self._reconnect_task = asyncio.create_task(reconnect_after_delay())
+    
+    async def _read_loop(self):
+        """Main loop for reading AIS data from the TCP socket."""
+        logger.info("Starting AIS read loop")
+        
+        while self._should_run and self._connected:
+            try:
+                # Try to read data (non-blocking)
+                try:
+                    if not self._socket:
+                        break
+                        
+                    chunk = self._socket.recv(4096).decode('ascii', errors='ignore')
+                    
+                    if not chunk:
+                        # Empty read = connection closed by remote
+                        logger.warning("AIS connection closed by remote host")
+                        self._connected = False
+                        await self._broadcast_status("disconnected", "Connection closed by remote host")
+                        await self._schedule_reconnect()
+                        break
+                    
+                    self._buffer += chunk
+                    self._last_data_time = datetime.now(timezone.utc)
+                    
+                    # Process complete lines
+                    while '\n' in self._buffer:
+                        line, self._buffer = self._buffer.split('\n', 1)
+                        line = line.strip()
+                        
+                        if line:
+                            await self._process_line(line)
+                            
+                except BlockingIOError:
+                    # No data available right now, that's fine
+                    pass
+                except socket.error as e:
+                    if e.errno == 11:  # EAGAIN/EWOULDBLOCK
+                        pass
+                    else:
+                        raise
+                
+                # Small sleep to prevent CPU spinning
+                await asyncio.sleep(0.05)
+                
+                # Check for stale connection (no data for 60 seconds)
+                if self._last_data_time:
+                    data_age = (datetime.now(timezone.utc) - self._last_data_time).total_seconds()
+                    if data_age > 60:
+                        logger.warning(f"No AIS data received for {data_age:.0f}s, reconnecting...")
+                        self._connected = False
+                        await self._broadcast_status("disconnected", "Connection stale - no data received")
+                        await self._schedule_reconnect()
+                        break
+                
+            except Exception as e:
+                logger.error(f"Error in AIS read loop: {e}")
+                self._connected = False
+                await self._broadcast_status("error", f"Read error: {str(e)}")
+                await self._schedule_reconnect()
+                break
+        
+        logger.info("AIS read loop ended")
+    
+    async def _process_line(self, line: str):
+        """Process a single NMEA/AIS line."""
+        global user_mmsi
+        
+        # Broadcast raw line to debug subscribers
+        await broadcast_raw_line(line)
+        
+        # Log raw data for debugging (first 100 chars)
+        if len(line) > 5:
+            logger.debug(f"Raw NMEA: {line[:100]}")
+        
+        user_mmsi_local = self._config.get("user_mmsi", "") if self._config else ""
+        boat_name = self._config.get("boat_name", "") if self._config else ""
+        
+        # First try to parse as GPS (for user's own position)
+        gps_data = parse_nmea_gps(line)
+        if gps_data and user_mmsi_local:
+            # Update user vessel from GPS data
+            rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
+            heading = determine_heading(gps_data['speed'], gps_data['course'])
+            
+            # Get name from cache or settings
+            vessel_name = boat_name
+            if user_mmsi_local in vessel_static_cache:
+                vessel_name = vessel_static_cache[user_mmsi_local].get('name', boat_name)
+            
+            vessel = VesselPosition(
+                mmsi=user_mmsi_local,
+                name=vessel_name,
+                lat=gps_data['lat'],
+                lon=gps_data['lon'],
+                speed=gps_data['speed'],
+                course=gps_data['course'],
+                river_mile=rm,
+                heading=heading,
+                is_user_vessel=True,
+                vessel_type='recreational',
+            )
+            
+            active_vessels[user_mmsi_local] = vessel
+            
+            # Throttle GPS updates (send every 5th)
+            self._gps_update_count += 1
+            if self._gps_update_count % 5 == 0:
+                v_dict = vessel.model_dump()
+                v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+                v_dict['source'] = 'GPS'
+                await self._broadcast_vessel_update(v_dict)
+            return
+        
+        # Then try to parse as AIS
+        vessel_data = parse_nmea_ais(line)
+        
+        if vessel_data and vessel_data.get('mmsi'):
+            mmsi_parsed = vessel_data['mmsi']
+            
+            # Skip filtered/blocked MMSI
+            if is_mmsi_blocked(mmsi_parsed):
+                return
+            
+            # Calculate river mile and heading
+            rm = estimate_river_mile(vessel_data['lat'], vessel_data['lon'])
+            heading = determine_heading(vessel_data['speed'], vessel_data['course'])
+            
+            # Preserve existing name if new data doesn't have one
+            vessel_name = vessel_data.get('name', '')
+            if not vessel_name and mmsi_parsed in active_vessels:
+                vessel_name = active_vessels[mmsi_parsed].name
+            
+            # Determine if this is the user's vessel
+            is_user = (mmsi_parsed == user_mmsi_local) or vessel_data.get('is_own_vessel', False)
+            
+            vessel = VesselPosition(
+                mmsi=mmsi_parsed,
+                name=vessel_name,
+                lat=vessel_data['lat'],
+                lon=vessel_data['lon'],
+                speed=vessel_data['speed'],
+                course=vessel_data['course'],
+                river_mile=rm,
+                heading=heading,
+                is_user_vessel=is_user,
+                vessel_type=vessel_data.get('vessel_type', 'unknown'),
+                ship_type=vessel_data.get('ship_type'),
+                length=vessel_data.get('length'),
+                width=vessel_data.get('width'),
+                draught=vessel_data.get('draught'),
+                is_tow=vessel_data.get('is_tow', False),
+                barge_count=vessel_data.get('barge_count'),
+                tow_config=vessel_data.get('tow_config'),
+                estimated_lockage_time=vessel_data.get('estimated_lockage_time'),
+                turn_rate=vessel_data.get('turn_rate'),
+                nav_status=vessel_data.get('nav_status'),
+                nav_status_text=vessel_data.get('nav_status_text'),
+                destination=vessel_data.get('destination'),
+                callsign=vessel_data.get('callsign'),
+                imo=vessel_data.get('imo'),
+                eta=vessel_data.get('eta'),
+            )
+            
+            # Auto-detect user vessel MMSI
+            if vessel_data.get('is_own_vessel') and not user_mmsi_local:
+                user_mmsi = mmsi_parsed
+                if self._config:
+                    self._config["user_mmsi"] = mmsi_parsed
+                logger.info(f"Auto-detected user vessel MMSI: {mmsi_parsed}")
+            
+            active_vessels[vessel.mmsi] = vessel
+            
+            # Track vessel passage through locks
+            await track_vessel_lock_passage(vessel.model_dump())
+            
+            # Persist vessel name to database if we got one from AIS
+            if vessel_data.get('name') and vessel_data.get('_persist_to_db'):
+                try:
+                    await db.vessel_names.update_one(
+                        {"mmsi": mmsi_parsed},
+                        {"$set": {
+                            "mmsi": mmsi_parsed,
+                            "name": vessel_data['name'],
+                            "ship_type": vessel_data.get('ship_type'),
+                            "source": "AIS",
+                            "updated_at": datetime.now(timezone.utc).isoformat()
+                        }},
+                        upsert=True
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to persist vessel name to DB: {e}")
+            
+            # Broadcast update to all subscribers
+            v_dict = vessel.model_dump()
+            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+            v_dict['source'] = 'AIS'
+            await self._broadcast_vessel_update(v_dict)
+    
+    async def _broadcast_status(self, status_type: str, message: str):
+        """Broadcast connection status to all subscribers."""
+        msg = {"type": status_type, "message": message}
+        disconnected = set()
+        
+        for ws in self._subscribers:
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                disconnected.add(ws)
+        
+        self._subscribers -= disconnected
+    
+    async def _broadcast_vessel_update(self, vessel_dict: dict):
+        """Broadcast vessel update to all subscribers."""
+        msg = {"type": "vessel_update", "vessel": vessel_dict}
+        disconnected = set()
+        
+        for ws in self._subscribers:
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                disconnected.add(ws)
+        
+        self._subscribers -= disconnected
+    
+    async def subscribe(self, websocket: WebSocket):
+        """Add a WebSocket client as a subscriber."""
+        self._subscribers.add(websocket)
+        logger.info(f"WebSocket subscribed. Total subscribers: {len(self._subscribers)}")
+        
+        # Send current status
+        if self._connected:
+            await websocket.send_json({
+                "type": "connected",
+                "message": f"Connected to {self._config['ip_address']}:{self._config['port']}" if self._config else "Connected"
+            })
+        else:
+            await websocket.send_json({
+                "type": "disconnected",
+                "message": "Not connected to AIS feed"
+            })
+        
+        # Send current vessel list
+        vessels = []
+        for mmsi, vessel in active_vessels.items():
+            v_dict = vessel.model_dump()
+            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+            vessels.append(v_dict)
+        await websocket.send_json({"type": "vessels", "vessels": vessels})
+    
+    async def unsubscribe(self, websocket: WebSocket):
+        """Remove a WebSocket client from subscribers."""
+        self._subscribers.discard(websocket)
+        logger.info(f"WebSocket unsubscribed. Total subscribers: {len(self._subscribers)}")
+    
+    async def disconnect(self):
+        """Disconnect from AIS feed and stop all tasks."""
+        logger.info("Disconnecting AIS connection manager...")
+        self._should_run = False
+        
+        # Cancel tasks
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
+        if self._read_task and not self._read_task.done():
+            self._read_task.cancel()
+        
+        # Close socket
+        await self._close_socket()
+        
+        # Notify subscribers
+        await self._broadcast_status("disconnected", "Disconnected from AIS feed")
+        
+        logger.info("AIS connection manager disconnected")
+
+
+# Global singleton instance
+ais_manager = AISConnectionManager()
 
 # Models
 class ConnectionConfig(BaseModel):

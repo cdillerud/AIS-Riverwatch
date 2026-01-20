@@ -565,9 +565,14 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
               <h3 className="text-sm font-semibold text-amber-400 mb-3 flex items-center gap-2">
                 <Box className="w-4 h-4" />
                 Tow Information
+                {vessel.usace_source && (
+                  <Badge className="bg-green-900/30 text-green-400 border-green-500/30 text-xs ml-2">
+                    USACE Verified
+                  </Badge>
+                )}
               </h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {vessel.barge_count ? (
+                {vessel.barge_count !== null && vessel.barge_count !== undefined ? (
                   <div>
                     <span className="text-slate-500">Barge Count</span>
                     <div className="text-amber-400 font-semibold text-lg">{vessel.barge_count}</div>
@@ -596,6 +601,12 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
                       <Timer className="w-4 h-4 text-amber-400" />
                       <span className="text-white">{vessel.estimated_lockage_time} min</span>
                     </div>
+                  </div>
+                )}
+                {vessel.usace_lock && (
+                  <div>
+                    <span className="text-slate-500">At Lock</span>
+                    <div className="text-white">Lock {vessel.usace_lock.replace('lock_', '')}</div>
                   </div>
                 )}
                 {vessel.barge_count > 9 && (

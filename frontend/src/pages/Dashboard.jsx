@@ -255,7 +255,6 @@ export default function Dashboard({
                 isConnected={isConnected} 
                 config={connectionConfig}
                 compact={true}
-                demoMode={demoMode}
               />
             </div>
             

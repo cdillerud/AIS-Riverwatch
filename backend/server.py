@@ -2320,7 +2320,7 @@ async def load_vessel_names_from_db():
 
 @api_router.get("/vessels")
 async def get_vessels():
-    """Get all tracked vessels."""
+    """Get all tracked vessels, enriched with USACE lock queue data."""
     vessels = []
     for mmsi, vessel in active_vessels.items():
         # Skip filtered/blocked MMSI
@@ -2328,6 +2328,37 @@ async def get_vessels():
             continue
         v_dict = vessel.model_dump()
         v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+        
+        # Enrich with USACE data if available
+        usace_info = get_usace_vessel_info(mmsi)
+        if usace_info and usace_info.get('num_barges') is not None:
+            v_dict['barge_count'] = usace_info['num_barges']
+            v_dict['is_tow'] = usace_info['num_barges'] > 0 or v_dict.get('is_tow', False)
+            v_dict['usace_source'] = True
+            v_dict['usace_lock'] = usace_info.get('lock_id')
+            v_dict['usace_status'] = usace_info.get('status')
+            
+            # Calculate lockage time from actual barge count
+            bc = usace_info['num_barges']
+            if bc <= 6:
+                v_dict['estimated_lockage_time'] = 30
+            elif bc <= 9:
+                v_dict['estimated_lockage_time'] = 45
+            else:
+                v_dict['estimated_lockage_time'] = 90 + (bc - 9) * 5
+            v_dict['is_double_lockage'] = bc > 9
+            
+            # Estimate tow config from barge count
+            if bc > 0:
+                if bc <= 6:
+                    v_dict['tow_config'] = f"2x{(bc+1)//2}"
+                elif bc <= 9:
+                    v_dict['tow_config'] = f"3x{(bc+2)//3}"
+                else:
+                    v_dict['tow_config'] = f"3x{(bc+2)//3}+"
+            else:
+                v_dict['tow_config'] = None
+        
         vessels.append(v_dict)
     return vessels
 

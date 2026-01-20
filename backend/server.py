@@ -2590,8 +2590,8 @@ async def update_user_position(data: dict):
     
     logger.info(f"User position updated via {source}: lat={lat:.4f}, lon={lon:.4f}, RM={rm:.1f}")
     
-    v_dict = vessel.model_dump()
-    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+    # Use prepare_vessel_for_output to ensure clean data
+    v_dict = prepare_vessel_for_output(vessel, user_mmsi)
     v_dict['source'] = source
     
     return {"success": True, "vessel": v_dict}

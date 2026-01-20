@@ -895,11 +895,25 @@ def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional
     """
     Get USACE lock queue info for a vessel by MMSI or name.
     Returns barge count and other data from the authoritative USACE source.
+    
+    IMPORTANT: Only returns data for vessels ACTIVELY at a lock (waiting or locking).
+    Completed lockages are filtered out to prevent stale barge counts from
+    being displayed for vessels that have moved on.
     """
+    def is_valid_active_lockage(info: dict) -> bool:
+        """Check if this is an active lockage record we should use."""
+        if not info:
+            return False
+        # Only use waiting or locking records - skip completed
+        status = info.get('status')
+        if status == 'completed':
+            return False
+        return True
+    
     # Try MMSI first
     if mmsi and usace_lock_queue_cache.get("data"):
         info = usace_lock_queue_cache["data"].get(mmsi)
-        if info:
+        if info and is_valid_active_lockage(info):
             return info
     
     # Fall back to name matching
@@ -911,7 +925,9 @@ def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional
         
         # Direct lookup with normalized name
         if search_name in data_by_name:
-            return data_by_name[search_name]
+            info = data_by_name[search_name]
+            if is_valid_active_lockage(info):
+                return info
         
         # Try without common prefixes
         search_without_prefix = search_name
@@ -921,10 +937,14 @@ def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional
                 break
         
         if search_without_prefix in data_by_name:
-            return data_by_name[search_without_prefix]
+            info = data_by_name[search_without_prefix]
+            if is_valid_active_lockage(info):
+                return info
         
         # Fuzzy matching: iterate through all USACE names and compare normalized versions
         for usace_name, info in data_by_name.items():
+            if not is_valid_active_lockage(info):
+                continue
             # Normalize USACE name the same way
             usace_normalized = usace_name.upper().replace('-', ' ').replace('/', ' ').strip()
             if usace_normalized == search_name:

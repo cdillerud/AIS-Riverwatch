@@ -277,29 +277,33 @@ export default function Dashboard({
                 </Button>
               )}
               
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onAddDemoVessels}
-                className="border-slate-600 text-slate-300 hover:bg-slate-800"
-                data-testid="demo-vessels-btn"
-              >
-                <Play className="w-4 h-4 mr-1" />
-                Demo Mode
-              </Button>
-              
-              {/* Exit Demo Button - only show when in demo mode */}
-              {demoMode && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onClearDemo}
-                  className="border-red-500/50 text-red-400 hover:bg-red-500/10"
-                  data-testid="exit-demo-btn"
-                >
-                  <X className="w-4 h-4 mr-1" />
-                  Exit Demo
-                </Button>
+              {/* Demo Mode buttons - only show when using default test MMSI */}
+              {userMmsi === "123456789" && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onAddDemoVessels}
+                    className="border-slate-600 text-slate-300 hover:bg-slate-800"
+                    data-testid="demo-vessels-btn"
+                  >
+                    <Play className="w-4 h-4 mr-1" />
+                    Demo Mode
+                  </Button>
+                  
+                  {demoMode && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onClearDemo}
+                      className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+                      data-testid="exit-demo-btn"
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      Exit Demo
+                    </Button>
+                  )}
+                </>
               )}
               
               <Button

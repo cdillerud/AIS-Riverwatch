@@ -161,7 +161,7 @@ class AISConnectionManager:
             "reconnect_delay": self._reconnect_delay
         }
     
-    async def configure(self, ip_address: str, port: int, user_mmsi: str = "", boat_name: str = ""):
+    async def configure(self, ip_address: str, port: int, user_mmsi_param: str = "", boat_name: str = ""):
         """
         Configure and start the AIS connection.
         If already connected with different config, reconnects.

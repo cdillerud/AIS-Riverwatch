@@ -666,6 +666,7 @@ function App() {
                   connectionConfig={connectionConfig}
                   userSettings={userSettings}
                   demoMode={demoMode}
+                  onClearDemo={clearDemoMode}
                   onRefresh={performSoftRefresh}
                   onFullRefresh={performFullRefresh}
                   lastRefresh={lastRefresh}

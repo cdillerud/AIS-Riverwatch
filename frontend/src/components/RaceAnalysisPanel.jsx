@@ -135,7 +135,12 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
             <Target className="w-5 h-5 text-cyan-400" />
             Lock Timing
           </span>
-          {isDangerous ? (
+          {isOutOfRange ? (
+            <Badge className="bg-slate-700 text-slate-400">
+              <Navigation className="w-3 h-3 mr-1" />
+              Out of Range
+            </Badge>
+          ) : isDangerous ? (
             <Badge className="bg-red-900/50 text-red-300 border border-red-500">
               <AlertTriangle className="w-3 h-3 mr-1" />
               Traffic Delay
@@ -161,8 +166,22 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           <div className="text-slate-400 font-mono text-sm">River Mile {raceAnalysis?.target_lock_rm}</div>
         </div>
 
+        {/* Out of Range Notice */}
+        {isOutOfRange && (
+          <div className="p-4 rounded-lg bg-slate-800/50 border border-slate-600 text-center">
+            <Navigation className="w-8 h-8 text-slate-500 mx-auto mb-2" />
+            <div className="text-slate-400 font-semibold">Lock is over 100 miles away</div>
+            <div className="text-slate-500 text-sm mt-1">
+              Current distance: {analysis?.user_distance_to_lock?.toFixed(0)} miles
+            </div>
+            <div className="text-slate-600 text-xs mt-2">
+              Traffic timing alerts will activate when you're within range
+            </div>
+          </div>
+        )}
+
         {/* User Stats */}
-        {analysis && (
+        {analysis && !isOutOfRange && (
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-700">
               <div className="text-xs text-slate-500 uppercase mb-1">Your Distance</div>

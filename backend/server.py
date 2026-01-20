@@ -1,3 +1,5 @@
+# River Watch Backend - Version 2026-01-20-FIX
+# CRITICAL FIX: Only cache ACTIVE lockages (waiting/locking), not completed ones
 from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware

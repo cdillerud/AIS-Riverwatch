@@ -21,7 +21,16 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 
 ## What's Been Implemented
 
-### January 2026 - Latest Session
+### December 2025 - Latest Session
+- ✅ **Demo Mode Removed (P0)** - Completely removed all Demo Mode functionality per user request
+  - Removed `/api/demo/add-vessel`, `/api/demo/add-tow`, `/api/demo/clear-vessels` backend endpoints
+  - Removed Demo Mode button and Exit Demo button from desktop header
+  - Removed Demo Mode button from mobile menu
+  - Removed demoMode state and handlers from App.js
+  - Removed demo status display from ConnectionStatus component
+  - App now requires a live AIS TCP connection to function (no mock data option)
+
+### January 2026 - Previous Session
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks
   - Shows Tow vs Recreational breakdown
   - Displays both lockage duration and wait times
@@ -37,6 +46,9 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 - ✅ **Default Zoom 20mi** - Changed from 25mi to 20mi
 - ✅ **Cleaner Map Title** - Simplified from "±20mi around Lock 2" to "River Map"
 - ✅ **View Range Indicator** - Shows "RM X – Y" with responsive hint ("Scroll to pan" on desktop, "Drag to pan" on mobile)
+- ✅ **Tabbed Desktop Layout** - Performance optimization with conditional rendering
+- ✅ **"At Lock" Status** - Vessels inside lock chamber geo-fence show "At Lock" badge
+- ✅ **Lockage History in Vessel Detail** - Shows vessel's past transit times through locks
 
 ### Previous Sessions
 - ✅ Global "Show Vessel Names" toggle
@@ -46,7 +58,6 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 - ✅ Direction indicators on vessel markers
 - ✅ Dynamic lock border colors based on timing status
 - ✅ Dismissible "Traffic Delay" alert
-- ✅ "Demo Mode" indicator
 - ✅ USACE lock status scraping
 
 ## Known Blockers
@@ -55,7 +66,7 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 ## Database Schema
 - `db.vessel_names`: `{ mmsi, name, ship_type, updated_at }`
 - `db.blocked_mmsis`: `{ mmsi, reason, blocked_at }`
-- `db.lpms_lockages`: `{ lock_id, vessel_name, direction, lockage_time_minutes, timestamp }`
+- `db.lockage_history`: `{ lock_id, vessel_mmsi, is_tow, wait_time_minutes, lockage_duration_minutes, recorded_at }`
 
 ## Key Files
 - `/app/backend/server.py` - FastAPI server, AIS parsing, scraping
@@ -69,10 +80,11 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 - MarineTraffic API integration for vessel name lookups
 
 ## Future Tasks (P2-P3)
-- Running lockage average calculation
 - Offline mode with data caching
 - Multiple target locks display
+- "Recent Lockages" Tab - UI section to display raw lockage history
 
 ## Refactoring Needs
-- Break down `server.py` into modules (routes, services, database)
-- Split `Dashboard.jsx` (1200+ lines) into smaller components and custom hooks
+- Break down `server.py` (~2500 lines) into modules (routes, services, database)
+- Split `Dashboard.jsx` (1300+ lines) into smaller components and custom hooks
+- Extract state management from App.js into custom hooks (useVessels, useConnection)

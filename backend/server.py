@@ -2397,11 +2397,13 @@ def is_mmsi_blocked(mmsi: str) -> bool:
 # WebSocket for real-time AIS data
 @app.websocket("/ws/ais")
 async def websocket_ais(websocket: WebSocket):
-    """WebSocket endpoint for real-time AIS data streaming."""
-    await websocket.accept()
+    """
+    WebSocket endpoint for real-time AIS data streaming.
     
-    ais_socket = None
-    connection_active = False
+    Uses the singleton AISConnectionManager - all clients share ONE TCP connection.
+    """
+    await websocket.accept()
+    subscribed = False
     
     try:
         while True:
@@ -2415,206 +2417,20 @@ async def websocket_ais(websocket: WebSocket):
                 mmsi = msg.get("user_mmsi", "")
                 boat_name = msg.get("boat_name", "")
                 
-                global user_mmsi
-                user_mmsi = mmsi
+                # Configure the shared AIS connection
+                await ais_manager.configure(ip, port, mmsi, boat_name)
                 
-                try:
-                    # Close existing connection
-                    if ais_socket:
-                        ais_socket.close()
-                    
-                    # Pre-populate user vessel in cache if we have their MMSI
-                    # This ensures they show up even if their own AIS data isn't in the feed
-                    if mmsi and boat_name:
-                        vessel_static_cache[mmsi] = {
-                            'name': boat_name,
-                            'is_user': True
-                        }
-                        logger.info(f"Pre-cached user vessel: {mmsi} = {boat_name}")
-                    
-                    # Connect to AIS feed
-                    ais_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    ais_socket.settimeout(5)
-                    ais_socket.connect((ip, port))
-                    ais_socket.setblocking(False)
-                    connection_active = True
-                    
-                    await websocket.send_json({"type": "connected", "message": f"Connected to {ip}:{port}"})
-                    
-                    # Start reading AIS data
-                    buffer = ""
-                    gps_update_count = 0  # Track GPS updates for logging
-                    
-                    while connection_active:
-                        try:
-                            # Try to receive data (non-blocking)
-                            try:
-                                chunk = ais_socket.recv(4096).decode('ascii', errors='ignore')
-                                if chunk:
-                                    buffer += chunk
-                                    
-                                    # Process complete lines
-                                    while '\n' in buffer:
-                                        line, buffer = buffer.split('\n', 1)
-                                        
-                                        # Broadcast raw line to debug subscribers
-                                        if len(line.strip()) > 0:
-                                            await broadcast_raw_line(line.strip())
-                                        
-                                        # Log raw data for debugging (first 100 chars)
-                                        if len(line) > 5:
-                                            logger.debug(f"Raw NMEA: {line[:100]}")
-                                        
-                                        # First try to parse as GPS (for user's own position)
-                                        gps_data = parse_nmea_gps(line)
-                                        if gps_data and user_mmsi:
-                                            # Update user vessel from GPS data
-                                            rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
-                                            heading = determine_heading(gps_data['speed'], gps_data['course'])
-                                            
-                                            logger.info(f"GPS position for user {user_mmsi}: lat={gps_data['lat']:.4f}, lon={gps_data['lon']:.4f}, RM={rm:.1f}")
-                                            
-                                            # Get name from cache or settings
-                                            vessel_name = boat_name
-                                            if user_mmsi in vessel_static_cache:
-                                                vessel_name = vessel_static_cache[user_mmsi].get('name', boat_name)
-                                            
-                                            vessel = VesselPosition(
-                                                mmsi=user_mmsi,
-                                                name=vessel_name,
-                                                lat=gps_data['lat'],
-                                                lon=gps_data['lon'],
-                                                speed=gps_data['speed'],
-                                                course=gps_data['course'],
-                                                river_mile=rm,
-                                                heading=heading,
-                                                is_user_vessel=True,
-                                                vessel_type='recreational',
-                                            )
-                                            
-                                            active_vessels[user_mmsi] = vessel
-                                            
-                                            # Send update to client (throttle GPS updates)
-                                            gps_update_count += 1
-                                            if gps_update_count % 5 == 0:  # Send every 5th GPS update
-                                                v_dict = vessel.model_dump()
-                                                v_dict['timestamp'] = v_dict['timestamp'].isoformat()
-                                                v_dict['source'] = 'GPS'
-                                                await websocket.send_json({"type": "vessel_update", "vessel": v_dict})
-                                            continue
-                                        
-                                        # Then try to parse as AIS
-                                        vessel_data = parse_nmea_ais(line)
-                                        
-                                        if vessel_data and vessel_data.get('mmsi'):
-                                            mmsi_parsed = vessel_data['mmsi']
-                                            
-                                            # Skip filtered/blocked MMSI (test beacons, user-blocked)
-                                            if is_mmsi_blocked(mmsi_parsed):
-                                                continue
-                                            
-                                            # Calculate river mile and heading
-                                            rm = estimate_river_mile(vessel_data['lat'], vessel_data['lon'])
-                                            heading = determine_heading(vessel_data['speed'], vessel_data['course'])
-                                            
-                                            # Preserve existing name if new data doesn't have one
-                                            vessel_name = vessel_data.get('name', '')
-                                            if not vessel_name and mmsi_parsed in active_vessels:
-                                                vessel_name = active_vessels[mmsi_parsed].name
-                                            
-                                            # Determine if this is the user's vessel
-                                            is_user = (mmsi_parsed == user_mmsi) or vessel_data.get('is_own_vessel', False)
-                                            
-                                            vessel = VesselPosition(
-                                                mmsi=mmsi_parsed,
-                                                name=vessel_name,
-                                                lat=vessel_data['lat'],
-                                                lon=vessel_data['lon'],
-                                                speed=vessel_data['speed'],
-                                                course=vessel_data['course'],
-                                                river_mile=rm,
-                                                heading=heading,
-                                                is_user_vessel=is_user,
-                                                vessel_type=vessel_data.get('vessel_type', 'unknown'),
-                                                ship_type=vessel_data.get('ship_type'),
-                                                length=vessel_data.get('length'),
-                                                width=vessel_data.get('width'),
-                                                draught=vessel_data.get('draught'),
-                                                is_tow=vessel_data.get('is_tow', False),
-                                                barge_count=vessel_data.get('barge_count'),
-                                                tow_config=vessel_data.get('tow_config'),
-                                                estimated_lockage_time=vessel_data.get('estimated_lockage_time'),
-                                                # Additional AIS fields
-                                                turn_rate=vessel_data.get('turn_rate'),
-                                                nav_status=vessel_data.get('nav_status'),
-                                                nav_status_text=vessel_data.get('nav_status_text'),
-                                                destination=vessel_data.get('destination'),
-                                                callsign=vessel_data.get('callsign'),
-                                                imo=vessel_data.get('imo'),
-                                                eta=vessel_data.get('eta'),
-                                            )
-                                            
-                                            # If this is the user vessel, update user_mmsi if not set
-                                            if vessel_data.get('is_own_vessel') and not user_mmsi:
-                                                user_mmsi = mmsi_parsed
-                                                logger.info(f"Auto-detected user vessel MMSI: {mmsi_parsed}")
-                                            
-                                            active_vessels[vessel.mmsi] = vessel
-                                            
-                                            # Track vessel passage through locks
-                                            await track_vessel_lock_passage(vessel.model_dump())
-                                            
-                                            # Persist vessel name to database if we got one from AIS
-                                            if vessel_data.get('name') and vessel_data.get('_persist_to_db'):
-                                                try:
-                                                    await db.vessel_names.update_one(
-                                                        {"mmsi": mmsi_parsed},
-                                                        {"$set": {
-                                                            "mmsi": mmsi_parsed,
-                                                            "name": vessel_data['name'],
-                                                            "ship_type": vessel_data.get('ship_type'),
-                                                            "source": "AIS",
-                                                            "updated_at": datetime.now(timezone.utc).isoformat()
-                                                        }},
-                                                        upsert=True
-                                                    )
-                                                except Exception as e:
-                                                    logger.error(f"Failed to persist vessel name to DB: {e}")
-                                            
-                                            # Send update to client
-                                            v_dict = vessel.model_dump()
-                                            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
-                                            v_dict['source'] = 'AIS'
-                                            await websocket.send_json({"type": "vessel_update", "vessel": v_dict})
-                                            
-                            except BlockingIOError:
-                                pass
-                            
-                            # Check for client messages (non-blocking)
-                            try:
-                                client_msg = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
-                                client_data = json.loads(client_msg)
-                                if client_data.get("action") == "disconnect":
-                                    connection_active = False
-                                    break
-                            except asyncio.TimeoutError:
-                                pass
-                            
-                            await asyncio.sleep(0.1)
-                            
-                        except Exception as e:
-                            logger.error(f"Error reading AIS data: {e}")
-                            await asyncio.sleep(1)
-                            
-                except Exception as e:
-                    await websocket.send_json({"type": "error", "message": f"Connection failed: {str(e)}"})
+                # Subscribe this WebSocket to receive updates
+                if not subscribed:
+                    await ais_manager.subscribe(websocket)
+                    subscribed = True
                     
             elif msg.get("action") == "disconnect":
-                connection_active = False
-                if ais_socket:
-                    ais_socket.close()
-                    ais_socket = None
-                await websocket.send_json({"type": "disconnected", "message": "Disconnected from AIS feed"})
+                # Just unsubscribe from updates - don't close the shared connection
+                if subscribed:
+                    await ais_manager.unsubscribe(websocket)
+                    subscribed = False
+                await websocket.send_json({"type": "disconnected", "message": "Unsubscribed from AIS feed"})
                 
             elif msg.get("action") == "get_vessels":
                 vessels = []
@@ -2624,13 +2440,20 @@ async def websocket_ais(websocket: WebSocket):
                     vessels.append(v_dict)
                 await websocket.send_json({"type": "vessels", "vessels": vessels})
                 
+            elif msg.get("action") == "status":
+                # Return current connection status
+                await websocket.send_json({
+                    "type": "status",
+                    "status": ais_manager.get_status()
+                })
+                
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
-        if ais_socket:
-            ais_socket.close()
+        if subscribed:
+            await ais_manager.unsubscribe(websocket)
 
 # Store raw data subscribers for broadcasting
 raw_data_subscribers: set = set()

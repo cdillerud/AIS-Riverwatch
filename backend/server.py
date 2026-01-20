@@ -2332,6 +2332,7 @@ async def get_vessels():
         usace_info = get_usace_vessel_info(mmsi=mmsi, vessel_name=vessel_name)
         
         if usace_info and usace_info.get('num_barges') is not None:
+            # USACE data available - use authoritative barge count
             v_dict['barge_count'] = usace_info['num_barges']
             v_dict['is_tow'] = usace_info['num_barges'] > 0 or v_dict.get('is_tow', False)
             v_dict['usace_source'] = True
@@ -2358,6 +2359,16 @@ async def get_vessels():
                     v_dict['tow_config'] = f"3x{(bc+2)//3}+"
             else:
                 v_dict['tow_config'] = None
+        else:
+            # NO USACE data - clear any stale barge/tow info
+            # Only show barge info if we have USACE confirmation
+            v_dict['barge_count'] = None
+            v_dict['tow_config'] = None
+            v_dict['estimated_lockage_time'] = None
+            v_dict['is_double_lockage'] = False
+            v_dict['usace_source'] = False
+            v_dict['usace_lock'] = None
+            v_dict['usace_status'] = None
         
         vessels.append(v_dict)
     return vessels

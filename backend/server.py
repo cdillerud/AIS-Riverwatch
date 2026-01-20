@@ -768,6 +768,8 @@ async def fetch_usace_lock_queue_data():
         - lock_id
         - arrival_date
         - status (waiting, locking, completed)
+    
+    Also maintains a name->data index for matching vessels without MMSI.
     """
     global usace_lock_queue_cache
     
@@ -778,7 +780,8 @@ async def fetch_usace_lock_queue_data():
             logger.debug(f"Using cached USACE lock queue data ({len(usace_lock_queue_cache['data'])} vessels)")
             return usace_lock_queue_cache["data"]
     
-    vessel_data = {}
+    vessel_data_by_mmsi = {}
+    vessel_data_by_name = {}  # Also index by name for fallback matching
     
     try:
         import xml.etree.ElementTree as ET
@@ -795,38 +798,57 @@ async def fetch_usace_lock_queue_data():
                             rows = root.findall('.//ROW')
                             
                             for row in rows:
+                                vessel_name_el = row.find('VESSEL_NAME')
+                                vessel_name = vessel_name_el.text.strip() if vessel_name_el is not None and vessel_name_el.text else None
+                                
                                 mmsi_el = row.find('MMSI')
-                                if mmsi_el is not None and mmsi_el.text:
-                                    mmsi = mmsi_el.text.strip()
-                                    
-                                    # Determine status
-                                    has_sol = row.find('SOL_DATE') is not None and row.find('SOL_DATE').text
-                                    has_eol = row.find('END_OF_LOCKAGE') is not None and row.find('END_OF_LOCKAGE').text
-                                    
-                                    if has_eol:
-                                        status = 'completed'
-                                    elif has_sol:
-                                        status = 'locking'
-                                    else:
-                                        status = 'waiting'
-                                    
-                                    # Parse barge count
-                                    num_barges_el = row.find('NUM_BARGES')
-                                    num_barges = int(num_barges_el.text) if num_barges_el is not None and num_barges_el.text else None
-                                    
-                                    vessel_data[mmsi] = {
-                                        'vessel_name': row.find('VESSEL_NAME').text.strip() if row.find('VESSEL_NAME') is not None else None,
-                                        'vessel_no': row.find('VESSEL_NO').text.strip() if row.find('VESSEL_NO') is not None else None,
-                                        'num_barges': num_barges,
-                                        'direction': row.find('DIRECTION').text.strip() if row.find('DIRECTION') is not None else None,
-                                        'lock_no': lock_no,
-                                        'lock_id': f"lock_{lock_no}" if lock_no.isdigit() else f"lock_{lock_no.lower()}",
-                                        'arrival_date': row.find('ARRIVAL_DATE').text.strip() if row.find('ARRIVAL_DATE') is not None else None,
-                                        'sol_date': row.find('SOL_DATE').text.strip() if row.find('SOL_DATE') is not None else None,
-                                        'end_of_lockage': row.find('END_OF_LOCKAGE').text.strip() if row.find('END_OF_LOCKAGE') is not None else None,
-                                        'status': status,
-                                        'source': 'USACE_LPMS'
-                                    }
+                                mmsi = mmsi_el.text.strip() if mmsi_el is not None and mmsi_el.text else None
+                                
+                                # Determine status
+                                has_sol = row.find('SOL_DATE') is not None and row.find('SOL_DATE').text
+                                has_eol = row.find('END_OF_LOCKAGE') is not None and row.find('END_OF_LOCKAGE').text
+                                
+                                if has_eol:
+                                    status = 'completed'
+                                elif has_sol:
+                                    status = 'locking'
+                                else:
+                                    status = 'waiting'
+                                
+                                # Parse barge count
+                                num_barges_el = row.find('NUM_BARGES')
+                                num_barges = int(num_barges_el.text) if num_barges_el is not None and num_barges_el.text else None
+                                
+                                vessel_info = {
+                                    'vessel_name': vessel_name,
+                                    'vessel_no': row.find('VESSEL_NO').text.strip() if row.find('VESSEL_NO') is not None else None,
+                                    'num_barges': num_barges,
+                                    'direction': row.find('DIRECTION').text.strip() if row.find('DIRECTION') is not None else None,
+                                    'lock_no': lock_no,
+                                    'lock_id': f"lock_{lock_no}" if lock_no.isdigit() else f"lock_{lock_no.lower()}",
+                                    'arrival_date': row.find('ARRIVAL_DATE').text.strip() if row.find('ARRIVAL_DATE') is not None else None,
+                                    'sol_date': row.find('SOL_DATE').text.strip() if row.find('SOL_DATE') is not None else None,
+                                    'end_of_lockage': row.find('END_OF_LOCKAGE').text.strip() if row.find('END_OF_LOCKAGE') is not None else None,
+                                    'status': status,
+                                    'mmsi': mmsi,
+                                    'source': 'USACE_LPMS'
+                                }
+                                
+                                # Index by MMSI if available
+                                if mmsi:
+                                    vessel_data_by_mmsi[mmsi] = vessel_info
+                                
+                                # Also index by normalized vessel name for fallback
+                                if vessel_name:
+                                    # Normalize name: uppercase, remove special chars
+                                    normalized_name = vessel_name.upper().replace('-', ' ').replace('/', ' ').strip()
+                                    # Remove common prefixes
+                                    for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
+                                        if normalized_name.startswith(prefix):
+                                            normalized_name = normalized_name[len(prefix):]
+                                    vessel_data_by_name[normalized_name] = vessel_info
+                                    # Also store with original name
+                                    vessel_data_by_name[vessel_name.upper()] = vessel_info
                                     
                         except ET.ParseError as e:
                             logger.debug(f"Empty or invalid XML for lock {lock_no}")
@@ -835,25 +857,51 @@ async def fetch_usace_lock_queue_data():
                     logger.warning(f"Failed to fetch lock queue for lock {lock_no}: {e}")
                     continue
         
-        # Update cache
-        usace_lock_queue_cache["data"] = vessel_data
+        # Store both indexes in cache
+        usace_lock_queue_cache["data"] = vessel_data_by_mmsi
+        usace_lock_queue_cache["data_by_name"] = vessel_data_by_name
         usace_lock_queue_cache["last_updated"] = datetime.now(timezone.utc)
         
-        logger.info(f"Fetched USACE lock queue data: {len(vessel_data)} vessels across Upper Mississippi")
+        logger.info(f"Fetched USACE lock queue data: {len(vessel_data_by_mmsi)} by MMSI, {len(vessel_data_by_name)} by name")
         
     except Exception as e:
         logger.error(f"Failed to fetch USACE lock queue data: {e}")
     
-    return vessel_data
+    return vessel_data_by_mmsi
 
 
-def get_usace_vessel_info(mmsi: str) -> Optional[dict]:
+def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional[dict]:
     """
-    Get USACE lock queue info for a vessel by MMSI.
+    Get USACE lock queue info for a vessel by MMSI or name.
     Returns barge count and other data from the authoritative USACE source.
     """
-    if usace_lock_queue_cache["data"]:
-        return usace_lock_queue_cache["data"].get(mmsi)
+    # Try MMSI first
+    if mmsi and usace_lock_queue_cache.get("data"):
+        info = usace_lock_queue_cache["data"].get(mmsi)
+        if info:
+            return info
+    
+    # Fall back to name matching
+    if vessel_name and usace_lock_queue_cache.get("data_by_name"):
+        # Try exact match first
+        normalized = vessel_name.upper().replace('-', ' ').replace('/', ' ').strip()
+        info = usace_lock_queue_cache["data_by_name"].get(normalized)
+        if info:
+            return info
+        
+        # Try without common prefixes
+        for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):]
+                info = usace_lock_queue_cache["data_by_name"].get(normalized)
+                if info:
+                    return info
+        
+        # Try original name uppercase
+        info = usace_lock_queue_cache["data_by_name"].get(vessel_name.upper())
+        if info:
+            return info
+    
     return None
 
 

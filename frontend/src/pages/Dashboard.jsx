@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
   Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
-  Play, Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
+  Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
   Edit3, Check, RefreshCw, RotateCcw
 } from "lucide-react";
 import { toast } from "sonner";

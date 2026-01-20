@@ -2397,52 +2397,8 @@ async def get_vessels():
         # Skip filtered/blocked MMSI
         if is_mmsi_blocked(mmsi):
             continue
-        v_dict = vessel.model_dump()
-        v_dict['timestamp'] = v_dict['timestamp'].isoformat()
-        
-        # Enrich with USACE data if available (try MMSI first, then name)
-        vessel_name = v_dict.get('name', '')
-        usace_info = get_usace_vessel_info(mmsi=mmsi, vessel_name=vessel_name)
-        
-        if usace_info and usace_info.get('num_barges') is not None:
-            # USACE data available - use authoritative barge count
-            v_dict['barge_count'] = usace_info['num_barges']
-            v_dict['is_tow'] = usace_info['num_barges'] > 0 or v_dict.get('is_tow', False)
-            v_dict['usace_source'] = True
-            v_dict['usace_lock'] = usace_info.get('lock_id')
-            v_dict['usace_status'] = usace_info.get('status')
-            
-            # Calculate lockage time from actual barge count
-            bc = usace_info['num_barges']
-            if bc <= 6:
-                v_dict['estimated_lockage_time'] = 30
-            elif bc <= 9:
-                v_dict['estimated_lockage_time'] = 45
-            else:
-                v_dict['estimated_lockage_time'] = 90 + (bc - 9) * 5
-            v_dict['is_double_lockage'] = bc > 9
-            
-            # Estimate tow config from barge count
-            if bc > 0:
-                if bc <= 6:
-                    v_dict['tow_config'] = f"2x{(bc+1)//2}"
-                elif bc <= 9:
-                    v_dict['tow_config'] = f"3x{(bc+2)//3}"
-                else:
-                    v_dict['tow_config'] = f"3x{(bc+2)//3}+"
-            else:
-                v_dict['tow_config'] = None
-        else:
-            # NO USACE data - clear any stale barge/tow info
-            # Only show barge info if we have USACE confirmation
-            v_dict['barge_count'] = None
-            v_dict['tow_config'] = None
-            v_dict['estimated_lockage_time'] = None
-            v_dict['is_double_lockage'] = False
-            v_dict['usace_source'] = False
-            v_dict['usace_lock'] = None
-            v_dict['usace_status'] = None
-        
+        # Use centralized helper to ensure clean data output
+        v_dict = prepare_vessel_for_output(vessel, mmsi)
         vessels.append(v_dict)
     return vessels
 

@@ -45,13 +45,16 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
   - `DEPLOYMENT.md` comprehensive deployment guide
   - Production frontend Dockerfile with nginx static serving
 
-### January 2026 - Current Session
-- ✅ **Fixed Default Barge Counts Bug (P0 - CRITICAL)** - Root cause identified and fixed
-  - **Problem**: Tow vessels were displaying stale/default barge counts ("6 barges (2x3)") even when no USACE data was available
-  - **Root Cause**: The `VesselPosition` objects in `active_vessels` retained old `barge_count`, `tow_config`, and `estimated_lockage_time` values even after USACE cache expired
-  - **Fix**: In `/api/vessels` endpoint and AIS message processing, explicitly clear all barge-related fields to `None` when no USACE data is available
-  - Now tows without USACE data show "Unknown" in UI instead of incorrect default values
-  - Only vessels with verified USACE data will display barge counts
+### January 2026 - Current Session (Latest Fix)
+- ✅ **Fixed Default Barge Counts Bug (P0 - CRITICAL)** - TRUE ROOT CAUSE found and fixed!
+  - **Problem**: Tow vessels displayed barge counts ("6 barges (2x3)") even when not at a lock
+  - **TRUE Root Cause**: The USACE API returns **historical completed lockages** (days/weeks old). These were being cached and matched to vessels by name, showing old barge data for vessels that had long since left the lock.
+  - **Evidence**: Before fix - 171 vessels in cache. After fix - 1 vessel (only the one actually at a lock).
+  - **Fix Applied**:
+    1. Modified `fetch_usace_lock_queue_data()` to **skip completed lockages** - only cache vessels with status='waiting' or 'locking'
+    2. Added `is_valid_active_lockage()` check in `get_usace_vessel_info()` as defense-in-depth
+  - Now ONLY vessels **currently at a lock** (waiting or actively locking) show barge counts
+  - Previous fix (prepare_vessel_for_output) is still in place for additional protection
 
 ### January 2026 - Previous Session
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks

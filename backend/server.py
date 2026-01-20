@@ -2036,6 +2036,28 @@ async def test_connection(config: ConnectionConfig):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+
+@api_router.get("/connection/status")
+async def get_connection_status():
+    """Get the current AIS connection status."""
+    return ais_manager.get_status()
+
+
+@api_router.post("/connection/reconnect")
+async def reconnect_ais():
+    """Force reconnection to the AIS feed."""
+    if not ais_manager.config:
+        return {"success": False, "message": "No connection configured"}
+    
+    config = ais_manager.config
+    await ais_manager.configure(
+        config["ip_address"],
+        config["port"],
+        config.get("user_mmsi", ""),
+        config.get("boat_name", "")
+    )
+    return {"success": True, "message": "Reconnection initiated"}
+
 @api_router.get("/vessel-cache")
 async def get_vessel_cache():
     """Get cached vessel static data (names, dimensions, etc.)"""

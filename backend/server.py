@@ -2377,8 +2377,10 @@ async def get_vessels():
         v_dict = vessel.model_dump()
         v_dict['timestamp'] = v_dict['timestamp'].isoformat()
         
-        # Enrich with USACE data if available
-        usace_info = get_usace_vessel_info(mmsi)
+        # Enrich with USACE data if available (try MMSI first, then name)
+        vessel_name = v_dict.get('name', '')
+        usace_info = get_usace_vessel_info(mmsi=mmsi, vessel_name=vessel_name)
+        
         if usace_info and usace_info.get('num_barges') is not None:
             v_dict['barge_count'] = usace_info['num_barges']
             v_dict['is_tow'] = usace_info['num_barges'] > 0 or v_dict.get('is_tow', False)

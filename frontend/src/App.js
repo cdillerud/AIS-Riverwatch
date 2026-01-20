@@ -492,115 +492,6 @@ function App() {
     setVessels([]);
   };
 
-  // Add demo vessels for testing
-  const addDemoVessels = async () => {
-    // Clear existing demo vessels first
-    await fetch(`${API}/demo/clear-vessels`, { method: "DELETE" });
-    
-    // Add user vessel
-    await fetch(`${API}/demo/add-vessel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mmsi: "123456789",
-        name: "MY BOAT",
-        lat: 44.82,
-        lon: -92.90,
-        speed: 8,
-        course: 180,
-        is_user_vessel: true,
-        vessel_type: "recreational"
-      })
-    });
-
-    // Add commercial tow with 8 barges (single lock - under 9 threshold)
-    await fetch(`${API}/demo/add-tow`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mmsi: "987654321",
-        name: "M/V MISS KATHY",
-        lat: 44.70,
-        lon: -92.80,
-        speed: 4,
-        course: 0,
-        barge_count: 8,
-        tow_config: "2x4"
-      })
-    });
-
-    // Add commercial tow with 12 barges (double lock required - over 9 threshold!)
-    await fetch(`${API}/demo/add-tow`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mmsi: "555555555",
-        name: "M/V BIG RIVER",
-        lat: 44.65,
-        lon: -92.70,
-        speed: 3.5,
-        course: 0,
-        barge_count: 12,
-        tow_config: "3x4"
-      })
-    });
-
-    // Add smaller tow with 6 barges (single lock)
-    await fetch(`${API}/demo/add-tow`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mmsi: "777777777",
-        name: "M/V QUICK TRIP",
-        lat: 44.55,
-        lon: -92.60,
-        speed: 5,
-        course: 0,
-        barge_count: 6,
-        tow_config: "2x3"
-      })
-    });
-
-    // Set user MMSI
-    await fetch(`${API}/set-user-mmsi`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mmsi: "123456789" })
-    });
-    
-    // Refresh vessels
-    try {
-      const response = await fetch(`${API}/vessels`);
-      if (response.ok) {
-        const data = await response.json();
-        setVessels(data);
-      }
-    } catch (error) {
-      console.error("Failed to refresh vessels:", error);
-    }
-    
-    toast.success("Demo vessels added");
-    setDemoMode(true);
-  };
-
-  // Clear demo mode - remove all demo vessels
-  const clearDemoMode = async () => {
-    try {
-      // Call backend to clear demo vessels
-      await fetch(`${API}/demo/clear-vessels`, { method: "DELETE" });
-      
-      // Clear local state
-      setVessels([]);
-      setDemoMode(false);
-      setRaceAnalysis(null);
-      
-      toast.success("Demo mode cleared");
-    } catch (error) {
-      console.error("Failed to clear demo:", error);
-      toast.error("Failed to clear demo mode");
-    }
-  };
-
   const handleSettingsUpdate = async (newSettings) => {
     setUserSettings(prev => ({ ...prev, ...newSettings }));
     if (newSettings.user_mmsi) {
@@ -660,11 +551,9 @@ function App() {
                   onDisconnect={handleDisconnect}
                   onResetConnection={handleResetConnection}
                   onReconnect={() => connectWebSocket(connectionConfig)}
-                  onAddDemoVessels={addDemoVessels}
                   onOpenSettings={() => setShowSettings(true)}
                   connectionConfig={connectionConfig}
                   userSettings={userSettings}
-                  demoMode={demoMode}
                   onRefresh={performSoftRefresh}
                   onFullRefresh={performFullRefresh}
                   lastRefresh={lastRefresh}

@@ -666,6 +666,72 @@ class LockStatus(BaseModel):
 active_vessels: Dict[str, VesselPosition] = {}
 user_mmsi: str = ""
 
+
+def prepare_vessel_for_output(vessel: VesselPosition, mmsi: str = None) -> dict:
+    """
+    Prepare a vessel for API output, enriching with USACE data or clearing stale barge info.
+    
+    This is the SINGLE SOURCE OF TRUTH for vessel data output.
+    All endpoints and WebSocket broadcasts should use this function.
+    
+    Rules:
+    - If USACE data exists: use authoritative barge count from USACE
+    - If NO USACE data: clear ALL barge-related fields to None
+    - Never show estimated/default barge counts
+    """
+    v_dict = vessel.model_dump()
+    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+    
+    # Use provided mmsi or get from dict
+    vessel_mmsi = mmsi or v_dict.get('mmsi', '')
+    vessel_name = v_dict.get('name', '')
+    
+    # Check USACE for authoritative barge data
+    usace_info = get_usace_vessel_info(mmsi=vessel_mmsi, vessel_name=vessel_name)
+    
+    if usace_info and usace_info.get('num_barges') is not None:
+        # USACE data available - use authoritative barge count
+        bc = usace_info['num_barges']
+        v_dict['barge_count'] = bc
+        v_dict['is_tow'] = bc > 0 or v_dict.get('is_tow', False)
+        v_dict['usace_source'] = True
+        v_dict['usace_lock'] = usace_info.get('lock_id')
+        v_dict['usace_status'] = usace_info.get('status')
+        
+        # Calculate lockage time from actual barge count
+        if bc <= 6:
+            v_dict['estimated_lockage_time'] = 30
+        elif bc <= 9:
+            v_dict['estimated_lockage_time'] = 45
+        else:
+            v_dict['estimated_lockage_time'] = 90 + (bc - 9) * 5
+        v_dict['is_double_lockage'] = bc > 9
+        
+        # Estimate tow config from barge count
+        if bc > 0:
+            if bc <= 6:
+                v_dict['tow_config'] = f"2x{(bc+1)//2}"
+            elif bc <= 9:
+                v_dict['tow_config'] = f"3x{(bc+2)//3}"
+            else:
+                v_dict['tow_config'] = f"3x{(bc+2)//3}+"
+        else:
+            v_dict['tow_config'] = None
+    else:
+        # NO USACE data - CLEAR ALL barge-related fields
+        # This prevents stale data from being shown
+        v_dict['barge_count'] = None
+        v_dict['tow_config'] = None
+        v_dict['estimated_lockage_time'] = None
+        v_dict['is_double_lockage'] = False
+        v_dict['usace_source'] = False
+        v_dict['usace_lock'] = None
+        v_dict['usace_status'] = None
+        # Keep is_tow based on AIS data (ship type, name patterns)
+    
+    return v_dict
+
+
 def estimate_tow_info(vessel_data: dict) -> dict:
     """
     Identify if a vessel is a tow based on AIS data.

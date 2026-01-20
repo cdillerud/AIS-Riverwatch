@@ -11,6 +11,7 @@ import { getVesselDisplayName } from "@/utils/vesselDisplay";
 const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, compact = false, showVesselNames = true }) => {
   const analysis = raceAnalysis?.analysis;
   const threat = analysis?.threatening_vessel;
+  const isOutOfRange = analysis?.out_of_range;
 
   // Calculate speed gauge percentage (max 30 mph for display)
   const requiredSpeedPct = analysis?.required_speed_mph 
@@ -43,7 +44,11 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
               <Target className="w-4 h-4 text-cyan-400" />
               <span className="font-semibold text-white text-sm">Lock Timing</span>
             </div>
-            {isDangerous ? (
+            {isOutOfRange ? (
+              <Badge className="bg-slate-700 text-slate-400 text-xs">
+                OUT OF RANGE
+              </Badge>
+            ) : isDangerous ? (
               <Badge className="bg-red-900/50 text-red-300 border border-red-500 text-xs">
                 TRAFFIC DELAY
               </Badge>
@@ -63,8 +68,19 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
             Target: <span className="text-white font-mono">{raceAnalysis?.target_lock_name}</span>
           </div>
 
-          {/* Speed Required - Big Display */}
-          {analysis?.required_speed_mph && (
+          {/* Out of Range Message */}
+          {isOutOfRange && (
+            <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-600 text-center">
+              <Navigation className="w-6 h-6 text-slate-500 mx-auto mb-1" />
+              <div className="text-slate-400 text-sm">Lock is over 100 mi away</div>
+              <div className="text-slate-500 text-xs mt-1">
+                Distance: {analysis?.user_distance_to_lock?.toFixed(0)} mi
+              </div>
+            </div>
+          )}
+
+          {/* Speed Required - Big Display (only when in range) */}
+          {!isOutOfRange && analysis?.required_speed_mph && (
             <div className={`text-center py-3 rounded-lg mb-3 ${isDangerous ? 'bg-red-900/20' : 'bg-cyan-900/20'}`}>
               <div className="text-xs text-slate-400 uppercase mb-1">Speed Needed</div>
               <div className={`text-4xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
@@ -81,8 +97,8 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
             </div>
           )}
 
-          {/* Threat Info */}
-          {threat && (
+          {/* Threat Info (only when in range) */}
+          {!isOutOfRange && threat && (
             <div className="p-2 rounded bg-amber-900/20 border border-amber-500/30">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1 text-amber-400 text-xs">
@@ -96,8 +112,8 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
             </div>
           )}
 
-          {/* No threat state */}
-          {!threat && (
+          {/* No threat state (only when in range) */}
+          {!isOutOfRange && !threat && (
             <div className="p-3 rounded-lg bg-green-900/20 border border-green-500/30 text-center">
               <CheckCircle2 className="w-6 h-6 text-green-400 mx-auto mb-1" />
               <div className="text-green-400 text-sm font-semibold">No Traffic</div>

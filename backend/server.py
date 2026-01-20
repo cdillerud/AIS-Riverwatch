@@ -2734,6 +2734,30 @@ async def startup_event():
     
     # Load persisted vessel names (shared across all users)
     await load_vessel_names_from_db()
+    
+    # Initial fetch of USACE lock queue data
+    try:
+        await fetch_usace_lock_queue_data()
+        logger.info("Initial USACE lock queue data fetched")
+    except Exception as e:
+        logger.error(f"Failed to fetch initial USACE lock queue data: {e}")
+    
+    # Start background task to periodically refresh USACE data
+    asyncio.create_task(usace_refresh_task())
+
+
+async def usace_refresh_task():
+    """Background task to periodically refresh USACE lock queue data."""
+    while True:
+        try:
+            await asyncio.sleep(900)  # Every 15 minutes (matches USACE update frequency)
+            await fetch_usace_lock_queue_data()
+            logger.info("USACE lock queue data refreshed")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error refreshing USACE data: {e}")
+            await asyncio.sleep(60)  # Wait a minute before retrying on error
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

@@ -2161,8 +2161,8 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
     """
     global user_mmsi
     
-    # Distance threshold - don't warn about vessels/locks more than 100 miles away
-    MAX_RELEVANT_DISTANCE = 100.0
+    # Distance threshold - don't warn about vessels more than 100 miles from USER
+    MAX_THREAT_DISTANCE = 100.0
     
     if lock_id not in LOCKS:
         return {"error": "Invalid lock ID"}
@@ -2186,11 +2186,6 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
         
         vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
         
-        # Skip vessels more than 100 miles from the lock
-        vessel_distance_to_lock = abs(vessel_rm - lock_rm) if vessel_rm else None
-        if vessel_distance_to_lock is None or vessel_distance_to_lock > MAX_RELEVANT_DISTANCE:
-            continue
-        
         eta = calculate_eta_to_lock(
             vessel_rm,
             vessel.speed,
@@ -2202,7 +2197,13 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
             v_dict = vessel.model_dump()
             v_dict['timestamp'] = v_dict['timestamp'].isoformat()
             v_dict['eta_minutes'] = eta
-            v_dict['distance_to_lock'] = round(vessel_distance_to_lock, 1)
+            
+            # Calculate distance from USER to this competitor (for filtering threats)
+            if user_rm and vessel_rm:
+                v_dict['distance_from_user'] = round(abs(user_rm - vessel_rm), 1)
+            else:
+                v_dict['distance_from_user'] = None
+                
             competitors.append(v_dict)
     
     # Sort by ETA
@@ -2223,32 +2224,31 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
         required_speed = None
         can_beat = True
         
-        # Only analyze threats if user is within 100 miles of the lock
-        if user_distance <= MAX_RELEVANT_DISTANCE and competitors:
-            for comp in competitors:
-                comp_eta = comp.get('eta_minutes')
-                if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
-                    # User needs to arrive buffer_minutes BEFORE the tow to get through first
-                    threat = comp
-                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
-                    if required_speed and required_speed > 25:
-                        can_beat = False
-                    break
-        
-        # If user is > 100 miles from lock, mark as out of range
-        out_of_range = user_distance > MAX_RELEVANT_DISTANCE
+        for comp in competitors:
+            comp_eta = comp.get('eta_minutes')
+            distance_from_user = comp.get('distance_from_user')
+            
+            # Skip if this competitor is more than 100 miles from USER
+            if distance_from_user is not None and distance_from_user > MAX_THREAT_DISTANCE:
+                continue
+                
+            if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
+                # User needs to arrive buffer_minutes BEFORE the tow to get through first
+                threat = comp
+                required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
+                if required_speed and required_speed > 25:
+                    can_beat = False
+                break
         
         analysis = {
             "user_distance_to_lock": round(user_distance, 1),
             "user_eta_minutes": user_eta,
             "user_current_speed_mph": round(user_speed_mph, 1),
-            "threatening_vessel": threat if not out_of_range else None,
-            "required_speed_mph": required_speed if not out_of_range else None,
-            "can_beat_at_25mph": True if out_of_range else can_beat,
+            "threatening_vessel": threat,
+            "required_speed_mph": required_speed,
+            "can_beat_at_25mph": can_beat,
             "max_speed_mph": 25,
-            "buffer_minutes": buffer_minutes,
-            "out_of_range": out_of_range,
-            "max_relevant_distance": MAX_RELEVANT_DISTANCE
+            "buffer_minutes": buffer_minutes
         }
     
     return RaceAnalysis(

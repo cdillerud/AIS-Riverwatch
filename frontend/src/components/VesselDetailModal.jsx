@@ -567,16 +567,26 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
                 Tow Information
               </h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {vessel.barge_count && (
+                {vessel.barge_count ? (
                   <div>
                     <span className="text-slate-500">Barge Count</span>
                     <div className="text-amber-400 font-semibold text-lg">{vessel.barge_count}</div>
                   </div>
+                ) : (
+                  <div>
+                    <span className="text-slate-500">Barge Count</span>
+                    <div className="text-slate-400 italic">Unknown</div>
+                  </div>
                 )}
-                {vessel.tow_config && (
+                {vessel.tow_config ? (
                   <div>
                     <span className="text-slate-500">Configuration</span>
                     <div className="font-mono text-white">{vessel.tow_config}</div>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-slate-500">Configuration</span>
+                    <div className="text-slate-400 italic">Unknown</div>
                   </div>
                 )}
                 {vessel.estimated_lockage_time && (

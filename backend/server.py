@@ -549,8 +549,8 @@ class AISConnectionManager:
         if self._read_task and not self._read_task.done():
             self._read_task.cancel()
         
-        # Close socket
-        await self._close_socket()
+        # Close connection
+        await self._close_connection()
         
         # Notify subscribers
         await self._broadcast_status("disconnected", "Disconnected from AIS feed")

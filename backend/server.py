@@ -2036,6 +2036,40 @@ async def get_lock_lockage_times(lock_id: str):
     }
 
 
+@api_router.get("/usace/lock-queue")
+async def get_usace_lock_queue():
+    """Get current USACE lock queue data (vessels with barge counts)."""
+    data = await fetch_usace_lock_queue_data()
+    return {
+        "vessel_count": len(data),
+        "last_updated": usace_lock_queue_cache["last_updated"].isoformat() if usace_lock_queue_cache["last_updated"] else None,
+        "vessels": list(data.values())
+    }
+
+
+@api_router.post("/usace/refresh")
+async def refresh_usace_data():
+    """Force refresh of USACE lock queue data."""
+    # Clear cache to force refresh
+    usace_lock_queue_cache["last_updated"] = None
+    data = await fetch_usace_lock_queue_data()
+    return {
+        "success": True,
+        "vessel_count": len(data),
+        "message": f"Refreshed USACE data: {len(data)} vessels found"
+    }
+
+
+@api_router.get("/usace/vessel/{mmsi}")
+async def get_usace_vessel(mmsi: str):
+    """Get USACE lock queue info for a specific vessel by MMSI."""
+    data = await fetch_usace_lock_queue_data()
+    vessel_info = data.get(mmsi)
+    if vessel_info:
+        return {"found": True, "vessel": vessel_info}
+    return {"found": False, "message": f"Vessel {mmsi} not found in USACE lock queue data"}
+
+
 @api_router.post("/lockage/record")
 async def record_lockage(lock_id: str, vessel_name: str, duration_minutes: float, is_tow: bool = False, barge_count: int = 0, direction: str = "unknown"):
     """Manually record a lockage time (for when live data isn't available)."""

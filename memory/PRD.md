@@ -22,6 +22,10 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 ## What's Been Implemented
 
 ### January 2026 - Latest Session
+- ✅ **Cancel Demo Mode (P0)** - Users can now exit demo mode via "Exit Demo" button
+  - Clears all demo vessels from state
+  - Resets app to clean "Offline" state ready for live connection
+  - Shows "Demo mode cleared" toast confirmation
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks
   - Shows Tow vs Recreational breakdown
   - Displays both lockage duration and wait times

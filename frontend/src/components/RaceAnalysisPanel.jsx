@@ -175,7 +175,7 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
               Current distance: {analysis?.user_distance_to_lock?.toFixed(0)} miles
             </div>
             <div className="text-slate-600 text-xs mt-2">
-              Traffic timing alerts will activate when you're within range
+              Traffic timing alerts will activate when you are within range
             </div>
           </div>
         )}

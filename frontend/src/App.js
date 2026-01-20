@@ -22,7 +22,6 @@ function App() {
   const [raceAnalysis, setRaceAnalysis] = useState(null);
   const [selectedLock, setSelectedLock] = useState("lock_2");
   const [showSettings, setShowSettings] = useState(false);
-  const [demoMode, setDemoMode] = useState(false);
   const [userSettings, setUserSettings] = useState({
     max_speed_mph: 25,
     map_zoom_miles: 25,

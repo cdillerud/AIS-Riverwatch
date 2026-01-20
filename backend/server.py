@@ -539,11 +539,10 @@ class AISConnectionManager:
                 "message": "Not connected to AIS feed"
             })
         
-        # Send current vessel list
+        # Send current vessel list - use prepare_vessel_for_output to ensure clean data
         vessels = []
         for mmsi, vessel in active_vessels.items():
-            v_dict = vessel.model_dump()
-            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+            v_dict = prepare_vessel_for_output(vessel, mmsi)
             vessels.append(v_dict)
         await websocket.send_json({"type": "vessels", "vessels": vessels})
     

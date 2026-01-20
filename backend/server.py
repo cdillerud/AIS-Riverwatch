@@ -2730,8 +2730,8 @@ async def websocket_ais(websocket: WebSocket):
             elif msg.get("action") == "get_vessels":
                 vessels = []
                 for mmsi, vessel in active_vessels.items():
-                    v_dict = vessel.model_dump()
-                    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+                    # Use prepare_vessel_for_output to ensure clean data
+                    v_dict = prepare_vessel_for_output(vessel, mmsi)
                     vessels.append(v_dict)
                 await websocket.send_json({"type": "vessels", "vessels": vessels})
                 

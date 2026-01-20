@@ -287,6 +287,20 @@ export default function Dashboard({
                 Demo Mode
               </Button>
               
+              {/* Exit Demo Button - only show when in demo mode */}
+              {demoMode && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onClearDemo}
+                  className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+                  data-testid="exit-demo-btn"
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  Exit Demo
+                </Button>
+              )}
+              
               <Button
                 variant="outline"
                 size="sm"

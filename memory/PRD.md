@@ -45,6 +45,14 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
   - `DEPLOYMENT.md` comprehensive deployment guide
   - Production frontend Dockerfile with nginx static serving
 
+### January 2026 - Current Session
+- ✅ **Fixed Default Barge Counts Bug (P0 - CRITICAL)** - Root cause identified and fixed
+  - **Problem**: Tow vessels were displaying stale/default barge counts ("6 barges (2x3)") even when no USACE data was available
+  - **Root Cause**: The `VesselPosition` objects in `active_vessels` retained old `barge_count`, `tow_config`, and `estimated_lockage_time` values even after USACE cache expired
+  - **Fix**: In `/api/vessels` endpoint and AIS message processing, explicitly clear all barge-related fields to `None` when no USACE data is available
+  - Now tows without USACE data show "Unknown" in UI instead of incorrect default values
+  - Only vessels with verified USACE data will display barge counts
+
 ### January 2026 - Previous Session
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks
   - Shows Tow vs Recreational breakdown

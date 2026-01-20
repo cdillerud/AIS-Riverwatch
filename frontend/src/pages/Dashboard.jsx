@@ -40,6 +40,7 @@ export default function Dashboard({
   onResetConnection,
   onReconnect,
   onAddDemoVessels,
+  onClearDemo,
   onOpenSettings,
   connectionConfig,
   userSettings = {},

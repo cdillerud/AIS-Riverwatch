@@ -405,8 +405,8 @@ class AISConnectionManager:
             # Throttle GPS updates (send every 5th)
             self._gps_update_count += 1
             if self._gps_update_count % 5 == 0:
-                v_dict = vessel.model_dump()
-                v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+                # Use prepare_vessel_for_output to ensure clean data
+                v_dict = prepare_vessel_for_output(vessel, user_mmsi_local)
                 v_dict['source'] = 'GPS'
                 await self._broadcast_vessel_update(v_dict)
             return

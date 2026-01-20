@@ -848,6 +848,13 @@ async def fetch_usace_lock_queue_data():
                                     'source': 'USACE_LPMS'
                                 }
                                 
+                                # CRITICAL FIX: Only cache ACTIVE lockages (waiting or locking)
+                                # Skip completed lockages - they show old historical data that
+                                # would incorrectly apply barge counts to vessels no longer at locks
+                                if status == 'completed':
+                                    logger.debug(f"Skipping completed lockage for {vessel_name} at lock {lock_no}")
+                                    continue
+                                
                                 # Index by MMSI if available
                                 if mmsi:
                                     vessel_data_by_mmsi[mmsi] = vessel_info

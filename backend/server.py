@@ -2161,16 +2161,22 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
     """
     global user_mmsi
     
+    # Distance threshold - don't warn about vessels/locks more than 100 miles away
+    MAX_RELEVANT_DISTANCE = 100.0
+    
     if lock_id not in LOCKS:
         return {"error": "Invalid lock ID"}
     
     lock = LOCKS[lock_id]
+    lock_rm = lock["river_mile"]
     
     # Find user vessel
     user_vessel = None
+    user_rm = None
     if user_mmsi and user_mmsi in active_vessels:
         user_vessel = active_vessels[user_mmsi].model_dump()
         user_vessel['timestamp'] = user_vessel['timestamp'].isoformat()
+        user_rm = user_vessel.get('river_mile') or estimate_river_mile(user_vessel['lat'], user_vessel['lon'])
     
     # Find competitors heading toward this lock
     competitors = []
@@ -2178,17 +2184,25 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
         if mmsi == user_mmsi:
             continue
         
+        vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
+        
+        # Skip vessels more than 100 miles from the lock
+        vessel_distance_to_lock = abs(vessel_rm - lock_rm) if vessel_rm else None
+        if vessel_distance_to_lock is None or vessel_distance_to_lock > MAX_RELEVANT_DISTANCE:
+            continue
+        
         eta = calculate_eta_to_lock(
-            vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon),
+            vessel_rm,
             vessel.speed,
             vessel.heading or determine_heading(vessel.speed, vessel.course),
-            lock["river_mile"]
+            lock_rm
         )
         
         if eta is not None and eta > 0:
             v_dict = vessel.model_dump()
             v_dict['timestamp'] = v_dict['timestamp'].isoformat()
             v_dict['eta_minutes'] = eta
+            v_dict['distance_to_lock'] = round(vessel_distance_to_lock, 1)
             competitors.append(v_dict)
     
     # Sort by ETA
@@ -2196,40 +2210,45 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
     
     # Calculate analysis if user vessel exists
     analysis = None
-    if user_vessel and user_vessel.get('river_mile'):
-        user_rm = user_vessel['river_mile']
+    if user_vessel and user_rm:
         user_heading = user_vessel.get('heading', 'southbound')
-        user_distance = abs(user_rm - lock["river_mile"])
+        user_distance = abs(user_rm - lock_rm)
         user_speed_knots = user_vessel.get('speed', 0)
         user_speed_mph = user_speed_knots * 1.15078
         
-        user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock["river_mile"])
+        user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm)
         
         # Find most threatening competitor
         threat = None
         required_speed = None
         can_beat = True
         
-        if competitors:
+        # Only analyze threats if user is within 100 miles of the lock
+        if user_distance <= MAX_RELEVANT_DISTANCE and competitors:
             for comp in competitors:
                 comp_eta = comp.get('eta_minutes')
                 if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
                     # User needs to arrive buffer_minutes BEFORE the tow to get through first
                     threat = comp
-                    required_speed = calculate_required_speed(user_rm, user_heading, lock["river_mile"], comp_eta, buffer_minutes)
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
                     if required_speed and required_speed > 25:
                         can_beat = False
                     break
+        
+        # If user is > 100 miles from lock, mark as out of range
+        out_of_range = user_distance > MAX_RELEVANT_DISTANCE
         
         analysis = {
             "user_distance_to_lock": round(user_distance, 1),
             "user_eta_minutes": user_eta,
             "user_current_speed_mph": round(user_speed_mph, 1),
-            "threatening_vessel": threat,
-            "required_speed_mph": required_speed,
-            "can_beat_at_25mph": can_beat,
+            "threatening_vessel": threat if not out_of_range else None,
+            "required_speed_mph": required_speed if not out_of_range else None,
+            "can_beat_at_25mph": True if out_of_range else can_beat,
             "max_speed_mph": 25,
-            "buffer_minutes": buffer_minutes
+            "buffer_minutes": buffer_minutes,
+            "out_of_range": out_of_range,
+            "max_relevant_distance": MAX_RELEVANT_DISTANCE
         }
     
     return RaceAnalysis(

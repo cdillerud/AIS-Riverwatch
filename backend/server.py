@@ -897,24 +897,39 @@ def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional
     
     # Fall back to name matching
     if vessel_name and usace_lock_queue_cache.get("data_by_name"):
-        # Try exact match first
-        normalized = vessel_name.upper().replace('-', ' ').replace('/', ' ').strip()
-        info = usace_lock_queue_cache["data_by_name"].get(normalized)
-        if info:
-            return info
+        data_by_name = usace_lock_queue_cache["data_by_name"]
+        
+        # Normalize the search name: uppercase, replace hyphens with spaces
+        search_name = vessel_name.upper().replace('-', ' ').replace('/', ' ').strip()
+        
+        # Direct lookup with normalized name
+        if search_name in data_by_name:
+            return data_by_name[search_name]
         
         # Try without common prefixes
+        search_without_prefix = search_name
         for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
-            if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
-                info = usace_lock_queue_cache["data_by_name"].get(normalized)
-                if info:
-                    return info
+            if search_name.startswith(prefix):
+                search_without_prefix = search_name[len(prefix):]
+                break
         
-        # Try original name uppercase
-        info = usace_lock_queue_cache["data_by_name"].get(vessel_name.upper())
-        if info:
-            return info
+        if search_without_prefix in data_by_name:
+            return data_by_name[search_without_prefix]
+        
+        # Fuzzy matching: iterate through all USACE names and compare normalized versions
+        for usace_name, info in data_by_name.items():
+            # Normalize USACE name the same way
+            usace_normalized = usace_name.upper().replace('-', ' ').replace('/', ' ').strip()
+            if usace_normalized == search_name:
+                return info
+            # Also try without prefix
+            if usace_normalized == search_without_prefix:
+                return info
+            # Check if search name without prefix matches USACE name
+            for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
+                if usace_normalized.startswith(prefix):
+                    if usace_normalized[len(prefix):] == search_without_prefix:
+                        return info
     
     return None
 

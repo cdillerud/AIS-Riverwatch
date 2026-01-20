@@ -14,14 +14,23 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 8. **Mobile-Friendly UI** - Responsive design
 
 ## Tech Stack
-- **Backend**: FastAPI (Python), asyncio, WebSockets, BeautifulSoup4, pyais, pymongo
+- **Backend**: FastAPI (Python), asyncio, WebSockets, BeautifulSoup4, pyais, pymongo, httpx
 - **Frontend**: React, TailwindCSS, lucide-react, shadcn/ui
 - **Database**: MongoDB
 - **Deployment**: Docker, docker-compose
+- **External APIs**: USACE LPMS XML API for lock queue data
 
 ## What's Been Implemented
 
 ### December 2025 - Latest Session
+- ✅ **USACE Lock Queue Integration (P0)** - REAL barge counts from authoritative source!
+  - Fetches lock queue XML data from `ndc.ops.usace.army.mil/ords/lockqueue_xml`
+  - Covers all 26 Upper Mississippi locks (1-27, excluding 23, 26)
+  - Provides actual barge counts (no more guessing!)
+  - Auto-refreshes every 15 minutes in background
+  - New API endpoints: `GET /api/usace/lock-queue`, `POST /api/usace/refresh`, `GET /api/usace/vessel/{mmsi}`
+  - Vessels show "USACE Verified" badge when barge count comes from USACE
+- ✅ **Lock Timing 100-Mile Filter** - Only warn about threats within 100mi of user
 - ✅ **AIS Connection Manager Refactor (P0)** - Fixed connection drops/reconnects issue
   - Implemented singleton `AISConnectionManager` class for ONE long-lived TCP connection
   - All WebSocket clients now share the same AIS connection (no per-client TCP connections)
@@ -30,12 +39,6 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
   - New API endpoints: `GET /api/connection/status`, `POST /api/connection/reconnect`
   - WebSocket clients now subscribe/unsubscribe instead of creating connections
 - ✅ **Demo Mode Removed (P0)** - Completely removed all Demo Mode functionality per user request
-  - Removed `/api/demo/add-vessel`, `/api/demo/add-tow`, `/api/demo/clear-vessels` backend endpoints
-  - Removed Demo Mode button and Exit Demo button from desktop header
-  - Removed Demo Mode button from mobile menu
-  - Removed demoMode state and handlers from App.js
-  - Removed demo status display from ConnectionStatus component
-  - App now requires a live AIS TCP connection to function (no mock data option)
 - ✅ **GCP Deployment Ready** - Added production Docker Compose and deployment scripts
   - `docker-compose.prod.yml` with nginx reverse proxy
   - `deploy.sh` one-click deployment script

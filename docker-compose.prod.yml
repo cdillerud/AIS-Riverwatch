@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: riverwatch-mongo
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+    networks:
+      - riverwatch-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: riverwatch-backend
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=riverwatch
+      - CORS_ORIGINS=*
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    networks:
+      - riverwatch-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        - REACT_APP_BACKEND_URL=${BACKEND_URL:-http://localhost}
+    container_name: riverwatch-frontend
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - riverwatch-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: riverwatch-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    networks:
+      - riverwatch-net
+
+volumes:
+  mongodb_data:
+
+networks:
+  riverwatch-net:
+    driver: bridge

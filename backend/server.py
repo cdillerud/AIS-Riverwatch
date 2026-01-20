@@ -2028,9 +2028,17 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
     return None
 
 # API Routes
+# Version identifier for debugging deployment issues
+CODE_VERSION = "2026-01-20-fix-completed-lockages"
+
 @api_router.get("/")
 async def root():
-    return {"message": "AIS Vessel Tracker API", "status": "online"}
+    return {
+        "message": "AIS Vessel Tracker API", 
+        "status": "online",
+        "code_version": CODE_VERSION,
+        "fix_applied": "Filter out completed lockages from USACE cache"
+    }
 
 @api_router.get("/locks", response_model=List[LockInfo])
 async def get_locks():

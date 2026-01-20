@@ -170,8 +170,8 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           </div>
         )}
 
-        {/* Threatening Vessel (only when in range) */}
-        {!isOutOfRange && threat && (
+        {/* Threatening Vessel */}
+        {threat && (
           <div className="p-3 rounded-lg bg-amber-900/20 border border-amber-500/30">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
@@ -192,16 +192,21 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
                 ETA: {threat.eta_minutes?.toFixed(0)} min
               </span>
             </div>
-            {analysis?.buffer_minutes && (
+            {threat.distance_from_user && (
               <div className="mt-2 text-xs text-slate-500">
+                {threat.distance_from_user} mi from your position
+              </div>
+            )}
+            {analysis?.buffer_minutes && (
+              <div className="mt-1 text-xs text-slate-500">
                 You need to arrive {analysis.buffer_minutes} min before tow (commercial priority)
               </div>
             )}
           </div>
         )}
 
-        {/* Required Speed (only when in range) */}
-        {!isOutOfRange && analysis?.required_speed_mph && (
+        {/* Required Speed */}
+        {analysis?.required_speed_mph && (
           <div className={`p-4 rounded-lg ${isDangerous ? 'bg-red-900/20 border border-red-500/30' : 'bg-cyan-900/20 border border-cyan-500/30'}`}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs uppercase tracking-wider text-slate-400">
@@ -253,19 +258,19 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           </div>
         )}
 
-        {/* No threat state (only when in range) */}
-        {!isOutOfRange && !threat && (
+        {/* No threat state */}
+        {!threat && (
           <div className="p-4 rounded-lg bg-green-900/20 border border-green-500/30 text-center">
             <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto mb-2" />
             <div className="text-green-400 font-semibold">No Traffic</div>
             <div className="text-sm text-slate-400 mt-1">
-              No commercial traffic ahead
+              No commercial traffic ahead within 100 mi
             </div>
           </div>
         )}
 
-        {/* Competitors count (only when in range) */}
-        {!isOutOfRange && raceAnalysis?.competitors?.length > 0 && (
+        {/* Competitors count */}
+        {raceAnalysis?.competitors?.length > 0 && (
           <div className="text-xs text-slate-500 text-center">
             {raceAnalysis.competitors.length} vessel(s) heading to this lock
           </div>

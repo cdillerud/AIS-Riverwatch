@@ -166,26 +166,26 @@ class AISConnectionManager:
         Configure and start the AIS connection.
         If already connected with different config, reconnects.
         """
-        global user_mmsi as global_user_mmsi
+        global user_mmsi
         
         new_config = {
             "ip_address": ip_address,
             "port": port,
-            "user_mmsi": user_mmsi,
+            "user_mmsi": user_mmsi_param,
             "boat_name": boat_name
         }
         
         async with self._lock:
             # Update global user MMSI
-            global_user_mmsi = user_mmsi
+            user_mmsi = user_mmsi_param
             
             # Pre-populate user vessel in cache
-            if user_mmsi and boat_name:
-                vessel_static_cache[user_mmsi] = {
+            if user_mmsi_param and boat_name:
+                vessel_static_cache[user_mmsi_param] = {
                     'name': boat_name,
                     'is_user': True
                 }
-                logger.info(f"Pre-cached user vessel: {user_mmsi} = {boat_name}")
+                logger.info(f"Pre-cached user vessel: {user_mmsi_param} = {boat_name}")
             
             # Check if config changed
             if self._config == new_config and self._connected:

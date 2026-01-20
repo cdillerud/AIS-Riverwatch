@@ -22,6 +22,13 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 ## What's Been Implemented
 
 ### December 2025 - Latest Session
+- ✅ **AIS Connection Manager Refactor (P0)** - Fixed connection drops/reconnects issue
+  - Implemented singleton `AISConnectionManager` class for ONE long-lived TCP connection
+  - All WebSocket clients now share the same AIS connection (no per-client TCP connections)
+  - Added automatic reconnection with exponential backoff (1s → 60s max)
+  - Added stale connection detection (reconnects if no data for 60s)
+  - New API endpoints: `GET /api/connection/status`, `POST /api/connection/reconnect`
+  - WebSocket clients now subscribe/unsubscribe instead of creating connections
 - ✅ **Demo Mode Removed (P0)** - Completely removed all Demo Mode functionality per user request
   - Removed `/api/demo/add-vessel`, `/api/demo/add-tow`, `/api/demo/clear-vessels` backend endpoints
   - Removed Demo Mode button and Exit Demo button from desktop header
@@ -29,6 +36,11 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
   - Removed demoMode state and handlers from App.js
   - Removed demo status display from ConnectionStatus component
   - App now requires a live AIS TCP connection to function (no mock data option)
+- ✅ **GCP Deployment Ready** - Added production Docker Compose and deployment scripts
+  - `docker-compose.prod.yml` with nginx reverse proxy
+  - `deploy.sh` one-click deployment script
+  - `DEPLOYMENT.md` comprehensive deployment guide
+  - Production frontend Dockerfile with nginx static serving
 
 ### January 2026 - Previous Session
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks

@@ -490,9 +490,8 @@ class AISConnectionManager:
                 except Exception as e:
                     logger.error(f"Failed to persist vessel name to DB: {e}")
             
-            # Broadcast update to all subscribers
-            v_dict = vessel.model_dump()
-            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+            # Broadcast update to all subscribers - use prepare_vessel_for_output for clean data
+            v_dict = prepare_vessel_for_output(vessel, vessel.mmsi)
             v_dict['source'] = 'AIS'
             await self._broadcast_vessel_update(v_dict)
     

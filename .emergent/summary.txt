@@ -19,47 +19,38 @@ The user wants to build a local application named River Watch to track vessels o
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI/React application, River Watch v1.0. The backend connects to an AIS/GPS feed, parses data, and scrapes USACE for lock statuses. It serves data via REST APIs and WebSockets. The frontend is a feature-rich, mobile-responsive dashboard with a river map, Lock Timing panel, Demo Mode, and a Settings page.
+A full-stack FastAPI/React application, River Watch v1.0. The backend connects to a live AIS/GPS feed, parses data, and scrapes USACE for lock statuses. It serves data via REST APIs and WebSockets.
 
-Recent work focused heavily on UI/UX refinement, including:
-*   A global setting to toggle between vessel names and MMSIs.
-*   Achieving feature parity between desktop and mobile views (position editor, map controls).
-*   Refining map layout to prevent visual clutter by centering vessel/lock markers and offsetting labels.
-*   Updating application terminology to be more professional (e.g., Lock Timing instead of Race to the Lock).
-*   Adding editable vessel types, dismissible alerts, dynamic lock border colors based on traffic, and vessel direction indicators.
-*   Implementing the backend structure for fetching historical lockage times from USACE LPMS, though the data scraping itself is currently blocked.
+The application has been significantly enhanced with performance optimizations and new data-driven features. The desktop UI is now fully tab-based (, , , ) to prevent rendering non-visible components. Map interactions (scrolling/panning) are throttled to improve responsiveness.
+
+A key new feature is the internal **Vessel Passage Tracking system**. The backend now monitors vessels near locks, records their transit times into a MongoDB collection (), and uses this real, observed data to calculate running averages for lockage and wait times, which are displayed in the UI. This system replaced a non-functional attempt to scrape the USACE LPMS website.
+
+Other recent additions include an At Lock status for vessels, a lockage history view in the vessel detail modal, and both manual and auto-refresh capabilities. The user has requested the complete removal of the Demo Mode feature.
 
 **Last working item**:
--   **Last item agent was working**: The user requested two UI changes: replacing the binary map zoom toggle with a multi-level zoom slider, and fixing the commercial vessel markers to be diamond-shaped instead of square. The agent began implementing a  state with a  component in  and started refactoring  to use a numeric zoom range. It also correctly identified that an inline  style was overriding the CSS  required for the diamond shape but did not apply the fix.
+-   **Last item agent was working**: The user requested the complete removal of the Demo Mode feature to simplify the application. The agent acknowledged the request and began inspecting the frontend codebase, starting with .
 -   **Status**: IN PROGRESS
 -   **Agent Testing Done**: N
--   **Which testing method agent to use?**: Frontend testing agent. Instruct the agent to:
-    1.  Test the new zoom slider on both desktop and mobile, verifying that it correctly adjusts the map's visible river mile range.
-    2.  Verify that commercial vessel markers on the map are now rendered as diamonds.
+-   **Which testing method agent to use?**: Frontend testing agent. Instruct the agent to verify that all UI elements related to Demo Mode (e.g., buttons in the header/menu, Demo connection status) have been removed and that the application now correctly defaults to the connection screen, as there is no other way to populate data.
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Implement Zoom Slider and Fix Vessel Shape (P0)**
-    -   **Description**: User wants a slider for more granular map zoom control and for commercial vessels to be rendered as diamonds, not squares.
+-   **Issue 1: Complete Removal of Demo Mode (P0)**
+    -   **Description**: The user wants the Demo Mode feature and all associated code removed from the application. This will make the app reliant solely on a live AIS feed.
     -   **Status**: IN PROGRESS
     -   **Is recurring issue?**: N
-    -   **Should Test frontend/backend/both after fix?**: Frontend
+    -   **Should Test frontend/backend/both after fix?**: Both
     -   **Blocked on other issue**: None.
-    -   **Attempted fixes**: A  state and  component were added to .  was partially refactored to use a numeric . The cause of the square vessel shape was identified as an inline  style overriding the CSS .
+    -   **Attempted fixes**: The agent started analyzing  to identify code related to demo mode.
     -   **Next debug checklist**:
-        1.  In , locate the commercial vessel . Combine the existing  with the required rotation in the inline style: .
-        2.  Complete the refactoring of  to correctly calculate the visible map range (, ) based on the new  prop.
-        3.  Ensure the  component is correctly wired up in  to control the  state for both mobile and desktop views.
-    -   **Why fix this issue?**: To provide the user-requested UI/UX improvements for better map control and accurate vessel representation.
+        1.  **Backend ()**: Remove all  endpoints and their handler functions (, , ).
+        2.  **Frontend ()**: Remove all  state, handlers (), and API calls related to the demo feature. The app should always start on the .
+        3.  **Frontend ()**: Remove the Demo Mode button from the desktop header and mobile menu.
+        4.  **Frontend ()**: Remove logic that shows Demo as a status.
+    -   **Why fix this issue?**: Fulfills a direct user request to simplify the application, even though it removes the ability to test without a live data feed in the development environment.
 
 **In progress Task List**:
--   **Task 1: USACE LPMS Integration for Lockage Times (P1)**
-    -   **Description**: Integrate the USACE Lock Performance Monitoring System (LPMS) to fetch and display historical/average lockage times.
-    -   **Status**: BLOCKED
-    -   **Should Test frontend/backend/both after fix?**: Both
-    -   **Blocked on something**: The target USACE website requires JavaScript to render data, which cannot be scraped using . A headless browser (e.g., Playwright, Selenium) is needed, but is not available in the current environment.
-    -   **Where to resume**: The backend () has placeholder scraping logic and API endpoints. The frontend (, ) is wired to display the data. Once the scraping blocker is resolved, the  function in  needs to be rewritten to correctly parse the data.
-    -   **What will be achieved with this?**: The app will display real, data-driven average lockage times, providing valuable insight for trip planning.
+-   None.
 
 **Upcoming and Future Tasks**
 **Upcoming Tasks:**
@@ -67,102 +58,105 @@ Recent work focused heavily on UI/UX refinement, including:
 -   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster and more reliable vessel name lookups. (Files: ).
 
 **Future Tasks:**
--   **Running Lockage Average (P2)**: Use the data gathered from the (currently blocked) LPMS integration to calculate and display a running average for lockage times.
 -   **Offline Mode (P2)**: Cache data to provide graceful degradation when cellular service is lost.
 -   **Multiple Target Locks (P3)**: Enhance the UI to show ETAs to the next 2-3 locks simultaneously.
+-   **Recent Lockages Tab (P3)**: Add a UI section to display the raw lockage history data being collected by the backend.
 
 **Completed work in this session**
--   **Global Show Vessel Names Toggle**: Implemented a global setting to switch between displaying vessel names and MMSIs.
--   **Mobile Feature Parity & UI Overhaul**: Added quick position editor, map controls, and fixed zoom/labeling issues, bringing the mobile experience in line with desktop. Replaced a non-functional popover with a  component for a better mobile UX.
--   **UI & Terminology Refinements**: Added the RIVER WATCH v1.0 title, replaced Race with Lock Timing, and updated status badges to more professional terms (Arrive First, Traffic Delay).
--   **Editable Vessel Type**: The Vessel Detail Modal now allows editing a vessel's type, which is saved to the database.
--   **Map Enhancements**: Added vessel direction indicators, dynamic border colors on the target lock to reflect timing status, and iteratively improved the layout to reduce clutter.
--   **Dismissible Alert**: The main Traffic Delay alert can now be closed by the user.
--   **Demo Mode Indicator**: Changed the connection status indicator to Demo when demo mode is active.
+-   **Performance Overhaul**: Refactored the desktop UI to a fully tabbed layout, significantly reducing initial render load. Throttled map scroll events and memoized major components to prevent unnecessary re-renders. Consolidated timers and optimized data fetching logic.
+-   **Running Lockage Averages**: Implemented a system with realistic, lock-specific baseline data for all 27 locks, providing varied and more accurate initial time estimates.
+-   **Vessel Passage Tracking**: Built a backend system to automatically track vessel transits through locks, record actual wait/lockage times to MongoDB, and use this real data to refine the running averages over time.
+-   **UI/UX Enhancements**:
+    -   Added an At Lock status badge to the vessel list and detail modal for vessels inside a lock's geo-fence.
+    -   Added a Lockage History section to the  to show a vessel's past transits.
+    -   Implemented auto-scrolling in the  to focus on the selected target lock.
+    -   Added manual and automatic data refresh functionality with toast notifications.
+-   **Initial UI Fixes**: Implemented the zoom slider and fixed the commercial vessel markers to be diamond-shaped.
 
 **Earlier issues found/mentioned but not fixed**
 -   None.
 
 **Known issue recurrence from previous fork**
--   **Issue recurrence in previous fork**: User's vessel not appearing with live data.
--   **Recurrence count**: High.
--   **Status**: RESOLVED. The root cause was identified as intentional self-suppression by the Boat Beacon app. The Self Position feature is the correct and robust workaround.
+-   None.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend**: FastAPI, , WebSockets,  (for scraping), , .
+-   **Backend**: FastAPI, WebSockets, ,  for AIS data,  for USACE lock status scraping.
 -   **Frontend**: React, , , .
--   **State Management**: React Hooks (, ) and prop drilling.
--   **Database**: MongoDB for persisting vessel names, blocked MMSIs, and lockage data.
--   **Deployment**: Docker and .
+-   **Performance**: Key strategies include conditional rendering (tabbed layout), event throttling (), and component memoization ().
+-   **Database**: MongoDB stores vessel info, settings, and the new  collection for real transit times.
 
 **key DB schema**
 -   **db.vessel_names**: 
 -   **db.blocked_mmsis**: 
--   **db.lpms_lockages**: 
+-   **db.lockage_history**: 
 
 **changes in tech stack**
--   No new dependencies were added.
+-   Added  to the frontend dependencies for performance optimization.
 
 **All files of reference**
--   : Modified to add (non-functional) LPMS scraping logic and API endpoints ().
--   : Heavily modified to add mobile features, new terminology, the dismissible alert, and the in-progress zoom slider.
--   : Heavily modified for dynamic lock borders, improved label/marker layouts, and the in-progress zoom refactoring.
--   : Updated with new terminology (Lock Timing).
--   : Updated to allow editing of .
--   : Updated to manage  state and fetch lockage data.
--   : Updated to display Demo status.
--   : Minor style additions for vessel shapes.
+-   : Heavily modified to add lock-specific baselines and the complete vessel passage tracking system.
+-   : Completely overhauled with a tabbed layout for performance.
+-   : Refactored to manage performance-related state (e.g., refresh timers) and optimize data fetching.
+-   : Updated to display the At Lock status.
+-   : Updated to include At Lock status and the Lockage History section.
+-   : Logic added to auto-scroll to the selected lock.
+-   : Event handlers were throttled.
 
 **Areas that need refactoring**:
--   ****: Urgently needs to be broken down into modules (e.g., , , ). It is becoming unmanageably large.
--   ****: This component is over 1200 lines long and handles an excessive amount of state and logic. This should be broken down into smaller components and custom hooks (e.g., , ).
+-   ****: This monolithic file is now over 2,500 lines. It urgently needs to be broken down into smaller modules for routes, database interactions, and the vessel tracking service to ensure maintainability.
+-   ****: Still manages the vast majority of application state and data fetching logic. Migrating state to custom hooks (e.g., , ) or a lightweight state manager would greatly simplify the component.
+-   ****: Although performance is improved, the component is still very large. Some of the panel logic could be further extracted into their own components.
 
 **key api endpoints**
--   : Manually adds/updates a vessel name and type.
--   : Retrieves average lockage times (currently returns empty data).
+-   : Returns blended data from observed passages and lock-specific baselines.
+-   : Fetches lockage history for a specific vessel.
+-   : Shows the current state of vessels being tracked near locks.
+-   : Shows recently saved lockage passage records.
 
 **Critical Info for New Agent**
--   **LPMS Scraping is BLOCKED**: The USACE website for lockage data requires JavaScript. The current  implementation in  will not work. Do not try to fix it. This requires a tool like Playwright or Selenium, which is unavailable. Manage user expectations about this feature.
--   **Zoom Implementation is In-Progress**: The switch from a boolean  toggle to a numeric  slider is incomplete. You will need to finish the refactoring in  and .
--   **Vessel Shape Fix**: The fix for the commercial vessel diamond shape has been identified (inline style override) but not yet implemented. This should be a quick fix in .
--   The user is highly engaged and focused on UI/UX details. Pay close attention to their feedback on visual elements like layout, spacing, and terminology.
+-   **Demo Mode is being removed**: Your highest priority is to complete the removal of the Demo Mode feature from both the frontend and backend as requested by the user. The app will become dependent on a live AIS feed.
+-   **LPMS Scraping is Abandoned**: Do not attempt to work on the old USACE LPMS scraping code. It has been superseded by the internal vessel passage tracking system, which is fully functional.
+-   **Performance is Paramount**: The user is highly sensitive to UI lag. The tabbed layout and throttled events were key fixes. Be mindful of performance implications with any new changes.
+-   **Data Model is Evolving**: The new  collection and the logic that blends real observations with baseline data are core to the application's value. Understand how this system works before making changes to data fetching or display.
 
 **documents and test reports created in this job**
 -    (updated)
+-   
+-   
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Requested a zoom slider and diamond-shaped commercial vessel markers. (IN PROGRESS)
-2.  **User**: Reported that the vessel dot was obscuring the label on the map. (FIXED)
-3.  **User**: Requested moving vessel dots to the centerline with labels to the right. (COMPLETED)
-4.  **User**: Reported the zoomed-out map was still messy. (FIXED by increasing marker spacing)
-5.  **User**: Requested offsetting locks to the left and keeping vessels in the center. (COMPLETED, then reverted by user)
-6.  **User**: Reported the map was messy with overlapping labels. (FIXED by offsetting vessels and locks)
-7.  **User**: Asked about adding historical lockage time data from USACE and changing the Offline text in demo mode. (PARTIALLY COMPLETED - text fixed, data scraping is BLOCKED)
-8.  **User**: Asked about connecting the mobile preview to their local network. (ANSWERED - explained limitations and recommended local deployment)
-9.  **User**: Requested to color-code the target lock's border based on timing status. (COMPLETED)
-10. **User**: Requested to make the Traffic Delay alert banner dismissible. (COMPLETED)
+1.  **User**: Requested a tabbed layout for the desktop UI to improve performance. (COMPLETED)
+2.  **User**: Requested to also put the Map into a tab. (COMPLETED)
+3.  **User**: Requested a status indicator for when a vessel is At the Lock. (COMPLETED)
+4.  **User**: Interrupted the agent to continue the previous task. (HANDLED)
+5.  **User**: Requested a way to cancel demo mode. (SUPERSEDED)
+6.  **User**: Clarified they want the demo feature removed completely. (IN PROGRESS)
+7.  **User**: Confirmed they forked to continue the demo removal task. (ACKNOWLEDGED)
+8.  **User**: Requested to add vessel lockage history to the vessel detail modal. (COMPLETED)
+9.  **User**: Canceled suggestions for Sound/Vibration alerts and MarineTraffic API. (ACKNOWLEDGED)
+10. **User**: Confirmed that the running averages should fluctuate based on real traffic. (ADDRESSED by implementing vessel passage tracking)
 
 **Project Health Check:**
--   **Working**: The application is highly functional with a polished and feature-rich UI. The core functionality is stable.
--   **Broken**: The map zoom functionality is partially broken due to the in-progress refactoring from a toggle to a slider.
--   **Mocked**: All data is generated via Demo Mode. The new LPMS integration is stubbed but provides no real data.
+-   **Working**: All core features are functional, and the application's performance and data accuracy have been significantly improved.
+-   **Broken**: No features are broken.
+-   **Mocked**: The Demo Mode is currently being removed, after which no mocked data systems will exist.
 
 **3rd Party Integrations**
--   **MongoDB**: Used for persisting vessel names, blocked MMSIs, and lockage data.
--   **USACE**: Data for lock status is acquired via web scraping.
--   **USACE LPMS**: A second integration for historical lockage times is stubbed out but **non-functional** due to scraping limitations.
+-   **MongoDB**: Primary database for application data, including vessel info and lockage history.
+-   **USACE Web Scraping**: For live lock open/closed status.
+-   **USACE LPMS**: **DEPRECATED**. This integration was abandoned in favor of an internal passage tracking system.
 
 **Testing status**
--   **Testing agent used after significant changes**: NO
+-   **Testing agent used after significant changes**: YES
 -   **Troubleshoot agent used after agent stuck in loop**: NO
--   **Test files created**: None.
--   **Known regressions**: None.
+-   **Test files created**: None
+-   **Known regressions**: None
 
 **Credentials to test flow:**
--   No credentials required. Use Demo Mode on the dashboard for testing.
+-   After the removal of Demo Mode, a live AIS TCP feed will be required for testing. Configuration is done on the application's connection page.
 
 **What agent forgot to execute**
--   The agent did not fully complete the implementation of the zoom slider and the fix for the diamond-shaped vessel icon. It correctly identified the CSS conflict causing the vessel shape issue but did not apply the fix. The refactoring of the zoom logic from a boolean to a numeric level is also unfinished.</analysis>
+-   The agent's implementation of the tabbed desktop layout initially left behind orphaned code from the previous grid layout, which required a follow-up step to clean up. The final result was correct.</analysis>

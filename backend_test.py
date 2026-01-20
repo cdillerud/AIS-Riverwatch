@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 # Use the public endpoint from frontend .env
-BACKEND_URL = "https://vessel-tracker-21.preview.emergentagent.com"
+BACKEND_URL = "https://vesseltracker-1.preview.emergentagent.com"
 API_BASE = f"{BACKEND_URL}/api"
 
 class AISBackendTester:

@@ -584,6 +584,24 @@ function App() {
     setDemoMode(true);
   };
 
+  // Clear demo mode - remove all demo vessels
+  const clearDemoMode = async () => {
+    try {
+      // Call backend to clear demo vessels
+      await fetch(`${API}/demo/clear-vessels`, { method: "DELETE" });
+      
+      // Clear local state
+      setVessels([]);
+      setDemoMode(false);
+      setRaceAnalysis(null);
+      
+      toast.success("Demo mode cleared");
+    } catch (error) {
+      console.error("Failed to clear demo:", error);
+      toast.error("Failed to clear demo mode");
+    }
+  };
+
   const handleSettingsUpdate = async (newSettings) => {
     setUserSettings(prev => ({ ...prev, ...newSettings }));
     if (newSettings.user_mmsi) {

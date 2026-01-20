@@ -90,6 +90,20 @@ lpms_cache = {
     "cache_duration_seconds": 600  # 10 minutes
 }
 
+# Cache for USACE Lock Queue data (vessel info with barge counts)
+usace_lock_queue_cache = {
+    "data": {},  # {mmsi: {vessel_name, num_barges, direction, lock_id, ...}}
+    "last_updated": None,
+    "cache_duration_seconds": 900  # 15 minutes (matches USACE update interval)
+}
+
+# Upper Mississippi lock numbers for USACE API
+UPPER_MISS_LOCKS = [
+    "1", "2", "3", "4", "5", "5A", "6", "7", "8", "9", "10",
+    "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+    "21", "22", "24", "25", "27"  # Note: no 23, 26
+]
+
 # Vessel Lock Passage Tracking
 # Tracks vessels as they approach and transit locks to calculate real lockage times
 # Structure: {mmsi: {lock_id: {state, arrival_time, entry_time, direction, ...}}}

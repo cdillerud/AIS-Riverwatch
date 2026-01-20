@@ -1868,9 +1868,42 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             if shipname and shipname.strip():
                                 vessel['name'] = shipname.strip()
                         
-                        # Add tow/barge information
-                        tow_info = estimate_tow_info(vessel)
-                        vessel.update(tow_info)
+                        # First check USACE lock queue data for authoritative barge count
+                        mmsi = vessel.get('mmsi', '')
+                        usace_info = get_usace_vessel_info(mmsi) if mmsi else None
+                        
+                        if usace_info and usace_info.get('num_barges') is not None:
+                            # Use USACE authoritative data
+                            vessel['barge_count'] = usace_info['num_barges']
+                            vessel['is_tow'] = usace_info['num_barges'] > 0
+                            vessel['usace_source'] = True
+                            vessel['usace_lock'] = usace_info.get('lock_id')
+                            vessel['usace_status'] = usace_info.get('status')
+                            
+                            # Calculate lockage time from barge count
+                            bc = usace_info['num_barges']
+                            if bc <= 6:
+                                vessel['estimated_lockage_time'] = 30
+                            elif bc <= 9:
+                                vessel['estimated_lockage_time'] = 45
+                            else:
+                                vessel['estimated_lockage_time'] = 90 + (bc - 9) * 5
+                            vessel['is_double_lockage'] = bc > 9
+                            
+                            # Estimate tow config from barge count
+                            if bc > 0:
+                                if bc <= 6:
+                                    vessel['tow_config'] = f"2x{(bc+1)//2}"
+                                elif bc <= 9:
+                                    vessel['tow_config'] = f"3x{(bc+2)//3}"
+                                else:
+                                    vessel['tow_config'] = f"3x{(bc+2)//3}+"
+                            
+                            logger.debug(f"Using USACE data for {mmsi}: {usace_info['num_barges']} barges")
+                        else:
+                            # Fall back to AIS-based estimation
+                            tow_info = estimate_tow_info(vessel)
+                            vessel.update(tow_info)
                         
                         return vessel
                         

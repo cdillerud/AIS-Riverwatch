@@ -125,7 +125,8 @@ class AISConnectionManager:
     """
     
     def __init__(self):
-        self._socket: Optional[socket.socket] = None
+        self._reader: Optional[asyncio.StreamReader] = None
+        self._writer: Optional[asyncio.StreamWriter] = None
         self._config: Optional[dict] = None
         self._connected: bool = False
         self._reconnect_task: Optional[asyncio.Task] = None
@@ -135,13 +136,12 @@ class AISConnectionManager:
         self._should_run: bool = False
         self._reconnect_delay: float = 1.0  # Start with 1 second
         self._max_reconnect_delay: float = 60.0  # Max 60 seconds
-        self._buffer: str = ""
         self._last_data_time: Optional[datetime] = None
         self._gps_update_count: int = 0
         
     @property
     def is_connected(self) -> bool:
-        return self._connected and self._socket is not None
+        return self._connected and self._writer is not None
     
     @property
     def config(self) -> Optional[dict]:
@@ -175,6 +175,8 @@ class AISConnectionManager:
             "boat_name": boat_name
         }
         
+        logger.info(f"AISConnectionManager.configure called with {ip_address}:{port}")
+        
         async with self._lock:
             # Update global user MMSI
             user_mmsi = user_mmsi_param
@@ -203,13 +205,13 @@ class AISConnectionManager:
             return self._connected
     
     async def _connect(self):
-        """Internal method to establish TCP connection."""
+        """Internal method to establish TCP connection using asyncio streams."""
         if not self._config:
             logger.warning("Cannot connect: no config set")
             return
         
-        # Close existing socket
-        await self._close_socket()
+        # Close existing connection
+        await self._close_connection()
         
         ip = self._config["ip_address"]
         port = self._config["port"]
@@ -217,14 +219,13 @@ class AISConnectionManager:
         try:
             logger.info(f"Connecting to AIS feed at {ip}:{port}...")
             
-            # Create new socket
-            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._socket.settimeout(10)  # 10 second connection timeout
-            self._socket.connect((ip, port))
-            self._socket.setblocking(False)
+            # Use asyncio.open_connection for non-blocking connect
+            self._reader, self._writer = await asyncio.wait_for(
+                asyncio.open_connection(ip, port),
+                timeout=10.0
+            )
             
             self._connected = True
-            self._buffer = ""
             self._last_data_time = datetime.now(timezone.utc)
             self._reconnect_delay = 1.0  # Reset backoff on success
             
@@ -237,7 +238,7 @@ class AISConnectionManager:
             if self._read_task is None or self._read_task.done():
                 self._read_task = asyncio.create_task(self._read_loop())
                 
-        except socket.timeout:
+        except asyncio.TimeoutError:
             logger.error(f"Connection timeout to {ip}:{port}")
             self._connected = False
             await self._broadcast_status("error", f"Connection timeout to {ip}:{port}")
@@ -249,21 +250,29 @@ class AISConnectionManager:
             await self._broadcast_status("error", f"Connection refused by {ip}:{port}")
             await self._schedule_reconnect()
             
+        except OSError as e:
+            logger.error(f"OS error connecting to AIS feed: {e}")
+            self._connected = False
+            await self._broadcast_status("error", f"Connection failed: {str(e)}")
+            await self._schedule_reconnect()
+            
         except Exception as e:
             logger.error(f"Failed to connect to AIS feed: {e}")
             self._connected = False
             await self._broadcast_status("error", f"Connection failed: {str(e)}")
             await self._schedule_reconnect()
     
-    async def _close_socket(self):
-        """Safely close the TCP socket."""
-        if self._socket:
+    async def _close_connection(self):
+        """Safely close the TCP connection."""
+        if self._writer:
             try:
-                self._socket.close()
+                self._writer.close()
+                await self._writer.wait_closed()
             except Exception as e:
-                logger.debug(f"Error closing socket: {e}")
+                logger.debug(f"Error closing connection: {e}")
             finally:
-                self._socket = None
+                self._writer = None
+                self._reader = None
                 self._connected = False
     
     async def _schedule_reconnect(self):
@@ -288,59 +297,47 @@ class AISConnectionManager:
         self._reconnect_task = asyncio.create_task(reconnect_after_delay())
     
     async def _read_loop(self):
-        """Main loop for reading AIS data from the TCP socket."""
+        """Main loop for reading AIS data from the TCP connection."""
         logger.info("Starting AIS read loop")
         
-        while self._should_run and self._connected:
+        while self._should_run and self._connected and self._reader:
             try:
-                # Try to read data (non-blocking)
+                # Read a line using asyncio (non-blocking)
                 try:
-                    if not self._socket:
-                        break
-                        
-                    chunk = self._socket.recv(4096).decode('ascii', errors='ignore')
+                    line_bytes = await asyncio.wait_for(
+                        self._reader.readline(),
+                        timeout=30.0  # 30 second timeout for each line
+                    )
                     
-                    if not chunk:
+                    if not line_bytes:
                         # Empty read = connection closed by remote
-                        logger.warning("AIS connection closed by remote host")
+                        logger.warning("AIS connection closed by remote host (EOF)")
                         self._connected = False
                         await self._broadcast_status("disconnected", "Connection closed by remote host")
                         await self._schedule_reconnect()
                         break
                     
-                    self._buffer += chunk
+                    line = line_bytes.decode('ascii', errors='ignore').strip()
                     self._last_data_time = datetime.now(timezone.utc)
                     
-                    # Process complete lines
-                    while '\n' in self._buffer:
-                        line, self._buffer = self._buffer.split('\n', 1)
-                        line = line.strip()
+                    if line:
+                        await self._process_line(line)
                         
-                        if line:
-                            await self._process_line(line)
-                            
-                except BlockingIOError:
-                    # No data available right now, that's fine
-                    pass
-                except socket.error as e:
-                    if e.errno == 11:  # EAGAIN/EWOULDBLOCK
-                        pass
-                    else:
-                        raise
-                
-                # Small sleep to prevent CPU spinning
-                await asyncio.sleep(0.05)
-                
-                # Check for stale connection (no data for 60 seconds)
-                if self._last_data_time:
-                    data_age = (datetime.now(timezone.utc) - self._last_data_time).total_seconds()
-                    if data_age > 60:
-                        logger.warning(f"No AIS data received for {data_age:.0f}s, reconnecting...")
-                        self._connected = False
-                        await self._broadcast_status("disconnected", "Connection stale - no data received")
-                        await self._schedule_reconnect()
-                        break
-                
+                except asyncio.TimeoutError:
+                    # No data for 30 seconds, check if connection is stale
+                    if self._last_data_time:
+                        data_age = (datetime.now(timezone.utc) - self._last_data_time).total_seconds()
+                        if data_age > 60:
+                            logger.warning(f"No AIS data received for {data_age:.0f}s, reconnecting...")
+                            self._connected = False
+                            await self._broadcast_status("disconnected", "Connection stale - no data received")
+                            await self._schedule_reconnect()
+                            break
+                    continue
+                    
+            except asyncio.CancelledError:
+                logger.info("AIS read loop cancelled")
+                break
             except Exception as e:
                 logger.error(f"Error in AIS read loop: {e}")
                 self._connected = False

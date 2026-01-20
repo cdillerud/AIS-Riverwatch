@@ -155,10 +155,8 @@ export default function Dashboard({
     return vessels.filter(v => v.mmsi !== userMmsi && !v.is_user_vessel);
   }, [vessels, userMmsi]);
 
-  // Check if speed requirement is dangerous (only if within range - 100 miles)
-  const isOutOfRange = raceAnalysis?.analysis?.out_of_range;
-  const isDangerous = !isOutOfRange && 
-                      raceAnalysis?.analysis?.required_speed_mph && 
+  // Check if speed requirement is dangerous
+  const isDangerous = raceAnalysis?.analysis?.required_speed_mph && 
                       raceAnalysis.analysis.required_speed_mph > 25;
   
   // Track current threatening vessel to reset alert when it changes

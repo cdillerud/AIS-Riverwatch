@@ -2425,6 +2425,7 @@ async def websocket_ais(websocket: WebSocket):
     Uses the singleton AISConnectionManager - all clients share ONE TCP connection.
     """
     await websocket.accept()
+    logger.info("WebSocket client connected to /ws/ais")
     subscribed = False
     
     try:
@@ -2432,12 +2433,15 @@ async def websocket_ais(websocket: WebSocket):
             # Receive config or commands from client
             data = await websocket.receive_text()
             msg = json.loads(data)
+            logger.info(f"WebSocket received action: {msg.get('action')}")
             
             if msg.get("action") == "connect":
                 ip = msg.get("ip_address")
                 port = msg.get("port", 5353)
                 mmsi = msg.get("user_mmsi", "")
                 boat_name = msg.get("boat_name", "")
+                
+                logger.info(f"Configuring AIS connection: {ip}:{port}, MMSI: {mmsi}")
                 
                 # Configure the shared AIS connection
                 await ais_manager.configure(ip, port, mmsi, boat_name)
@@ -2446,6 +2450,7 @@ async def websocket_ais(websocket: WebSocket):
                 if not subscribed:
                     await ais_manager.subscribe(websocket)
                     subscribed = True
+                    logger.info("WebSocket subscribed to AIS updates")
                     
             elif msg.get("action") == "disconnect":
                 # Just unsubscribe from updates - don't close the shared connection

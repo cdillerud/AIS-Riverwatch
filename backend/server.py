@@ -2423,12 +2423,11 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
     lock = LOCKS[lock_id]
     lock_rm = lock["river_mile"]
     
-    # Find user vessel
+    # Find user vessel - use prepare_vessel_for_output for clean data
     user_vessel = None
     user_rm = None
     if user_mmsi and user_mmsi in active_vessels:
-        user_vessel = active_vessels[user_mmsi].model_dump()
-        user_vessel['timestamp'] = user_vessel['timestamp'].isoformat()
+        user_vessel = prepare_vessel_for_output(active_vessels[user_mmsi], user_mmsi)
         user_rm = user_vessel.get('river_mile') or estimate_river_mile(user_vessel['lat'], user_vessel['lon'])
     
     # Find competitors heading toward this lock
@@ -2447,8 +2446,8 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
         )
         
         if eta is not None and eta > 0:
-            v_dict = vessel.model_dump()
-            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+            # Use prepare_vessel_for_output for clean data
+            v_dict = prepare_vessel_for_output(vessel, mmsi)
             v_dict['eta_minutes'] = eta
             
             # Calculate distance from USER to this competitor (for filtering threats)

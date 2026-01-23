@@ -1817,6 +1817,10 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
     """
     global vessel_static_cache
     
+    # Debug: log all incoming data
+    if data.startswith('!AIVDM') or data.startswith('!AIVDO'):
+        logger.info(f"parse_nmea_ais called with: {data[:80]}")
+    
     try:
         from pyais import decode
         

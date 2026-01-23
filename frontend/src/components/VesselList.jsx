@@ -261,236 +261,196 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
       </div>
     );
   }
-            <div
-              key={vessel.mmsi}
-              className={`p-3 ${isUser ? 'bg-cyan-500/5 border-l-2 border-l-cyan-500' : ''}`}
-              data-testid={`vessel-item-${vessel.mmsi}`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {isUser ? (
-                    <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                  ) : isTow ? (
-                    <Box className="w-3 h-3 text-amber-400" />
-                  ) : (
-                    <div className="w-2 h-2 bg-amber-400 rotate-45" />
-                  )}
-                  <span className={`font-medium text-sm ${isUser ? 'text-cyan-400' : 'text-white'}`}>
-                    {getVesselDisplayName(vessel, showVesselNames)}
-                  </span>
-                  {isUser && (
-                    <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-[10px] px-1">
-                      YOU
-                    </Badge>
-                  )}
-                  {/* At Lock Badge */}
-                  {lockStatus && (
-                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/50 text-[10px] px-1">
-                      <Lock className="w-2.5 h-2.5 mr-0.5" />
-                      L{lockStatus.lockNum}
-                    </Badge>
-                  )}
-                </div>
-                <span className={`font-mono text-sm ${eta ? 'text-white' : 'text-slate-600'}`}>
-                  {lockStatus ? 'AT LOCK' : formatETA(eta)}
-                </span>
-              </div>
-              <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                <span className="font-mono">RM {vessel.river_mile?.toFixed(1)}</span>
-                <span className="font-mono">{speedMph} mph</span>
-                <span className="flex items-center gap-0.5">
-                  {getDirectionIcon(vessel.heading)}
-                  {vessel.heading?.slice(0,1).toUpperCase()}
-                </span>
-              </div>
-              {/* Barge info for tows */}
-              {isTow && (
-                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                  {vessel.barge_count && (
-                    <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[10px]">
-                      <Box className="w-2.5 h-2.5 mr-1" />
-                      {vessel.barge_count} barges
-                      {vessel.tow_config && ` (${vessel.tow_config})`}
-                    </Badge>
-                  )}
-                  {vessel.barge_count > 9 && (
-                    <Badge className="bg-red-900/30 text-red-400 border-red-500/30 text-[10px]">
-                      DOUBLE LOCK
-                    </Badge>
-                  )}
-                  {vessel.estimated_lockage_time && (
-                    <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                      <Timer className="w-2.5 h-2.5" />
-                      ~{vessel.estimated_lockage_time}min lock
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
 
   return (
-    <div className="divide-y divide-white/5" data-testid="vessel-list">
-      {sortedVessels.map(vessel => {
-        const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
-        const speedMph = (vessel.speed * 1.15078).toFixed(1);
-        const eta = calculateETA(vessel);
-        const isTow = vessel.is_tow || vessel.barge_count > 0;
-        const lockStatus = getVesselLockStatus(vessel);
+    <div data-testid="vessel-list">
+      <SearchBar />
+      <ResultsCount />
+      {sortedVessels.length === 0 ? (
+        <div className="text-center py-8 text-slate-500">
+          <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">No vessels match "{searchQuery}"</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-white/5">
+          {sortedVessels.map(vessel => {
+            const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+            const speedMph = (vessel.speed * 1.15078).toFixed(1);
+            const eta = calculateETA(vessel);
+            const isTow = vessel.is_tow || vessel.barge_count > 0;
+            const lockStatus = getVesselLockStatus(vessel);
+            const isMatch = isSearchMatch(vessel);
 
-        return (
-          <div
-            key={vessel.mmsi}
-            className={`
-              vessel-item p-4 cursor-pointer transition-colors
-              ${isUser ? 'user-vessel border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'}
-              ${lockStatus ? 'bg-purple-500/5' : ''}
-            `}
-            data-testid={`vessel-item-${vessel.mmsi}`}
-            onClick={() => onVesselClick(vessel)}
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                {/* Vessel name and badges */}
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  {isUser ? (
-                    <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                  ) : isTow ? (
-                    <Box className="w-4 h-4 text-amber-400" />
-                  ) : (
-                    <div className="w-2 h-2 bg-amber-400 rotate-45" />
-                  )}
-                  <span className={`font-semibold ${isUser ? 'text-cyan-400' : 'text-white'}`}>
-                    {getVesselDisplayName(vessel, showVesselNames)}
-                  </span>
-                  {isUser && (
-                    <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-xs">
-                      YOU
-                    </Badge>
-                  )}
-                  {isTow && !isUser && (
-                    <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-xs">
-                      TOW
-                    </Badge>
-                  )}
-                  {/* At Lock Badge */}
-                  {lockStatus && (
-                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/50 text-xs">
-                      <Lock className="w-3 h-3 mr-1" />
-                      AT LOCK {lockStatus.lockNum}
-                    </Badge>
-                  )}
-                  {vessel.nav_status_text && vessel.nav_status !== 0 && !lockStatus && (
-                    <Badge className="bg-slate-700 text-slate-300 text-xs">
-                      {vessel.nav_status_text}
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Vessel details */}
-                <div className="flex items-center gap-4 text-xs text-slate-400 mt-2">
-                  <span className="flex items-center gap-1">
-                    <Navigation className="w-3 h-3" />
-                    <span className="font-mono">RM {vessel.river_mile?.toFixed(1) || '--'}</span>
-                  </span>
-                  
-                  <span className="flex items-center gap-1">
-                    <Gauge className="w-3 h-3" />
-                    <span className="font-mono">{speedMph} mph</span>
-                  </span>
-                  
-                  <span className="flex items-center gap-1">
-                    {getDirectionIcon(vessel.heading)}
-                    <span className="capitalize">{vessel.heading || 'stationary'}</span>
-                  </span>
-                </div>
-
-                {/* Additional AIS info (destination, ETA) */}
-                {(vessel.destination || vessel.eta || vessel.callsign) && (
-                  <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
-                    {vessel.destination && (
-                      <span>→ {vessel.destination}</span>
-                    )}
-                    {vessel.eta && (
-                      <span>ETA: {vessel.eta}</span>
-                    )}
-                    {vessel.callsign && (
-                      <span className="font-mono">{vessel.callsign}</span>
-                    )}
-                  </div>
-                )}
-
-                {/* Barge info for tows */}
-                {isTow && (
-                  <div className="flex items-center gap-3 mt-2">
-                    {vessel.barge_count && (
-                      <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-xs">
-                        <Box className="w-3 h-3 mr-1" />
-                        {vessel.barge_count} barges
-                        {vessel.tow_config && ` (${vessel.tow_config})`}
-                      </Badge>
-                    )}
-                    {vessel.estimated_lockage_time && (
-                      <span className="text-xs text-slate-500 flex items-center gap-1">
-                        <Timer className="w-3 h-3" />
-                        ~{vessel.estimated_lockage_time} min lockage
+            return (
+              <div
+                key={vessel.mmsi}
+                className={`
+                  vessel-item p-4 cursor-pointer transition-colors
+                  ${isUser ? 'user-vessel border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'}
+                  ${lockStatus ? 'bg-purple-500/5' : ''}
+                  ${isMatch ? 'bg-yellow-500/10 border-l-2 border-l-yellow-500' : ''}
+                `}
+                data-testid={`vessel-item-${vessel.mmsi}`}
+                onClick={() => onVesselClick(vessel)}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    {/* Vessel name and badges */}
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      {isUser ? (
+                        <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                      ) : isTow ? (
+                        <Box className="w-4 h-4 text-amber-400" />
+                      ) : (
+                        <div className="w-2 h-2 bg-amber-400 rotate-45" />
+                      )}
+                      <span className={`font-semibold ${isUser ? 'text-cyan-400' : 'text-white'}`}>
+                        {getVesselDisplayName(vessel, showVesselNames)}
                       </span>
-                    )}
-                    {vessel.barge_count > 9 && (
-                      <Badge className="bg-red-900/30 text-red-400 border-red-500/30 text-xs">
-                        DOUBLE LOCK
-                      </Badge>
-                    )}
-                  </div>
-                )}
-              </div>
+                      {isUser && (
+                        <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-xs">
+                          YOU
+                        </Badge>
+                      )}
+                      {isTow && !isUser && (
+                        <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-xs">
+                          TOW
+                        </Badge>
+                      )}
+                      {/* At Lock Badge */}
+                      {lockStatus && (
+                        <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/50 text-xs">
+                          <Lock className="w-3 h-3 mr-1" />
+                          AT LOCK {lockStatus.lockNum}
+                        </Badge>
+                      )}
+                      {vessel.nav_status_text && vessel.nav_status !== 0 && !lockStatus && (
+                        <Badge className="bg-slate-700 text-slate-300 text-xs">
+                          {vessel.nav_status_text}
+                        </Badge>
+                      )}
+                      {/* Mini map button */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-slate-400 hover:text-cyan-400 ml-auto"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMiniMapVessel(vessel);
+                        }}
+                        title="Show on map"
+                      >
+                        <MapPin className="w-4 h-4" />
+                      </Button>
+                    </div>
 
-              {/* ETA to lock or "At Lock" status */}
-              <div className="text-right ml-4">
-                {lockStatus ? (
-                  <>
-                    <div className="text-xs text-purple-400 uppercase">At Lock</div>
-                    <div className="font-mono text-lg text-purple-400">
-                      L{lockStatus.lockNum}
+                    {/* Vessel details */}
+                    <div className="flex items-center gap-4 text-xs text-slate-400 mt-2">
+                      <span className="flex items-center gap-1">
+                        <Navigation className="w-3 h-3" />
+                        <span className="font-mono">RM {vessel.river_mile?.toFixed(1) || '--'}</span>
+                      </span>
+                      
+                      <span className="flex items-center gap-1">
+                        <Gauge className="w-3 h-3" />
+                        <span className="font-mono">{speedMph} mph</span>
+                      </span>
+                      
+                      <span className="flex items-center gap-1">
+                        {getDirectionIcon(vessel.heading)}
+                        <span className="capitalize">{vessel.heading || 'stationary'}</span>
+                      </span>
                     </div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {lockStatus.distance}mi away
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-xs text-slate-500 uppercase">ETA to Lock</div>
-                    <div className={`font-mono text-lg ${eta ? 'text-white' : 'text-slate-600'}`}>
-                      {formatETA(eta)}
-                    </div>
-                    {isTow && vessel.estimated_lockage_time && (
-                      <div className="text-xs text-slate-500 mt-1">
-                        +{vessel.estimated_lockage_time}min lock
+
+                    {/* Additional AIS info (destination, ETA) */}
+                    {(vessel.destination || vessel.eta || vessel.callsign) && (
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
+                        {vessel.destination && (
+                          <span>→ {vessel.destination}</span>
+                        )}
+                        {vessel.eta && (
+                          <span>ETA: {vessel.eta}</span>
+                        )}
+                        {vessel.callsign && (
+                          <span className="font-mono">{vessel.callsign}</span>
+                        )}
                       </div>
                     )}
-                  </>
+
+                    {/* Barge info for tows */}
+                    {isTow && (
+                      <div className="flex items-center gap-3 mt-2">
+                        {vessel.barge_count && (
+                          <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-xs">
+                            <Box className="w-3 h-3 mr-1" />
+                            {vessel.barge_count} barges
+                            {vessel.tow_config && ` (${vessel.tow_config})`}
+                          </Badge>
+                        )}
+                        {vessel.estimated_lockage_time && (
+                          <span className="text-xs text-slate-500 flex items-center gap-1">
+                            <Timer className="w-3 h-3" />
+                            ~{vessel.estimated_lockage_time} min lockage
+                          </span>
+                        )}
+                        {vessel.barge_count > 9 && (
+                          <Badge className="bg-red-900/30 text-red-400 border-red-500/30 text-xs">
+                            DOUBLE LOCK
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ETA to lock or "At Lock" status */}
+                  <div className="text-right ml-4">
+                    {lockStatus ? (
+                      <>
+                        <div className="text-xs text-purple-400 uppercase">At Lock</div>
+                        <div className="font-mono text-lg text-purple-400">
+                          L{lockStatus.lockNum}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          {lockStatus.distance}mi away
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-xs text-slate-500 uppercase">ETA to Lock</div>
+                        <div className={`font-mono text-lg ${eta ? 'text-white' : 'text-slate-600'}`}>
+                          {formatETA(eta)}
+                        </div>
+                        {isTow && vessel.estimated_lockage_time && (
+                          <div className="text-xs text-slate-500 mt-1">
+                            +{vessel.estimated_lockage_time}min lock
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Progress bar for ETA (only when not at lock) */}
+                {!lockStatus && eta && eta < 120 && (
+                  <div className="mt-2">
+                    <div className="eta-bar">
+                      <div 
+                        className={`eta-bar-fill ${isUser ? 'bg-cyan-500' : 'bg-amber-500'}`}
+                        style={{ width: `${Math.max(5, 100 - (eta / 120) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
-            </div>
-
-            {/* Progress bar for ETA (only when not at lock) */}
-            {!lockStatus && eta && eta < 120 && (
-              <div className="mt-2">
-                <div className="eta-bar">
-                  <div 
-                    className={`eta-bar-fill ${isUser ? 'bg-cyan-500' : 'bg-amber-500'}`}
-                    style={{ width: `${Math.max(5, 100 - (eta / 120) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      )}
+      <VesselMiniMap
+        vessel={miniMapVessel}
+        isOpen={!!miniMapVessel}
+        onClose={() => setMiniMapVessel(null)}
+      />
     </div>
   );
 };

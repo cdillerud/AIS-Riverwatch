@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
-import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor } from "lucide-react";
+import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gauge, Box, Timer } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { getVesselDisplayName, getVesselShortName } from "@/utils/vesselDisplay";
 
 // Default River Mile range for Upper Mississippi (Lock 1 to Chain of Rocks)
@@ -22,6 +23,8 @@ const RiverVisualizationComponent = ({
   // Scroll offset in river miles (positive = shifted north/up)
   const [scrollOffset, setScrollOffset] = useState(0);
   const mapRef = useRef(null);
+  // Selected vessel for info overlay on map
+  const [mapSelectedVessel, setMapSelectedVessel] = useState(null);
   
   // Get the selected lock's river mile for zoom center
   const selectedLockRM = useMemo(() => {

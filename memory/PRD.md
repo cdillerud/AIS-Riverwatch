@@ -67,6 +67,16 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
     - Direction indicator (north/south arrow)
   - Files: `VesselList.jsx` (search + map button), `VesselMiniMap.jsx` (new component)
 
+- ✅ **Click Vessel to Map (P1)** - New feature added
+  - Clicking a vessel in Vessels tab:
+    - Opens VesselDetailModal with full vessel info
+    - Automatically switches to Map tab
+    - Centers map on the selected vessel
+    - Highlights vessel with yellow pulsing ring animation
+  - Clicking vessel marker on Map:
+    - Opens VesselDetailModal with full vessel info
+  - Files: `Dashboard.jsx` (handleVesselClickFromList), `RiverVisualization.jsx` (focusedVessel prop)
+
 ### January 2026 - Previous Session
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks
   - Shows Tow vs Recreational breakdown

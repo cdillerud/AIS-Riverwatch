@@ -1279,7 +1279,7 @@ export default function Dashboard({
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         compact={true}
-                        onVesselClick={handleVesselClick}
+                        onVesselClick={handleVesselClickFromList}
                         showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>
@@ -1292,7 +1292,7 @@ export default function Dashboard({
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         compact={true}
-                        onVesselClick={handleVesselClick}
+                        onVesselClick={handleVesselClickFromList}
                         showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>

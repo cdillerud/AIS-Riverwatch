@@ -56,6 +56,17 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
   - Now ONLY vessels **currently at a lock** (waiting or actively locking) show barge counts
   - Previous fix (prepare_vessel_for_output) is still in place for additional protection
 
+- ✅ **Vessel Search with Mini-Map (P1)** - New feature added
+  - Search bar in Vessels tab filters by MMSI or vessel name
+  - Real-time filtering as you type with match highlighting (yellow border)
+  - Shows "Found X of Y vessels" count when filtering
+  - Mini-map modal popup shows vessel location on river
+    - Centered on vessel position with ±15 mile view
+    - Shows nearby locks for context
+    - Displays vessel speed, heading, river mile
+    - Direction indicator (north/south arrow)
+  - Files: `VesselList.jsx` (search + map button), `VesselMiniMap.jsx` (new component)
+
 ### January 2026 - Previous Session
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks
   - Shows Tow vs Recreational breakdown

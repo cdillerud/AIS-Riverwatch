@@ -38,6 +38,29 @@ const getVesselLockStatus = (vessel) => {
 };
 
 const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false, onVesselClick = () => {}, showVesselNames = true }) => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [miniMapVessel, setMiniMapVessel] = useState(null);
+
+  // Filter vessels based on search query (MMSI or name)
+  const filteredVessels = useMemo(() => {
+    if (!searchQuery.trim()) return vessels;
+    
+    const query = searchQuery.toLowerCase().trim();
+    return vessels.filter(vessel => {
+      const mmsiMatch = vessel.mmsi?.toLowerCase().includes(query);
+      const nameMatch = (vessel.name || '').toLowerCase().includes(query);
+      return mmsiMatch || nameMatch;
+    });
+  }, [vessels, searchQuery]);
+
+  // Check if a vessel matches the search (for highlighting)
+  const isSearchMatch = (vessel) => {
+    if (!searchQuery.trim()) return false;
+    const query = searchQuery.toLowerCase().trim();
+    return vessel.mmsi?.toLowerCase().includes(query) || 
+           (vessel.name || '').toLowerCase().includes(query);
+  };
+
   if (vessels.length === 0) {
     return (
       <div className="empty-state py-8 md:py-12">

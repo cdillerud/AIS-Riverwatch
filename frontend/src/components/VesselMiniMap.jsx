@@ -29,9 +29,7 @@ const LOCK_POSITIONS = {
 };
 
 const VesselMiniMapComponent = ({ vessel, isOpen, onClose }) => {
-  if (!vessel) return null;
-
-  const vesselRM = vessel.river_mile;
+  const vesselRM = vessel?.river_mile;
   const zoomRange = 15; // ±15 miles around vessel
 
   // Calculate visible range centered on vessel
@@ -43,18 +41,20 @@ const VesselMiniMapComponent = ({ vessel, isOpen, onClose }) => {
     };
   }, [vesselRM]);
 
-  // Get position percentage (inverted - north at top)
-  const getPosition = (rm) => {
-    const pct = ((rm - minRM) / (maxRM - minRM)) * 100;
-    return Math.max(2, Math.min(98, 100 - pct));
-  };
-
   // Get locks in view
   const visibleLocks = useMemo(() => {
     return Object.entries(LOCK_POSITIONS)
       .filter(([_, lock]) => lock.rm >= minRM && lock.rm <= maxRM)
       .map(([id, lock]) => ({ id, ...lock }));
   }, [minRM, maxRM]);
+
+  if (!vessel) return null;
+
+  // Get position percentage (inverted - north at top)
+  const getPosition = (rm) => {
+    const pct = ((rm - minRM) / (maxRM - minRM)) * 100;
+    return Math.max(2, Math.min(98, 100 - pct));
+  };
 
   const getDirectionIcon = (heading) => {
     if (heading === "northbound") return <ChevronUp className="w-4 h-4 text-green-400" />;

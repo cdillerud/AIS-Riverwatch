@@ -418,6 +418,14 @@ class AISConnectionManager:
         
         if vessel_data and vessel_data.get('mmsi'):
             mmsi_parsed = vessel_data['mmsi']
+            logger.info(f"Parsed AIS vessel: MMSI={mmsi_parsed}, lat={vessel_data.get('lat')}, lon={vessel_data.get('lon')}")
+        elif vessel_data:
+            logger.debug(f"Parsed AIS but no MMSI: {vessel_data}")
+        elif line.startswith('!AIVDM'):
+            logger.debug(f"Failed to parse AIVDM: {line[:80]}")
+        
+        if vessel_data and vessel_data.get('mmsi'):
+            mmsi_parsed = vessel_data['mmsi']
             
             # Skip filtered/blocked MMSI
             if is_mmsi_blocked(mmsi_parsed):

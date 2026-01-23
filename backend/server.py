@@ -2360,6 +2360,17 @@ async def reconnect_ais():
     )
     return {"success": True, "message": "Reconnection initiated"}
 
+@api_router.post("/connection/start")
+async def start_connection(config: ConnectionConfig):
+    """Start the AIS connection with the given configuration."""
+    await ais_manager.configure(
+        config.ip_address,
+        config.port,
+        config.user_mmsi,
+        ""  # boat_name
+    )
+    return {"success": True, "message": f"Connection started to {config.ip_address}:{config.port}"}
+
 @api_router.get("/vessel-cache")
 async def get_vessel_cache():
     """Get cached vessel static data (names, dimensions, etc.)"""

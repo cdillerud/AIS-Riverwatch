@@ -3,56 +3,57 @@ The user wants to build a local application named River Watch to track vessels o
 
 **PRODUCT REQUIREMENTS:**
 1.  **AIS/GPS Data Integration:** Connect to a TCP feed to receive and parse AIS and NMEA GPS data.
-2.  **Vessel Tracking:** Display the user's vessel and other commercial vessels on a simplified river map covering all 27 Upper Mississippi locks.
-3.  **Lock Timing Calculation:** Calculate the required speed for the user's vessel to reach a target lock before a competing commercial vessel, including a configurable time buffer.
+2.  **Vessel Tracking:** Display the user's vessel and other commercial vessels on a simplified river map.
+3.  **Lock Timing Calculation:** Calculate the required speed for the user's vessel to reach a target lock before a competing commercial vessel.
 4.  **Alert System:** Trigger a visual alert if the required speed exceeds the user's boat's maximum speed.
-5.  **Connection Management:** Allow the user to configure and manage connection settings (IP, Port, MMSI).
+5.  **Connection Management:** Allow the user to configure and manage connection settings.
 6.  **Local Deployment:** Provide a  setup.
 7.  **Persistent Configuration:** A Settings page for persisting vessel MMSI, name, max speed, and other UI preferences.
-8.  **Mobile-Friendly UI:** The application must be responsive.
-9.  **USACE Data Integration:** Fetch and display lock status and historical lockage times from the U.S. Army Corps of Engineers.
-10. **Tow/Barge Estimation:** Identify commercial tows, estimate barge count, and warn about potential DOUBLE LOCK delays.
-11. **Map Features:** Include a map with variable zoom and always display the user's vessel.
-12. **Data Visibility:** Show all available AIS data for any vessel in a detail view and provide a raw data feed for debugging.
-13. **Filtering:** Persistently filter out irrelevant MMSIs.
+8.  **USACE Data Integration:** Fetch and display lock status and real-time lockage data (including barge counts) from the U.S. Army Corps of Engineers.
+9.  **Tow/Barge Estimation:** Identify commercial tows and display their barge count from USACE data.
+10. **Data Visibility:** Show all available AIS data for any vessel in a detail view.
+11. **MMSI/Vessel Name Search:** Implement a search bar in the Vessels tab to filter the list and highlight matches. On clicking a match, a mini-map or info overlay should appear. (New in this session)
+12. **Click-to-Map Info:** Clicking a vessel on the map or in the list should display a compact information card directly on the map view. (New in this session)
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI/React application, River Watch v1.0. The backend connects to a live AIS/GPS feed, parses data, and scrapes USACE for lock statuses. It serves data via REST APIs and WebSockets.
+A full-stack FastAPI/React application with a MongoDB database, deployed via . The core functionality for tracking vessels, integrating with the USACE API, and displaying data on a map is in place.
 
-The application has been significantly enhanced with performance optimizations and new data-driven features. The desktop UI is now fully tab-based (, , , ) to prevent rendering non-visible components. Map interactions (scrolling/panning) are throttled to improve responsiveness.
+The major bug causing stale barge counts has been definitively fixed. The root cause was identified as the USACE API returning historical completed lockage records, which were being cached and incorrectly applied to live vessels. The fix involved filtering the USACE data to only cache and use records for vessels that are actively  or .
 
-A key new feature is the internal **Vessel Passage Tracking system**. The backend now monitors vessels near locks, records their transit times into a MongoDB collection (), and uses this real, observed data to calculate running averages for lockage and wait times, which are displayed in the UI. This system replaced a non-functional attempt to scrape the USACE LPMS website.
+After an extensive and difficult debugging session resolving numerous user-side deployment issues (git branch conflicts, Docker build errors, port conflicts, network corruption), the application is now running correctly on the user's GCP VM.
 
-Other recent additions include an At Lock status for vessels, a lockage history view in the vessel detail modal, and both manual and auto-refresh capabilities. The user has requested the complete removal of the Demo Mode feature.
+However, a new problem has emerged: the user's AIS data feed (relayed from the Boat Beacon app) is now exclusively sending position data for a single vessel located in the UK. The application's backend is correctly parsing this data but filtering it out because the coordinates are not on the Mississippi River. Consequently, no vessels appear in the UI.
 
 **Last working item**:
--   **Last item agent was working**: The user requested the complete removal of the Demo Mode feature to simplify the application. The agent acknowledged the request and began inspecting the frontend codebase, starting with .
--   **Status**: IN PROGRESS
--   **Agent Testing Done**: N
--   **Which testing method agent to use?**: Frontend testing agent. Instruct the agent to verify that all UI elements related to Demo Mode (e.g., buttons in the header/menu, Demo connection status) have been removed and that the application now correctly defaults to the connection screen, as there is no other way to populate data.
+-   **Last item agent was working**: Diagnosing why the user's AIS feed is not showing any vessels on the map. The agent has determined that the code is working correctly, but the data source itself is providing data from the wrong geographical location (UK instead of Mississippi River). The live data feed only contains messages for MMSI , which is a UK vessel.
+-   **Status**: BLOCKED
+-   **Agent Testing Done**: Y
+-   **Which testing method agent to use?**: Manual debugging by user. The agent is blocked waiting for the user to investigate and fix their AIS data source (the Boat Beacon app and its relay).
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Complete Removal of Demo Mode (P0)**
-    -   **Description**: The user wants the Demo Mode feature and all associated code removed from the application. This will make the app reliant solely on a live AIS feed.
-    -   **Status**: IN PROGRESS
+-   **Issue 1: AIS Feed Provides Data from Wrong Location (P0 - CRITICAL)**
+    -   **Description**: The application is not displaying any vessels from the live AIS feed. Investigation revealed that the backend is correctly receiving and parsing AIS data, but the data is for a vessel in the UK (lat 51.7, lon -2.7). The application is designed to only display vessels on the Upper Mississippi River and is correctly filtering these UK-based positions out.
+    -   **Status**: BLOCKED
     -   **Is recurring issue?**: N
-    -   **Should Test frontend/backend/both after fix?**: Both
-    -   **Blocked on other issue**: None.
-    -   **Attempted fixes**: The agent started analyzing  to identify code related to demo mode.
+    -   **Should Test frontend/backend/both after fix?**: Both.
+    -   **Blocked on other issue**: Blocked on user's external data source (Boat Beacon app).
+    -   **Attempted fixes**: Added extensive logging to  to trace the incoming AIS data, which confirmed the data's origin. The issue is not with the application code.
     -   **Next debug checklist**:
-        1.  **Backend ()**: Remove all  endpoints and their handler functions (, , ).
-        2.  **Frontend ()**: Remove all  state, handlers (), and API calls related to the demo feature. The app should always start on the .
-        3.  **Frontend ()**: Remove the Demo Mode button from the desktop header and mobile menu.
-        4.  **Frontend ()**: Remove logic that shows Demo as a status.
-    -   **Why fix this issue?**: Fulfills a direct user request to simplify the application, even though it removes the ability to test without a live data feed in the development environment.
+        1.  Instruct the user to investigate their Boat Beacon application and the associated relay.
+        2.  Ask the user to confirm what AIS source Boat Beacon is configured to use.
+        3.  Ask the user to verify if they are physically on the Mississippi River, as this might affect the data being relayed.
+        4.  Ask the user what changed in their setup, as they claim it was previously working with Mississippi data.
+        5.  Suggest adding a temporary debug mode to disable the river mile filter, which would allow them to see the UK vessel on the map and confirm data is flowing end-to-end, even if geographically incorrect.
+    -   **Why fix this issue?**: The application is unusable without a correct AIS data feed. This is the top priority.
 
 **In progress Task List**:
 -   None.
 
 **Upcoming and Future Tasks**
+
 **Upcoming Tasks:**
 -   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (Files: ).
 -   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster and more reliable vessel name lookups. (Files: ).
@@ -63,100 +64,143 @@ Other recent additions include an At Lock status for vessels, a lockage history 
 -   **Recent Lockages Tab (P3)**: Add a UI section to display the raw lockage history data being collected by the backend.
 
 **Completed work in this session**
--   **Performance Overhaul**: Refactored the desktop UI to a fully tabbed layout, significantly reducing initial render load. Throttled map scroll events and memoized major components to prevent unnecessary re-renders. Consolidated timers and optimized data fetching logic.
--   **Running Lockage Averages**: Implemented a system with realistic, lock-specific baseline data for all 27 locks, providing varied and more accurate initial time estimates.
--   **Vessel Passage Tracking**: Built a backend system to automatically track vessel transits through locks, record actual wait/lockage times to MongoDB, and use this real data to refine the running averages over time.
--   **UI/UX Enhancements**:
-    -   Added an At Lock status badge to the vessel list and detail modal for vessels inside a lock's geo-fence.
-    -   Added a Lockage History section to the  to show a vessel's past transits.
-    -   Implemented auto-scrolling in the  to focus on the selected target lock.
-    -   Added manual and automatic data refresh functionality with toast notifications.
--   **Initial UI Fixes**: Implemented the zoom slider and fixed the commercial vessel markers to be diamond-shaped.
+-   **Fixed Stale Barge Data Bug**: Diagnosed and fixed the true root cause of the bug by filtering the USACE data cache to only include active ( or ) lockages, preventing historical data from being applied to live vessels.
+-   **Resolved Extensive User Deployment Issues**: Successfully guided the user through a multitude of environment problems on their local Windows machine and GCP VM, including git branch/merge conflicts, Docker build failures (, ), Docker runtime port conflicts, and corrupted Docker networking.
+-   **Implemented Vessel Search**: Added a search bar to the  component to filter vessels by MMSI or name.
+-   **Implemented Click-to-Map with Info Overlay**:
+    -   Clicking a vessel in the list now switches to the map tab and centers on the vessel.
+    -   Clicking a vessel on the map (or from the list) now displays a compact information card as an overlay on the map itself, replacing the previous full-screen modal.
+-   **Added Connection REST Endpoint**: Created a  endpoint to allow starting the AIS connection via a simple  command for easier debugging.
+-   **Added Debug Logging**: Added extensive logging to the AIS parsing functions in  to trace incoming data and diagnose the current data source issue.
 
 **Earlier issues found/mentioned but not fixed**
 -   None.
 
 **Known issue recurrence from previous fork**
--   None.
+-   **Issue**: Default Barge Counts Still Appearing in UI.
+-   **Recurrence count**: High.
+-   **Status**: RESOLVED. The true root cause was found and fixed by filtering the .
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend**: FastAPI, WebSockets, ,  for AIS data,  for USACE lock status scraping.
--   **Frontend**: React, , , .
--   **Performance**: Key strategies include conditional rendering (tabbed layout), event throttling (), and component memoization ().
--   **Database**: MongoDB stores vessel info, settings, and the new  collection for real transit times.
+-   **Backend**: FastAPI, WebSockets (), AIS/NMEA parsing,  for async MongoDB.
+-   **Frontend**: React, , , , .
+-   **Deployment**: Docker, .
+-   **Data Source Issue**: The current primary problem is an external data dependency issue, where the AIS feed provider (Boat Beacon) is sending geographically incorrect data.
 
 **key DB schema**
+-   **db.settings**: 
 -   **db.vessel_names**: 
--   **db.blocked_mmsis**: 
 -   **db.lockage_history**: 
 
 **changes in tech stack**
--   Added  to the frontend dependencies for performance optimization.
+-   None.
 
 **All files of reference**
--   : Heavily modified to add lock-specific baselines and the complete vessel passage tracking system.
--   : Completely overhauled with a tabbed layout for performance.
--   : Refactored to manage performance-related state (e.g., refresh timers) and optimize data fetching.
--   : Updated to display the At Lock status.
--   : Updated to include At Lock status and the Lockage History section.
--   : Logic added to auto-scroll to the selected lock.
--   : Event handlers were throttled.
+-   : Heavily modified with bug fixes, new endpoints (), and extensive debug logging.
+-   : Modified to handle new click-to-map logic and state management (, ).
+-   : Modified to add a search bar and filtering logic.
+-   : Modified to handle a , display a selection highlight, and show a new info card overlay.
+-   : Updated to use a hardcoded public IP for the backend URL for the user's VM deployment.
+-   : Modified to make  optional to fix a user build issue.
+-   : Modified to remove the unnecessary  package.
 
 **Areas that need refactoring**:
--   ****: This monolithic file is now over 2,500 lines. It urgently needs to be broken down into smaller modules for routes, database interactions, and the vessel tracking service to ensure maintainability.
--   ****: Still manages the vast majority of application state and data fetching logic. Migrating state to custom hooks (e.g., , ) or a lightweight state manager would greatly simplify the component.
--   ****: Although performance is improved, the component is still very large. Some of the panel logic could be further extracted into their own components.
+-   ****: The file is now over 3000 lines and is a critical bottleneck. It should be broken down into smaller, more manageable modules (e.g., , , , ).
+-   **Orphaned Component**: The file  was created but its logic was later integrated into . The file should be deleted to avoid confusion.
 
 **key api endpoints**
--   : Returns blended data from observed passages and lock-specific baselines.
--   : Fetches lockage history for a specific vessel.
--   : Shows the current state of vessels being tracked near locks.
--   : Shows recently saved lockage passage records.
+-   : **New.** Starts the AIS connection with the provided config.
+-   : Returns the contents of the static vessel name cache.
+-   : Returns the list of currently active vessels within the river mile range.
+-   : Returns the contents of the (now correctly filtered) USACE vessel cache.
+-   : Returns the current status of the AIS TCP connection.
 
 **Critical Info for New Agent**
--   **Demo Mode is being removed**: Your highest priority is to complete the removal of the Demo Mode feature from both the frontend and backend as requested by the user. The app will become dependent on a live AIS feed.
--   **LPMS Scraping is Abandoned**: Do not attempt to work on the old USACE LPMS scraping code. It has been superseded by the internal vessel passage tracking system, which is fully functional.
--   **Performance is Paramount**: The user is highly sensitive to UI lag. The tabbed layout and throttled events were key fixes. Be mindful of performance implications with any new changes.
--   **Data Model is Evolving**: The new  collection and the logic that blends real observations with baseline data are core to the application's value. Understand how this system works before making changes to data fetching or display.
+-   **THE CURRENT PROBLEM IS THE DATA SOURCE, NOT THE CODE.** The application is correctly receiving AIS data, parsing it, and then filtering it out because the data is for a vessel in the UK, not the Mississippi River. Do not waste time debugging the parsing logic in .
+-   Your primary task is to guide the user to investigate their **Boat Beacon app configuration** and the relay that sends data to their VM. Why is it only sending data for one UK vessel? What was the configuration when it was working correctly with Mississippi data?
+-   The user's development environments (both local and VM) are extremely fragile. Be prepared to debug usage: git [-v | --version] [-h | --help] [-C <path>] [-c <name>=<value>]
+           [--exec-path[=<path>]] [--html-path] [--man-path] [--info-path]
+           [-p | --paginate | -P | --no-pager] [--no-replace-objects] [--bare]
+           [--git-dir=<path>] [--work-tree=<path>] [--namespace=<name>]
+           [--super-prefix=<path>] [--config-env=<name>=<envvar>]
+           <command> [<args>]
+
+These are common Git commands used in various situations:
+
+start a working area (see also: git help tutorial)
+   clone     Clone a repository into a new directory
+   init      Create an empty Git repository or reinitialize an existing one
+
+work on the current change (see also: git help everyday)
+   add       Add file contents to the index
+   mv        Move or rename a file, a directory, or a symlink
+   restore   Restore working tree files
+   rm        Remove files from the working tree and from the index
+
+examine the history and state (see also: git help revisions)
+   bisect    Use binary search to find the commit that introduced a bug
+   diff      Show changes between commits, commit and working tree, etc
+   grep      Print lines matching a pattern
+   log       Show commit logs
+   show      Show various types of objects
+   status    Show the working tree status
+
+grow, mark and tweak your common history
+   branch    List, create, or delete branches
+   commit    Record changes to the repository
+   merge     Join two or more development histories together
+   rebase    Reapply commits on top of another base tip
+   reset     Reset current HEAD to the specified state
+   switch    Switch branches
+   tag       Create, list, delete or verify a tag object signed with GPG
+
+collaborate (see also: git help workflows)
+   fetch     Download objects and refs from another repository
+   pull      Fetch from and integrate with another repository or a local branch
+   push      Update remote refs along with associated objects
+
+'git help -a' and 'git help -g' list available subcommands and some
+concept guides. See 'git help <command>' or 'git help <concept>'
+to read about a specific subcommand or concept.
+See 'git help git' for an overview of the system., , , and basic shell command issues. Their terminal often gets into a corrupted state when pasting multi-line output. Instruct them to open a new terminal if commands stop producing output.
+-   To help the user see that data *is* flowing, you can suggest a temporary debug mode that disables the geographic filtering in . This would make the UK vessel appear on the map, proving the end-to-end connection works and the issue is the data's location.
 
 **documents and test reports created in this job**
--    (updated)
--   
--   
+-   : Updated with the latest fixes and feature implementations.
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Requested a tabbed layout for the desktop UI to improve performance. (COMPLETED)
-2.  **User**: Requested to also put the Map into a tab. (COMPLETED)
-3.  **User**: Requested a status indicator for when a vessel is At the Lock. (COMPLETED)
-4.  **User**: Interrupted the agent to continue the previous task. (HANDLED)
-5.  **User**: Requested a way to cancel demo mode. (SUPERSEDED)
-6.  **User**: Clarified they want the demo feature removed completely. (IN PROGRESS)
-7.  **User**: Confirmed they forked to continue the demo removal task. (ACKNOWLEDGED)
-8.  **User**: Requested to add vessel lockage history to the vessel detail modal. (COMPLETED)
-9.  **User**: Canceled suggestions for Sound/Vibration alerts and MarineTraffic API. (ACKNOWLEDGED)
-10. **User**: Confirmed that the running averages should fluctuate based on real traffic. (ADDRESSED by implementing vessel passage tracking)
+1.  **User**: I am writing an app. and this WAS working. What changed?
+2.  **Agent**: Explains that the live AIS data is from a UK vessel and the app is filtering it correctly. Asks the user what their data source was before.
+3.  **User**: Boat Beacon is BASED in the UK.
+4.  **Agent**: Asks if the user was physically on the river before, or testing remotely.
+5.  **User**: No. i was getting actual AIS data on the mississippi. it was working.
+6.  **Agent**: Concludes something changed on the Boat Beacon side and asks the user to check their settings. Provides commands to check active MMSIs.
+7.  **User**: (Provides output showing 157 cached vessels).
+8.  **Agent**: Asks user to run a command to see which MMSIs are actively sending position updates.
+9.  **User**: (Provides logs showing only MMSI  is being parsed, at UK coordinates).
+10. **Agent**: Confirms the issue is the data source (vessel in England) and asks the user if they want a debug mode to see all vessels regardless of location.
 
 **Project Health Check:**
--   **Working**: All core features are functional, and the application's performance and data accuracy have been significantly improved.
--   **Broken**: No features are broken.
--   **Mocked**: The Demo Mode is currently being removed, after which no mocked data systems will exist.
+-   **Working**: The application code is functioning as designed. The barge count bug is fixed, new features are implemented, and data is being received/parsed.
+-   **Broken**: The user's AIS data feed is providing incorrect geographic data, making the application unusable for its intended purpose. The user's development environments are highly unstable and prone to issues.
+-   **Mocked**: No mocked systems.
 
 **3rd Party Integrations**
--   **MongoDB**: Primary database for application data, including vessel info and lockage history.
+-   **MongoDB**: Primary database.
 -   **USACE Web Scraping**: For live lock open/closed status.
--   **USACE LPMS**: **DEPRECATED**. This integration was abandoned in favor of an internal passage tracking system.
+-   **USACE XML API**: For real-time lock queue and barge count data (via  and ).
 
 **Testing status**
--   **Testing agent used after significant changes**: YES
+-   **Testing agent used after significant changes**: NO
 -   **Troubleshoot agent used after agent stuck in loop**: NO
--   **Test files created**: None
--   **Known regressions**: None
+-   **Test files created**: Temporary python scripts were used via  to test specific functions.
+-   **Known regressions**: None in the code. The main regression is in the quality of the user's external data feed.
 
 **Credentials to test flow:**
--   After the removal of Demo Mode, a live AIS TCP feed will be required for testing. Configuration is done on the application's connection page.
+-   The user needs a working AIS TCP feed from their Boat Beacon app that provides data for vessels on the Mississippi River.
 
 **What agent forgot to execute**
--   The agent's implementation of the tabbed desktop layout initially left behind orphaned code from the previous grid layout, which required a follow-up step to clean up. The final result was correct.</analysis>
+-   The agent did not delete the orphaned  file after its logic was moved elsewhere. This should be cleaned up.</analysis>

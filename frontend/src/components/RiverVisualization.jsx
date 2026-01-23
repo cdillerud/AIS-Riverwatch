@@ -32,12 +32,13 @@ const RiverVisualizationComponent = ({
     return lock?.river_mile || 815;
   }, [locks, selectedLock]);
 
-  // When a focused vessel is set, calculate offset to center on it
+  // When a focused vessel is set, calculate offset to center on it and show info
   useEffect(() => {
     if (focusedVessel?.river_mile) {
       const vesselRM = focusedVessel.river_mile;
       const offsetNeeded = vesselRM - selectedLockRM;
       setScrollOffset(offsetNeeded);
+      setMapSelectedVessel(focusedVessel); // Show info overlay
       // Clear focus after centering (so user can scroll freely)
       const timer = setTimeout(() => onFocusClear(), 500);
       return () => clearTimeout(timer);

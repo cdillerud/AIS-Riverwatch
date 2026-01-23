@@ -1025,7 +1025,7 @@ export default function Dashboard({
                         vessels={vessels} 
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
-                        onVesselClick={handleVesselClick}
+                        onVesselClick={handleVesselClickFromList}
                         showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>
@@ -1037,7 +1037,7 @@ export default function Dashboard({
                         vessels={commercialVessels}
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
-                        onVesselClick={handleVesselClick}
+                        onVesselClick={handleVesselClickFromList}
                         showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>

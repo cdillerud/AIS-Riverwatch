@@ -341,13 +341,14 @@ const RiverVisualizationComponent = ({
       {/* Vessels - dots on CENTER, labels offset to the RIGHT with gap */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+        const isFocused = focusedVessel?.mmsi === vessel.mmsi;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
 
         return (
           <div
             key={vessel.mmsi}
-            className="absolute z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30"
+            className={`absolute z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30 ${isFocused ? 'z-40' : ''}`}
             style={{ 
               top: `${topPosition}%`,
               left: '50%',
@@ -356,11 +357,16 @@ const RiverVisualizationComponent = ({
             data-testid={`vessel-marker-${vessel.mmsi}`}
             onClick={() => onVesselClick(vessel)}
           >
+            {/* Focus ring for highlighted vessel */}
+            {isFocused && (
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full border-2 border-yellow-400 animate-ping" />
+            )}
             {/* Vessel pip - exactly on centerline */}
             <div 
               className={`
                 vessel-pip absolute
                 ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
+                ${isFocused ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-900' : ''}
                 hover:scale-125 transition-transform
               `}
               style={{ 

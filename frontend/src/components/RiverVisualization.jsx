@@ -359,7 +359,7 @@ const RiverVisualizationComponent = ({
               transform: 'translateY(-50%)'
             }}
             data-testid={`vessel-marker-${vessel.mmsi}`}
-            onClick={() => onVesselClick(vessel)}
+            onClick={() => setMapSelectedVessel(mapSelectedVessel?.mmsi === vessel.mmsi ? null : vessel)}
           >
             {/* Focus ring for highlighted vessel */}
             {isFocused && (
@@ -370,7 +370,7 @@ const RiverVisualizationComponent = ({
               className={`
                 vessel-pip absolute
                 ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
-                ${isFocused ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-900' : ''}
+                ${isFocused || mapSelectedVessel?.mmsi === vessel.mmsi ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-900' : ''}
                 hover:scale-125 transition-transform
               `}
               style={{ 

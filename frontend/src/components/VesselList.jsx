@@ -1,7 +1,10 @@
-import { memo } from "react";
-import { Ship, Navigation, Gauge, Clock, ChevronUp, ChevronDown, Minus, Box, Timer, Lock } from "lucide-react";
+import { memo, useState, useMemo } from "react";
+import { Ship, Navigation, Gauge, Clock, ChevronUp, ChevronDown, Minus, Box, Timer, Lock, Search, MapPin, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
+import { VesselMiniMap } from "./VesselMiniMap";
 
 // Lock positions for "At Lock" detection
 const LOCK_POSITIONS = {

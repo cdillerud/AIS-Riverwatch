@@ -69,13 +69,15 @@ Build a local application named "River Watch" to track vessels on the Upper Miss
 
 - ✅ **Click Vessel to Map (P1)** - New feature added
   - Clicking a vessel in Vessels tab:
-    - Opens VesselDetailModal with full vessel info
     - Automatically switches to Map tab
     - Centers map on the selected vessel
+    - Shows compact info overlay in top-right corner of map
     - Highlights vessel with yellow pulsing ring animation
   - Clicking vessel marker on Map:
-    - Opens VesselDetailModal with full vessel info
-  - Files: `Dashboard.jsx` (handleVesselClickFromList), `RiverVisualization.jsx` (focusedVessel prop)
+    - Shows compact info overlay with vessel details (position, speed, heading, barge info)
+    - Click X or click another vessel to dismiss
+  - Info overlay shows: MMSI, river mile, speed, heading, badges (YOUR VESSEL, TOW, USACE), barge config, destination
+  - Files: `Dashboard.jsx` (handleVesselClickFromList), `RiverVisualization.jsx` (mapSelectedVessel state, info overlay)
 
 ### January 2026 - Previous Session
 - ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks

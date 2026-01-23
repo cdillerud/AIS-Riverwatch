@@ -116,8 +116,8 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
     return etaA - etaB;
   });
 
-  // Search bar component
-  const SearchBar = () => (
+  // Reusable search bar JSX
+  const searchBarJSX = (
     <div className="relative mb-3">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
       <Input
@@ -139,26 +139,23 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
     </div>
   );
 
-  // Results count when filtering
-  const ResultsCount = () => {
-    if (!searchQuery.trim()) return null;
-    return (
-      <div className="text-xs text-slate-500 mb-2 px-1">
-        Found {filteredVessels.length} of {vessels.length} vessels
-      </div>
-    );
-  };
+  // Results count JSX
+  const resultsCountJSX = searchQuery.trim() ? (
+    <div className="text-xs text-slate-500 mb-2 px-1">
+      Found {filteredVessels.length} of {vessels.length} vessels
+    </div>
+  ) : null;
 
   // Compact mobile version
   if (compact) {
     return (
       <div data-testid="vessel-list">
-        <SearchBar />
-        <ResultsCount />
+        {searchBarJSX}
+        {resultsCountJSX}
         {sortedVessels.length === 0 ? (
           <div className="text-center py-8 text-slate-500">
             <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No vessels match "{searchQuery}"</p>
+            <p className="text-sm">No vessels match &quot;{searchQuery}&quot;</p>
           </div>
         ) : (
           <div className="divide-y divide-white/5">

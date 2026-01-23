@@ -167,9 +167,23 @@ export default function Dashboard({
     return locks.find(l => l.id === selectedLock);
   }, [locks, selectedLock]);
 
+  // Focused vessel - when set, map will center on this vessel
+  const [focusedVessel, setFocusedVessel] = useState(null);
+
   // Handle vessel click (from map or list)
-  const handleVesselClick = (vessel) => {
+  const handleVesselClick = (vessel, fromList = false) => {
     setSelectedVessel(vessel);
+    if (fromList) {
+      // Switch to map tab and center on vessel
+      setFocusedVessel(vessel);
+      setDesktopPanel("map");
+      setMobilePanel("map");
+    }
+  };
+
+  // Handle vessel click specifically from list (switches to map)
+  const handleVesselClickFromList = (vessel) => {
+    handleVesselClick(vessel, true);
   };
 
   // Open position editor with current values

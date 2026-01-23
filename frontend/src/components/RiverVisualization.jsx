@@ -15,7 +15,9 @@ const RiverVisualizationComponent = ({
   compact = false,
   zoomRange = 20, // Range in miles (10-500, 500+ = full view)
   onVesselClick = () => {},
-  showVesselNames = true
+  showVesselNames = true,
+  focusedVessel = null,
+  onFocusClear = () => {}
 }) => {
   // Scroll offset in river miles (positive = shifted north/up)
   const [scrollOffset, setScrollOffset] = useState(0);
@@ -26,6 +28,18 @@ const RiverVisualizationComponent = ({
     const lock = locks.find(l => l.id === selectedLock);
     return lock?.river_mile || 815;
   }, [locks, selectedLock]);
+
+  // When a focused vessel is set, calculate offset to center on it
+  useEffect(() => {
+    if (focusedVessel?.river_mile) {
+      const vesselRM = focusedVessel.river_mile;
+      const offsetNeeded = vesselRM - selectedLockRM;
+      setScrollOffset(offsetNeeded);
+      // Clear focus after centering (so user can scroll freely)
+      const timer = setTimeout(() => onFocusClear(), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [focusedVessel, selectedLockRM, onFocusClear]);
 
   // Reset scroll offset when selected lock changes
   useEffect(() => {

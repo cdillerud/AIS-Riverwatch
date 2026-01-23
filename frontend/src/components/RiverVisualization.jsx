@@ -471,6 +471,102 @@ const RiverVisualizationComponent = ({
         </div>
       )}
 
+      {/* Vessel Info Overlay - appears when a vessel is selected on the map */}
+      {mapSelectedVessel && (
+        <div 
+          className="absolute top-2 right-2 z-50 glass-panel border border-slate-600 rounded-lg shadow-xl max-w-[280px] md:max-w-[320px]"
+          data-testid="vessel-info-overlay"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
+            <div className="flex items-center gap-2">
+              {mapSelectedVessel.mmsi === userMmsi || mapSelectedVessel.is_user_vessel ? (
+                <div className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse" />
+              ) : mapSelectedVessel.is_tow || mapSelectedVessel.barge_count > 0 ? (
+                <Box className="w-4 h-4 text-amber-400" />
+              ) : (
+                <div className="w-2.5 h-2.5 bg-amber-400 rotate-45" />
+              )}
+              <span className={`font-semibold text-sm truncate max-w-[180px] ${mapSelectedVessel.mmsi === userMmsi || mapSelectedVessel.is_user_vessel ? 'text-cyan-400' : 'text-white'}`}>
+                {getVesselDisplayName(mapSelectedVessel, showVesselNames)}
+              </span>
+            </div>
+            <button 
+              onClick={() => setMapSelectedVessel(null)}
+              className="text-slate-400 hover:text-white p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          
+          {/* Body */}
+          <div className="px-3 py-2 space-y-2">
+            {/* MMSI */}
+            <div className="text-xs text-slate-500">
+              MMSI: <span className="font-mono text-slate-300">{mapSelectedVessel.mmsi}</span>
+            </div>
+            
+            {/* Position, Speed, Heading in grid */}
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-slate-800/50 rounded px-2 py-1.5">
+                <Navigation className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
+                <div className="text-white font-mono text-xs">RM {mapSelectedVessel.river_mile?.toFixed(1) || '--'}</div>
+              </div>
+              <div className="bg-slate-800/50 rounded px-2 py-1.5">
+                <Gauge className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
+                <div className="text-white font-mono text-xs">{(mapSelectedVessel.speed * 1.15078).toFixed(1)} mph</div>
+              </div>
+              <div className="bg-slate-800/50 rounded px-2 py-1.5">
+                {mapSelectedVessel.heading === 'northbound' ? (
+                  <ChevronUp className="w-3 h-3 mx-auto mb-0.5 text-green-400" />
+                ) : mapSelectedVessel.heading === 'southbound' ? (
+                  <ChevronDown className="w-3 h-3 mx-auto mb-0.5 text-red-400" />
+                ) : (
+                  <Minus className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
+                )}
+                <div className="text-white text-xs capitalize">{mapSelectedVessel.heading || 'Still'}</div>
+              </div>
+            </div>
+
+            {/* Badges row */}
+            <div className="flex flex-wrap gap-1.5">
+              {(mapSelectedVessel.mmsi === userMmsi || mapSelectedVessel.is_user_vessel) && (
+                <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-[10px]">YOUR VESSEL</Badge>
+              )}
+              {(mapSelectedVessel.is_tow || mapSelectedVessel.barge_count > 0) && (
+                <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[10px]">
+                  TOW {mapSelectedVessel.barge_count ? `• ${mapSelectedVessel.barge_count} barges` : ''}
+                </Badge>
+              )}
+              {mapSelectedVessel.usace_source && (
+                <Badge className="bg-green-900/30 text-green-400 border-green-500/30 text-[10px]">USACE</Badge>
+              )}
+            </div>
+
+            {/* Tow details */}
+            {(mapSelectedVessel.is_tow || mapSelectedVessel.barge_count > 0) && mapSelectedVessel.tow_config && (
+              <div className="text-xs text-slate-400 flex items-center gap-2">
+                <Box className="w-3 h-3" />
+                <span>Config: {mapSelectedVessel.tow_config}</span>
+                {mapSelectedVessel.estimated_lockage_time && (
+                  <span className="flex items-center gap-1">
+                    <Timer className="w-3 h-3" />
+                    ~{mapSelectedVessel.estimated_lockage_time}min
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Destination if available */}
+            {mapSelectedVessel.destination && (
+              <div className="text-xs text-slate-400">
+                → {mapSelectedVessel.destination}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
       {vessels.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">

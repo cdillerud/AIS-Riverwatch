@@ -170,20 +170,17 @@ export default function Dashboard({
   // Focused vessel - when set, map will center on this vessel
   const [focusedVessel, setFocusedVessel] = useState(null);
 
-  // Handle vessel click (from map or list)
-  const handleVesselClick = (vessel, fromList = false) => {
-    setSelectedVessel(vessel);
-    if (fromList) {
-      // Switch to map tab and center on vessel
-      setFocusedVessel(vessel);
-      setDesktopPanel("map");
-      setMobilePanel("map");
-    }
+  // Handle vessel click from map (no longer used - map handles its own overlay)
+  const handleVesselClick = (vessel) => {
+    // Map now handles its own info overlay, but we keep this for backwards compatibility
   };
 
-  // Handle vessel click specifically from list (switches to map)
+  // Handle vessel click specifically from list (switches to map and centers)
   const handleVesselClickFromList = (vessel) => {
-    handleVesselClick(vessel, true);
+    // Switch to map tab and set focused vessel (map will show overlay)
+    setFocusedVessel(vessel);
+    setDesktopPanel("map");
+    setMobilePanel("map");
   };
 
   // Open position editor with current values

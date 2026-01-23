@@ -261,12 +261,12 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
 
   return (
     <div data-testid="vessel-list">
-      <SearchBar />
-      <ResultsCount />
+      {searchBarJSX}
+      {resultsCountJSX}
       {sortedVessels.length === 0 ? (
         <div className="text-center py-8 text-slate-500">
           <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No vessels match "{searchQuery}"</p>
+          <p className="text-sm">No vessels match &quot;{searchQuery}&quot;</p>
         </div>
       ) : (
         <div className="divide-y divide-white/5">

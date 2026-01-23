@@ -591,6 +591,9 @@ export const RiverVisualization = memo(RiverVisualizationComponent, (prevProps, 
   if (prevProps.showVesselNames !== nextProps.showVesselNames) return false;
   if (prevProps.userMmsi !== nextProps.userMmsi) return false;
   
+  // Check if focused vessel changed - important for centering from list clicks
+  if (prevProps.focusedVessel?.mmsi !== nextProps.focusedVessel?.mmsi) return false;
+  
   // Compare vessels array - only re-render if positions changed
   if (prevProps.vessels.length !== nextProps.vessels.length) return false;
   

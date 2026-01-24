@@ -34,21 +34,36 @@ const RiverVisualizationComponent = ({
 
   // When a focused vessel is set, calculate offset to center on it and show info
   useEffect(() => {
-    if (focusedVessel?.river_mile) {
+    if (focusedVessel && focusedVessel.river_mile !== undefined && focusedVessel.river_mile !== null) {
       const vesselRM = focusedVessel.river_mile;
       const offsetNeeded = vesselRM - selectedLockRM;
+      console.log('[RiverViz] Centering on vessel:', focusedVessel.mmsi, 'at RM:', vesselRM, 'offset:', offsetNeeded);
+      
+      // Update scroll offset to center on the vessel
       setScrollOffset(offsetNeeded);
-      setMapSelectedVessel(focusedVessel); // Show info overlay
-      // Clear focus after centering (so user can scroll freely)
-      const timer = setTimeout(() => onFocusClear(), 500);
+      
+      // Show info overlay for the vessel
+      setMapSelectedVessel(focusedVessel);
+      
+      // Clear focus after a delay (so user can scroll freely after)
+      const timer = setTimeout(() => {
+        console.log('[RiverViz] Clearing focus');
+        onFocusClear();
+      }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [focusedVessel, selectedLockRM, onFocusClear]);
+  }, [focusedVessel?.mmsi, focusedVessel?.river_mile, selectedLockRM, onFocusClear]);
 
-  // Reset scroll offset when selected lock changes
+  // Reset scroll offset when selected lock changes (but NOT when focusing on a vessel)
+  const prevSelectedLock = useRef(selectedLock);
   useEffect(() => {
-    setScrollOffset(0);
-  }, [selectedLock]);
+    // Only reset if lock changed and we're not focusing on a vessel
+    if (prevSelectedLock.current !== selectedLock && !focusedVessel) {
+      console.log('[RiverViz] Lock changed, resetting offset');
+      setScrollOffset(0);
+    }
+    prevSelectedLock.current = selectedLock;
+  }, [selectedLock, focusedVessel]);
 
   // Calculate the visible river mile range based on zoomRange and scroll offset
   const { minRM, maxRM } = useMemo(() => {

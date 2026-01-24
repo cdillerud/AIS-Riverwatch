@@ -177,6 +177,7 @@ export default function Dashboard({
 
   // Handle vessel click specifically from list (switches to map and centers)
   const handleVesselClickFromList = (vessel) => {
+    console.log('[Dashboard] Vessel clicked from list:', vessel.mmsi, 'river_mile:', vessel.river_mile);
     // Switch to map tab and set focused vessel (map will show overlay)
     setFocusedVessel(vessel);
     setDesktopPanel("map");

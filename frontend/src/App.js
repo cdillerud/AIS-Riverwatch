@@ -124,8 +124,8 @@ function App() {
     };
   }, [performSoftRefresh]);
 
-  // Track if we've attempted auto-connect
-  const hasAutoConnected = useRef(false);
+  // Track if we should auto-connect (set by loadSettings)
+  const pendingAutoConnect = useRef(null);
 
   // Load saved settings on mount
   useEffect(() => {
@@ -157,13 +157,12 @@ function App() {
           if (settings.connection_config) {
             const config = JSON.parse(settings.connection_config);
             setConnectionConfig(config);
-            return config;
+            // Store config for auto-connect after WebSocket hook is ready
+            pendingAutoConnect.current = config;
           }
         }
-        return null;
       } catch (error) {
         console.error("Failed to load settings:", error);
-        return null;
       }
     };
 
@@ -179,13 +178,7 @@ function App() {
       }
     };
 
-    loadSettings().then(config => {
-      if (config && !hasAutoConnected.current) {
-        hasAutoConnected.current = true;
-        // Store config for auto-connect effect
-        setConnectionConfig(config);
-      }
-    });
+    loadSettings();
     loadLocks();
   }, []);
 

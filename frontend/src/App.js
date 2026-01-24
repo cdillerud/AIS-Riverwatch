@@ -443,12 +443,13 @@ function App() {
     };
   }, [userSettings.boat_name]);
 
-  // Auto-connect ONCE when connectionConfig is loaded from settings
+  // Auto-connect ONCE when connectionConfig is loaded from saved settings
   useEffect(() => {
-    if (connectionConfig && hasAutoConnected.current && !wsRef.current) {
-      console.log("Auto-connecting with saved config...");
-      hasAutoConnected.current = false; // Prevent running again
-      connectWebSocket(connectionConfig);
+    if (pendingAutoConnect.current && connectionConfig) {
+      const config = pendingAutoConnect.current;
+      pendingAutoConnect.current = null; // Clear so it only runs once
+      console.log("Auto-connecting with saved config:", config.ip_address);
+      connectWebSocket(config);
     }
   }, [connectionConfig, connectWebSocket]);
 

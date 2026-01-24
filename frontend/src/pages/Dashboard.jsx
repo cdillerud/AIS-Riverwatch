@@ -1329,68 +1329,76 @@ export default function Dashboard({
                       Raw
                     </TabsTrigger>
                   </TabsList>
-                  <TabsContent value="locks" className="mt-0 flex-1 min-h-0">
-                    <ScrollArea className="h-full">
-                      <div className="p-2 space-y-1">
-                        {locks.map(lock => (
-                          <div 
-                            key={lock.id}
-                            className={`p-2 rounded transition-colors ${
-                              lock.id === selectedLock 
-                                ? 'bg-cyan-500/20 border-l-2 border-cyan-500' 
-                                : 'hover:bg-slate-800/50'
-                            }`}
-                          >
-                            <div 
-                              className="cursor-pointer"
-                              onClick={() => {
-                                setAutoNextLock(false);
-                                onSelectLock(lock.id);
-                              }}
+                  <TabsContent value="locks" className="mt-0 flex-1 min-h-0 p-2">
+                    {/* Lock Selector Dropdown */}
+                    <Select value={selectedLock} onValueChange={(value) => {
+                      setAutoNextLock(false);
+                      onSelectLock(value);
+                    }}>
+                      <SelectTrigger className="w-full bg-slate-800/50 border-slate-600 text-white text-xs h-8">
+                        <SelectValue placeholder="Select a lock" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-800 border-slate-600 max-h-[250px]">
+                        {locks.map(lock => {
+                          const status = lockStatus[lock.id];
+                          const statusStr = typeof status === 'string' ? status : status?.status;
+                          return (
+                            <SelectItem 
+                              key={lock.id} 
+                              value={lock.id}
+                              className="text-white hover:bg-slate-700 focus:bg-slate-700 text-xs py-1.5"
                             >
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-medium text-white">
-                                  {lock.name || `Lock ${lock.id.replace('lock_', '')}`}
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  RM {lock.river_mile}
+                              <div className="flex items-center gap-2">
+                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                  statusStr?.toUpperCase() === 'OPEN' ? 'bg-green-400' :
+                                  statusStr?.toUpperCase() === 'CLOSED' ? 'bg-red-400' :
+                                  statusStr?.toUpperCase() === 'RESTRICTED' ? 'bg-amber-400' :
+                                  'bg-slate-400'
+                                }`} />
+                                <span>L{lock.id.replace('lock_', '').toUpperCase()}</span>
+                                <span className="text-slate-500">
+                                  {lock.name?.split('(')[1]?.replace(')', '') || ''}
                                 </span>
                               </div>
-                              {lockStatus?.[lock.id] && (
-                              <div className="mt-1">
-                                {(() => {
-                                  const status = typeof lockStatus[lock.id] === 'string' 
-                                    ? lockStatus[lock.id] 
-                                    : lockStatus[lock.id]?.status || 'unknown';
-                                  const isOpen = status.toLowerCase() === 'open';
-                                  return (
-                                    <Badge className={`text-[8px] ${
-                                      isOpen 
-                                        ? 'bg-green-900/30 text-green-400' 
-                                        : 'bg-red-900/30 text-red-400'
-                                    }`}>
-                                      {status.toUpperCase()}
-                                    </Badge>
-                                  );
-                                })()}
-                              </div>
-                            )}
-                            </div>
-                            {/* View Details button */}
-                            <button
-                              className="mt-1 text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedLockDetail(lock.id);
-                              }}
-                            >
-                              <Info className="w-3 h-3" />
-                              View Details
-                            </button>
-                          </div>
-                        ))}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+
+                    {/* Selected Lock Info */}
+                    {selectedLock && locks.find(l => l.id === selectedLock) && (
+                      <div className="mt-2 p-2 bg-slate-800/30 rounded text-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">Status</span>
+                          {(() => {
+                            const status = lockStatus[selectedLock];
+                            const statusStr = typeof status === 'string' ? status : status?.status || 'unknown';
+                            const isOpen = statusStr.toLowerCase() === 'open';
+                            return (
+                              <Badge className={`text-[10px] ${
+                                isOpen ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
+                              }`}>
+                                {statusStr.toUpperCase()}
+                              </Badge>
+                            );
+                          })()}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">River Mile</span>
+                          <span className="text-white font-mono">
+                            {locks.find(l => l.id === selectedLock)?.river_mile}
+                          </span>
+                        </div>
+                        <button
+                          className="w-full mt-1 py-1 text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center justify-center gap-1 bg-cyan-500/10 rounded"
+                          onClick={() => setSelectedLockDetail(selectedLock)}
+                        >
+                          <Info className="w-3 h-3" />
+                          View Full Details
+                        </button>
                       </div>
-                    </ScrollArea>
+                    )}
                   </TabsContent>
                   <TabsContent value="debug" className="mt-0 flex-1 min-h-0">
                     <ScrollArea className="h-full">

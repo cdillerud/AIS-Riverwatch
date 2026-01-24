@@ -189,14 +189,6 @@ function App() {
     loadLocks();
   }, []);
 
-  // Auto-connect when connectionConfig is set and we haven't connected yet
-  useEffect(() => {
-    if (connectionConfig && !isConnected && hasAutoConnected.current) {
-      console.log("Auto-connecting with saved config...");
-      connectWebSocket(connectionConfig);
-    }
-  }, [connectionConfig, isConnected, connectWebSocket]);
-
   // Fetch lock status from USACE
   useEffect(() => {
     const fetchLockStatus = async () => {

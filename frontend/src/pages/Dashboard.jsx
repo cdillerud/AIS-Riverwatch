@@ -1334,25 +1334,28 @@ export default function Dashboard({
                         {locks.map(lock => (
                           <div 
                             key={lock.id}
-                            className={`p-2 rounded cursor-pointer transition-colors ${
+                            className={`p-2 rounded transition-colors ${
                               lock.id === selectedLock 
                                 ? 'bg-cyan-500/20 border-l-2 border-cyan-500' 
                                 : 'hover:bg-slate-800/50'
                             }`}
-                            onClick={() => {
-                              setAutoNextLock(false);
-                              onSelectLock(lock.id);
-                            }}
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-medium text-white">
-                                {lock.name || `Lock ${lock.id.replace('lock_', '')}`}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                RM {lock.river_mile}
-                              </span>
-                            </div>
-                            {lockStatus?.[lock.id] && (
+                            <div 
+                              className="cursor-pointer"
+                              onClick={() => {
+                                setAutoNextLock(false);
+                                onSelectLock(lock.id);
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-white">
+                                  {lock.name || `Lock ${lock.id.replace('lock_', '')}`}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  RM {lock.river_mile}
+                                </span>
+                              </div>
+                              {lockStatus?.[lock.id] && (
                               <div className="mt-1">
                                 {(() => {
                                   const status = typeof lockStatus[lock.id] === 'string' 

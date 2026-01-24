@@ -531,10 +531,10 @@ class AISConnectionManager:
         
         self._subscribers -= disconnected
     
-    async def subscribe(self, websocket: WebSocket):
-        """Add a WebSocket client as a subscriber."""
-        self._subscribers.add(websocket)
-        logger.info(f"WebSocket subscribed. Total subscribers: {len(self._subscribers)}")
+    async def subscribe(self, websocket: WebSocket, user_mmsi: str = "", boat_name: str = ""):
+        """Add a WebSocket client as a subscriber with their MMSI."""
+        self._subscribers[websocket] = {"mmsi": user_mmsi, "boat_name": boat_name}
+        logger.info(f"WebSocket subscribed (MMSI: {user_mmsi}). Total subscribers: {len(self._subscribers)}")
         
         # Send current status
         if self._connected:
@@ -548,17 +548,18 @@ class AISConnectionManager:
                 "message": "Not connected to AIS feed"
             })
         
-        # Send current vessel list - use prepare_vessel_for_output to ensure clean data
+        # Send current vessel list - mark user's vessel
         vessels = []
         for mmsi, vessel in active_vessels.items():
-            v_dict = prepare_vessel_for_output(vessel, mmsi)
+            v_dict = prepare_vessel_for_output(vessel, user_mmsi)
             vessels.append(v_dict)
         await websocket.send_json({"type": "vessels", "vessels": vessels})
     
     async def unsubscribe(self, websocket: WebSocket):
         """Remove a WebSocket client from subscribers."""
-        self._subscribers.discard(websocket)
-        logger.info(f"WebSocket unsubscribed. Total subscribers: {len(self._subscribers)}")
+        if websocket in self._subscribers:
+            user_info = self._subscribers.pop(websocket)
+            logger.info(f"WebSocket unsubscribed (MMSI: {user_info.get('mmsi', 'unknown')}). Total subscribers: {len(self._subscribers)}")
     
     async def disconnect(self):
         """Disconnect from AIS feed and stop all tasks."""

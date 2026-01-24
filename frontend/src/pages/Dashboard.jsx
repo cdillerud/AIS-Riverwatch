@@ -1179,13 +1179,21 @@ export default function Dashboard({
                             </div>
                             {lockStatus?.[lock.id] && (
                               <div className="mt-1">
-                                <Badge className={`text-[8px] ${
-                                  (typeof lockStatus[lock.id] === 'string' ? lockStatus[lock.id] : lockStatus[lock.id]?.status) === 'open' 
-                                    ? 'bg-green-900/30 text-green-400' 
-                                    : 'bg-red-900/30 text-red-400'
-                                }`}>
-                                  {(typeof lockStatus[lock.id] === 'string' ? lockStatus[lock.id] : lockStatus[lock.id]?.status || 'unknown').toUpperCase()}
-                                </Badge>
+                                {(() => {
+                                  const status = typeof lockStatus[lock.id] === 'string' 
+                                    ? lockStatus[lock.id] 
+                                    : lockStatus[lock.id]?.status || 'unknown';
+                                  const isOpen = status.toLowerCase() === 'open';
+                                  return (
+                                    <Badge className={`text-[8px] ${
+                                      isOpen 
+                                        ? 'bg-green-900/30 text-green-400' 
+                                        : 'bg-red-900/30 text-red-400'
+                                    }`}>
+                                      {status.toUpperCase()}
+                                    </Badge>
+                                  );
+                                })()}
                               </div>
                             )}
                           </div>

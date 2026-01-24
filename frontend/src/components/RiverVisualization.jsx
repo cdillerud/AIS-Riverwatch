@@ -145,6 +145,77 @@ const RiverVisualizationComponent = ({
     return locks.filter(lock => isInView(lock.river_mile));
   }, [locks, minRM, maxRM]);
 
+  // Calculate horizontal offsets for vessels that are close together
+  // This prevents overlapping markers on the map
+  const vesselOffsets = useMemo(() => {
+    const offsets = {};
+    const visibleVessels = vessels.filter(v => isInView(v.river_mile));
+    
+    // Sort by river mile to process in order
+    const sorted = [...visibleVessels].sort((a, b) => (b.river_mile || 0) - (a.river_mile || 0));
+    
+    // Calculate proximity threshold based on zoom level
+    // At zoom 20 (40 mile range), 0.5 RM is close
+    // At zoom 100 (200 mile range), need larger threshold
+    const range = maxRM - minRM;
+    const proximityThreshold = Math.max(0.3, range * 0.015); // ~1.5% of visible range
+    
+    // Group vessels by proximity
+    const groups = [];
+    let currentGroup = [];
+    
+    for (const vessel of sorted) {
+      if (!vessel.river_mile) continue;
+      
+      if (currentGroup.length === 0) {
+        currentGroup.push(vessel);
+      } else {
+        const lastRM = currentGroup[currentGroup.length - 1].river_mile;
+        if (Math.abs(vessel.river_mile - lastRM) <= proximityThreshold) {
+          currentGroup.push(vessel);
+        } else {
+          if (currentGroup.length > 0) groups.push(currentGroup);
+          currentGroup = [vessel];
+        }
+      }
+    }
+    if (currentGroup.length > 0) groups.push(currentGroup);
+    
+    // Assign horizontal offsets within each group
+    // User vessel always stays centered (offset 0)
+    for (const group of groups) {
+      if (group.length === 1) {
+        offsets[group[0].mmsi] = 0;
+      } else {
+        // Sort group so user vessel is first (stays centered)
+        const sortedGroup = [...group].sort((a, b) => {
+          const aIsUser = a.mmsi === userMmsi || a.is_user_vessel;
+          const bIsUser = b.mmsi === userMmsi || b.is_user_vessel;
+          if (aIsUser) return -1;
+          if (bIsUser) return 1;
+          return 0;
+        });
+        
+        // Spread vessels horizontally: center, left, right, further left, further right...
+        const spreadDistance = compact ? 25 : 35; // pixels
+        sortedGroup.forEach((vessel, idx) => {
+          const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+          if (isUser) {
+            offsets[vessel.mmsi] = 0;
+          } else {
+            // Alternate left (-) and right (+), increasing distance
+            const position = idx; // 0 is user or first vessel
+            const side = position % 2 === 1 ? -1 : 1; // odd = left, even = right
+            const distance = Math.ceil(position / 2) * spreadDistance;
+            offsets[vessel.mmsi] = side * distance;
+          }
+        });
+      }
+    }
+    
+    return offsets;
+  }, [vessels, minRM, maxRM, userMmsi, compact, isInView]);
+
   // Get direction icon
   const getDirectionIcon = (heading) => {
     if (heading === "northbound") return <ChevronUp className="w-3 h-3" />;

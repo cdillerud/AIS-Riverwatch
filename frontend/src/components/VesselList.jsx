@@ -202,7 +202,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                         className="h-7 w-7 p-0 text-slate-400 hover:text-cyan-400"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setMiniMapVessel(vessel);
+                          onVesselClick(vessel);
                         }}
                         title="Show on map"
                       >

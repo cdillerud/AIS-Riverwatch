@@ -1296,6 +1296,7 @@ export default function Dashboard({
                   showVesselNames={userSettings.show_vessel_names !== false}
                   focusedVessel={focusedVessel}
                   onFocusClear={() => setFocusedVessel(null)}
+                  onVesselDetails={(vessel) => setSelectedVessel(vessel)}
                 />
               </CardContent>
             </Card>

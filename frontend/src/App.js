@@ -152,11 +152,16 @@ function App() {
             show_vessel_names: settings.show_vessel_names !== "false", // Default true
           }));
           if (settings.connection_config) {
-            setConnectionConfig(JSON.parse(settings.connection_config));
+            const config = JSON.parse(settings.connection_config);
+            setConnectionConfig(config);
+            // Auto-connect when config exists
+            return config; // Return config for auto-connect
           }
         }
+        return null;
       } catch (error) {
         console.error("Failed to load settings:", error);
+        return null;
       }
     };
 
@@ -172,9 +177,17 @@ function App() {
       }
     };
 
-    loadSettings();
+    // Load settings and auto-connect if config exists
+    loadSettings().then(config => {
+      if (config) {
+        // Auto-connect after a brief delay to ensure state is ready
+        setTimeout(() => {
+          connectWebSocket(config);
+        }, 500);
+      }
+    });
     loadLocks();
-  }, []);
+  }, [connectWebSocket]);
 
   // Fetch lock status from USACE
   useEffect(() => {

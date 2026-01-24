@@ -2804,14 +2804,42 @@ async def update_user_position(data: dict):
     return {"success": True, "vessel": v_dict}
 
 @api_router.get("/settings")
-async def get_settings():
-    """Get saved settings."""
+async def get_settings(mmsi: str = None):
+    """Get saved settings. If mmsi provided, get user-specific settings."""
+    if mmsi:
+        # Get user-specific settings
+        user_settings = await db.user_settings.find_one({"mmsi": mmsi}, {"_id": 0})
+        if user_settings:
+            return user_settings.get("settings", {})
+        # Fall back to defaults
+        return {}
+    
+    # Legacy: get global settings
     settings = await db.settings.find({}, {"_id": 0}).to_list(100)
     return {s["key"]: s["value"] for s in settings}
 
 @api_router.post("/settings")
 async def save_settings(data: dict):
-    """Save connection settings."""
+    """Save settings. If mmsi in data, save as user-specific settings."""
+    mmsi = data.pop("mmsi", None) if isinstance(data, dict) else None
+    
+    if mmsi:
+        # Save user-specific settings
+        await db.user_settings.update_one(
+            {"mmsi": mmsi},
+            {
+                "$set": {
+                    "mmsi": mmsi,
+                    "settings": data,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
+            },
+            upsert=True
+        )
+        logger.info(f"Saved settings for user MMSI: {mmsi}")
+        return {"success": True, "mmsi": mmsi}
+    
+    # Legacy: save global settings
     for key, value in data.items():
         await db.settings.update_one(
             {"key": key},
@@ -2819,6 +2847,37 @@ async def save_settings(data: dict):
             upsert=True
         )
     return {"success": True}
+
+
+@api_router.get("/user/{mmsi}/settings")
+async def get_user_settings(mmsi: str):
+    """Get settings for a specific user (by MMSI)."""
+    user_settings = await db.user_settings.find_one({"mmsi": mmsi}, {"_id": 0})
+    if user_settings:
+        return {
+            "mmsi": mmsi,
+            "settings": user_settings.get("settings", {}),
+            "updated_at": user_settings.get("updated_at")
+        }
+    return {"mmsi": mmsi, "settings": {}, "updated_at": None}
+
+
+@api_router.post("/user/{mmsi}/settings")  
+async def save_user_settings(mmsi: str, data: dict):
+    """Save settings for a specific user (by MMSI)."""
+    await db.user_settings.update_one(
+        {"mmsi": mmsi},
+        {
+            "$set": {
+                "mmsi": mmsi,
+                "settings": data,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        },
+        upsert=True
+    )
+    logger.info(f"Saved settings for user MMSI: {mmsi}")
+    return {"success": True, "mmsi": mmsi}
 
 # Blocked MMSI Management
 @api_router.get("/blocked-mmsi")

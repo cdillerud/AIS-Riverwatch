@@ -1101,8 +1101,8 @@ export default function Dashboard({
               </Card>
             </div>
             
-            {/* Sidebar - Takes 4 columns */}
-            <div className="col-span-4 space-y-4">
+            {/* Sidebar - Takes 4 columns, matches map height */}
+            <div className="col-span-4 flex flex-col gap-4 h-[calc(100vh-220px)] min-h-[500px]">
               {/* Lock Timing Card - Enhanced */}
               <Card className="glass-panel hud-border" data-testid="timing-sidebar">
                 <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">

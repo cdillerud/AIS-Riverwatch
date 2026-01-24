@@ -1023,33 +1023,6 @@ export default function Dashboard({
                     onVesselDetails={(vessel) => setSelectedVessel(vessel)}
                   />
                   
-                  {/* Floating Status Indicator - Top Left */}
-                  <div className={`absolute top-3 left-3 z-30 px-3 py-2 rounded-lg border ${
-                    isDangerous 
-                      ? 'bg-red-950/90 border-red-500/50 animate-pulse' 
-                      : raceAnalysis?.analysis?.threatening_vessel 
-                        ? 'bg-amber-950/90 border-amber-500/50'
-                        : 'bg-green-950/90 border-green-500/50'
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${
-                        isDangerous ? 'bg-red-500' : raceAnalysis?.analysis?.threatening_vessel ? 'bg-amber-500' : 'bg-green-500'
-                      }`} />
-                      <div>
-                        <div className={`text-xs font-semibold ${
-                          isDangerous ? 'text-red-400' : raceAnalysis?.analysis?.threatening_vessel ? 'text-amber-400' : 'text-green-400'
-                        }`}>
-                          {isDangerous ? 'TRAFFIC DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC AHEAD' : 'CLEAR'}
-                        </div>
-                        {raceAnalysis?.analysis?.required_speed_mph && (
-                          <div className="text-[10px] text-slate-400">
-                            Need {raceAnalysis.analysis.required_speed_mph.toFixed(0)} mph to beat
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  
                   {/* Feature #4: Mini Compass/Heading Indicator - Top Right */}
                   {userVessel && (
                     <div className="absolute top-3 right-3 z-30 glass-panel border border-slate-600 rounded-lg p-2">

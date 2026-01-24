@@ -1683,6 +1683,17 @@ export default function Dashboard({
         onClose={() => setSelectedVessel(null)}
         selectedLock={selectedLockObj}
       />
+
+      {/* Lock Detail Modal */}
+      <LockDetailModal
+        lockId={selectedLockDetail}
+        isOpen={!!selectedLockDetail}
+        onClose={() => setSelectedLockDetail(null)}
+        onSelectOnMap={(lockId) => {
+          onSelectLock(lockId);
+          setDesktopPanel("timing");
+        }}
+      />
     </div>
   );
 }

@@ -1085,7 +1085,7 @@ export default function Dashboard({
             
             {/* Sidebar - Takes 4 columns */}
             <div className="col-span-4 space-y-4">
-              {/* Lock Timing Card - Compact */}
+              {/* Lock Timing Card - Enhanced */}
               <Card className="glass-panel hud-border" data-testid="timing-sidebar">
                 <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -1102,15 +1102,85 @@ export default function Dashboard({
                     {isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
                   </Badge>
                 </div>
-                <div className="p-3">
-                  {/* Target Lock */}
-                  <div className="mb-3 pb-3 border-b border-slate-700">
+                <div className="p-3 space-y-3">
+                  {/* Target Lock Info */}
+                  <div className="pb-2 border-b border-slate-700">
                     <div className="text-[10px] text-slate-500 uppercase">Target Lock</div>
                     <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
                     <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
                   </div>
                   
-                  {/* Threat Info */}
+                  {/* Feature #1: Distance & Time Breakdown */}
+                  {lockTravelInfo.distance && (
+                    <div className="grid grid-cols-2 gap-2 text-xs pb-2 border-b border-slate-700">
+                      <div className="flex items-center gap-1.5">
+                        <Route className="w-3 h-3 text-slate-500" />
+                        <span className="text-slate-400">Distance:</span>
+                        <span className="text-white font-mono">{lockTravelInfo.distance} mi</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Timer className="w-3 h-3 text-slate-500" />
+                        <span className="text-slate-400">Travel:</span>
+                        <span className="text-white font-mono">{lockTravelInfo.travelMinutes || '--'} min</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3 h-3 text-slate-500" />
+                        <span className="text-slate-400">Est. Wait:</span>
+                        <span className="text-amber-400 font-mono">~{lockTravelInfo.estimatedWait} min</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Gauge className="w-3 h-3 text-slate-500" />
+                        <span className="text-slate-400">Total:</span>
+                        <span className="text-cyan-400 font-mono font-semibold">~{lockTravelInfo.totalMinutes || '--'} min</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Feature #2: Lock Queue Preview */}
+                  {lockQueue.length > 0 && (
+                    <div className="pb-2 border-b border-slate-700">
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Users className="w-3 h-3 text-amber-400" />
+                        <span className="text-[10px] text-amber-400 uppercase font-semibold">
+                          Queue ({lockQueue.length} vessel{lockQueue.length > 1 ? 's' : ''})
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        {lockQueue.map((vessel, idx) => (
+                          <div 
+                            key={vessel.mmsi}
+                            className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/50"
+                          >
+                            <span className="text-slate-300 truncate max-w-[120px]">
+                              {idx + 1}. {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {vessel.barge_count > 0 && (
+                                <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
+                                  {vessel.barge_count}B
+                                </Badge>
+                              )}
+                              <span className="text-slate-500 font-mono">
+                                {Math.abs(vessel.river_mile - selectedLockObj.river_mile).toFixed(1)}mi
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        {userVessel && (
+                          <div className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-cyan-900/30 border border-cyan-500/30">
+                            <span className="text-cyan-400 font-semibold">
+                              {lockQueue.length + 1}. You
+                            </span>
+                            <span className="text-cyan-400 font-mono">
+                              {lockTravelInfo.distance}mi
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Threat Info / Clear Status */}
                   {raceAnalysis?.analysis?.threatening_vessel ? (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-amber-400">
@@ -1137,12 +1207,31 @@ export default function Dashboard({
                       </div>
                     </div>
                   ) : (
-                    <div className="text-center py-4">
-                      <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-2">
-                        <Check className="w-5 h-5 text-green-400" />
+                    <div className="text-center py-3">
+                      <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-1">
+                        <Check className="w-4 h-4 text-green-400" />
                       </div>
-                      <div className="text-green-400 font-semibold">No Traffic</div>
-                      <div className="text-xs text-slate-400 mt-1">Clear path to lock</div>
+                      <div className="text-green-400 font-semibold text-sm">No Traffic</div>
+                      <div className="text-[10px] text-slate-400">Clear path to lock</div>
+                    </div>
+                  )}
+                  
+                  {/* Feature #8: Last Lockage Info */}
+                  {lastLockage && (
+                    <div className="pt-2 border-t border-slate-700">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <History className="w-3 h-3 text-slate-500" />
+                        <span className="text-[10px] text-slate-500 uppercase">Last Through</span>
+                      </div>
+                      <div className="text-xs">
+                        <span className="text-slate-300">{lastLockage.vesselName}</span>
+                        {lastLockage.bargeCount > 0 && (
+                          <span className="text-amber-400 ml-1">({lastLockage.bargeCount} barges)</span>
+                        )}
+                        {lastLockage.minutesAgo && (
+                          <span className="text-slate-500 ml-1">• {lastLockage.minutesAgo} min ago</span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

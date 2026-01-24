@@ -167,6 +167,72 @@ export default function Dashboard({
     return locks.find(l => l.id === selectedLock);
   }, [locks, selectedLock]);
 
+  // Calculate distance to selected lock and travel time
+  const lockTravelInfo = useMemo(() => {
+    if (!userVessel?.river_mile || !selectedLockObj?.river_mile) {
+      return { distance: null, travelMinutes: null, estimatedWait: null };
+    }
+    
+    const distance = Math.abs(userVessel.river_mile - selectedLockObj.river_mile);
+    const speedMph = userVessel.speed * 1.15078; // knots to mph
+    const travelMinutes = speedMph > 0 ? (distance / speedMph) * 60 : null;
+    
+    // Estimate wait time based on lockage times data
+    const avgLockageTime = lockageTimes?.[selectedLock]?.avg_minutes || 20; // default 20 min
+    
+    return {
+      distance: distance.toFixed(1),
+      travelMinutes: travelMinutes?.toFixed(0),
+      estimatedWait: avgLockageTime,
+      totalMinutes: travelMinutes ? (parseFloat(travelMinutes) + avgLockageTime).toFixed(0) : null
+    };
+  }, [userVessel, selectedLockObj, selectedLock, lockageTimes]);
+
+  // Get vessels near the target lock (within 5 RM, heading towards it)
+  const lockQueue = useMemo(() => {
+    if (!selectedLockObj?.river_mile) return [];
+    
+    const lockRM = selectedLockObj.river_mile;
+    const queueRange = 10; // vessels within 10 miles of lock
+    
+    return vessels
+      .filter(v => {
+        if (v.mmsi === userMmsi || v.is_user_vessel) return false;
+        if (!v.river_mile) return false;
+        
+        const distToLock = Math.abs(v.river_mile - lockRM);
+        if (distToLock > queueRange) return false;
+        
+        // Check if heading towards lock
+        if (v.river_mile > lockRM && v.heading === 'southbound') return true;
+        if (v.river_mile < lockRM && v.heading === 'northbound') return true;
+        // Include stationary vessels very close to lock
+        if (distToLock < 2) return true;
+        
+        return false;
+      })
+      .sort((a, b) => {
+        // Sort by distance to lock
+        const distA = Math.abs(a.river_mile - lockRM);
+        const distB = Math.abs(b.river_mile - lockRM);
+        return distA - distB;
+      })
+      .slice(0, 5); // Max 5 vessels in queue view
+  }, [vessels, selectedLockObj, userMmsi]);
+
+  // Get last lockage info from lockageTimes
+  const lastLockage = useMemo(() => {
+    const lockData = lockageTimes?.[selectedLock];
+    if (!lockData?.last_lockage) return null;
+    
+    return {
+      vesselName: lockData.last_lockage.vessel_name || 'Unknown',
+      bargeCount: lockData.last_lockage.barge_count || 0,
+      minutesAgo: lockData.last_lockage.minutes_ago || null,
+      direction: lockData.last_lockage.direction || null
+    };
+  }, [lockageTimes, selectedLock]);
+
   // Focused vessel - when set, map will center on this vessel
   const [focusedVessel, setFocusedVessel] = useState(null);
 

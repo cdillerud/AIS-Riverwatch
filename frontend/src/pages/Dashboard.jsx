@@ -870,66 +870,8 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Desktop Tabbed Layout */}
+        {/* Desktop Split-View Layout */}
         <div className="hidden md:block">
-          {/* Tab Navigation */}
-          <div className="flex gap-1 mb-4 bg-slate-900/50 p-1 rounded-lg">
-            <button
-              onClick={() => setDesktopPanel("map")}
-              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "map" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Navigation className="w-4 h-4 inline mr-2" />
-              Map
-            </button>
-            <button
-              onClick={() => setDesktopPanel("timing")}
-              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "timing" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Target className="w-4 h-4 inline mr-2" />
-              Lock Timing
-            </button>
-            <button
-              onClick={() => setDesktopPanel("vessels")}
-              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "vessels" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Ship className="w-4 h-4 inline mr-2" />
-              Vessels ({vessels.length})
-            </button>
-            <button
-              onClick={() => setDesktopPanel("locks")}
-              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "locks" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Lock className="w-4 h-4 inline mr-2" />
-              Locks
-            </button>
-            <button
-              onClick={() => setDesktopPanel("debug")}
-              className={`px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "debug" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Terminal className="w-4 h-4" />
-            </button>
-          </div>
-
           {/* Desktop Split-View Layout - Map always visible with sidebar */}
           <div className="grid grid-cols-12 gap-4">
             {/* Main Map Area - Takes 8 columns */}

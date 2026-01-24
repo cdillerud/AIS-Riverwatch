@@ -84,6 +84,21 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 2. Set `REACT_APP_BACKEND_URL=https://riverwatchais.com` for HTTPS compatibility
 3. Rewrote WebSocket connection logic to prevent reconnect loops
 
+### Multi-User Support (Jan 2025)
+**Feature**: Multiple users can use the app simultaneously with their own MMSI and settings.
+
+**How it works:**
+- MMSI stored in browser localStorage (persists across sessions)
+- Settings stored per-MMSI in MongoDB (`user_settings` collection)
+- One shared AIS feed connection (saves resources)
+- Each WebSocket tracks its user's MMSI for personalized vessel highlighting
+
+**New API Endpoints:**
+- `GET /api/user/{mmsi}/settings` - Get user-specific settings
+- `POST /api/user/{mmsi}/settings` - Save user-specific settings
+
+### Lock Panel Redesign (Jan 2025)
+
 ## Known Issues
 - WebSocket dev server errors in console (harmless - hot reload trying to connect)
 

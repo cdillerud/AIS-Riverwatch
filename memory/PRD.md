@@ -1,139 +1,78 @@
-# River Watch v1.0 - Product Requirements Document
+# River Watch - Product Requirements Document
 
-## Original Problem Statement
-Build a local application named "River Watch" to track vessels on the Upper Mississippi River. The application connects to an AIS (Automatic Identification System) TCP feed from the "Boat Beacon" app to display vessel positions and calculate lock timing.
+## Overview
+River Watch is a vessel tracking application for the Upper Mississippi River that connects to AIS (Automatic Identification System) data feeds to track commercial and recreational vessels, calculate lock timing, and provide navigation assistance.
 
 ## Core Features
-1. **AIS/GPS Data Integration** - Connect to TCP feed for AIS and NMEA GPS data
+
+### Implemented ✅
+1. **AIS/GPS Data Integration** - Connect to TCP feed from Boat Beacon app to receive and parse AIS/NMEA data
 2. **Vessel Tracking** - Display user's vessel and commercial vessels on a simplified river map
 3. **Lock Timing Calculation** - Calculate required speed to reach target lock before competing vessels
-4. **Alert System** - Visual alerts when required speed exceeds maximum
-5. **Connection Management** - Configure IP, Port, MMSI settings
-6. **Local Deployment** - Docker-compose setup
-7. **Persistent Configuration** - Settings page for vessel and UI preferences
-8. **Mobile-Friendly UI** - Responsive design
+4. **Alert System** - Visual alert when required speed exceeds boat's max speed
+5. **Connection Management** - Configure and manage AIS connection settings
+6. **Persistent Settings** - Settings page for vessel MMSI, name, max speed, UI preferences
+7. **USACE Data Integration** - Fetch lock status and real-time lockage data with barge counts
+8. **Tow/Barge Estimation** - Identify commercial tows and display barge counts from USACE
+9. **Data Visibility** - Show all AIS data for any vessel in detail view
+10. **Vessel Search** - Search bar in Vessels tab to filter by MMSI or name
+11. **Click-to-Map with Centering** - Click vessel in list → switches to Map tab → centers map on vessel → shows info overlay
 
-## Tech Stack
-- **Backend**: FastAPI (Python), asyncio, WebSockets, BeautifulSoup4, pyais, pymongo, httpx
-- **Frontend**: React, TailwindCSS, lucide-react, shadcn/ui
+### Upcoming (P1)
+- Sound/Vibration Alerts for "Traffic Delay" warnings
+- MarineTraffic API Integration for faster vessel name lookups
+
+### Future (P2/P3)
+- Offline Mode with data caching
+- Multiple Target Locks (show ETAs to next 2-3 locks)
+- "Recent Lockages" Tab
+
+## Technical Architecture
+
+### Stack
+- **Backend**: FastAPI, WebSockets, Motor (async MongoDB)
+- **Frontend**: React, Tailwind CSS, Shadcn/UI
 - **Database**: MongoDB
 - **Deployment**: Docker, docker-compose
-- **External APIs**: USACE LPMS XML API for lock queue data
 
-## What's Been Implemented
+### Key Files
+- `/app/backend/server.py` - Monolithic FastAPI server (3000+ lines, needs refactoring)
+- `/app/frontend/src/pages/Dashboard.jsx` - Main dashboard with tab navigation
+- `/app/frontend/src/components/RiverVisualization.jsx` - River map component
+- `/app/frontend/src/components/VesselList.jsx` - Vessel list with search
 
-### December 2025 - Latest Session
-- ✅ **USACE Lock Queue Integration (P0)** - REAL barge counts from authoritative source!
-  - Fetches lock queue XML data from `ndc.ops.usace.army.mil/ords/lockqueue_xml`
-  - Covers all 26 Upper Mississippi locks (1-27, excluding 23, 26)
-  - Provides actual barge counts (no more guessing!)
-  - Auto-refreshes every 15 minutes in background
-  - New API endpoints: `GET /api/usace/lock-queue`, `POST /api/usace/refresh`, `GET /api/usace/vessel/{mmsi}`
-  - Vessels show "USACE Verified" badge when barge count comes from USACE
-- ✅ **Lock Timing 100-Mile Filter** - Only warn about threats within 100mi of user
-- ✅ **AIS Connection Manager Refactor (P0)** - Fixed connection drops/reconnects issue
-  - Implemented singleton `AISConnectionManager` class for ONE long-lived TCP connection
-  - All WebSocket clients now share the same AIS connection (no per-client TCP connections)
-  - Added automatic reconnection with exponential backoff (1s → 60s max)
-  - Added stale connection detection (reconnects if no data for 60s)
-  - New API endpoints: `GET /api/connection/status`, `POST /api/connection/reconnect`
-  - WebSocket clients now subscribe/unsubscribe instead of creating connections
-- ✅ **Demo Mode Removed (P0)** - Completely removed all Demo Mode functionality per user request
-- ✅ **GCP Deployment Ready** - Added production Docker Compose and deployment scripts
-  - `docker-compose.prod.yml` with nginx reverse proxy
-  - `deploy.sh` one-click deployment script
-  - `DEPLOYMENT.md` comprehensive deployment guide
-  - Production frontend Dockerfile with nginx static serving
+### Key API Endpoints
+- `POST /api/connection/start` - Start AIS connection
+- `GET /api/vessels` - Get active vessels in river mile range
+- `GET /api/usace/lock-queue` - Get USACE vessel cache
+- `GET /api/connection/status` - Get AIS connection status
 
-### January 2026 - Current Session (Latest Fix)
-- ✅ **Fixed Default Barge Counts Bug (P0 - CRITICAL)** - TRUE ROOT CAUSE found and fixed!
-  - **Problem**: Tow vessels displayed barge counts ("6 barges (2x3)") even when not at a lock
-  - **TRUE Root Cause**: The USACE API returns **historical completed lockages** (days/weeks old). These were being cached and matched to vessels by name, showing old barge data for vessels that had long since left the lock.
-  - **Evidence**: Before fix - 171 vessels in cache. After fix - 1 vessel (only the one actually at a lock).
-  - **Fix Applied**:
-    1. Modified `fetch_usace_lock_queue_data()` to **skip completed lockages** - only cache vessels with status='waiting' or 'locking'
-    2. Added `is_valid_active_lockage()` check in `get_usace_vessel_info()` as defense-in-depth
-  - Now ONLY vessels **currently at a lock** (waiting or actively locking) show barge counts
-  - Previous fix (prepare_vessel_for_output) is still in place for additional protection
+## Recent Changes (Dec 2024)
 
-- ✅ **Vessel Search with Mini-Map (P1)** - New feature added
-  - Search bar in Vessels tab filters by MMSI or vessel name
-  - Real-time filtering as you type with match highlighting (yellow border)
-  - Shows "Found X of Y vessels" count when filtering
-  - Mini-map modal popup shows vessel location on river
-    - Centered on vessel position with ±15 mile view
-    - Shows nearby locks for context
-    - Displays vessel speed, heading, river mile
-    - Direction indicator (north/south arrow)
-  - Files: `VesselList.jsx` (search + map button), `VesselMiniMap.jsx` (new component)
+### Bug Fix: Map Centering from Vessel List
+**Problem**: Clicking a vessel in the list showed info overlay but map didn't pan to vessel location.
 
-- ✅ **Click Vessel to Map (P1)** - New feature added
-  - Clicking a vessel in Vessels tab:
-    - Automatically switches to Map tab
-    - Centers map on the selected vessel
-    - Shows compact info overlay in top-right corner of map
-    - Highlights vessel with yellow pulsing ring animation
-  - Clicking vessel marker on Map:
-    - Shows compact info overlay with vessel details (position, speed, heading, barge info)
-    - Click X or click another vessel to dismiss
-  - Info overlay shows: MMSI, river mile, speed, heading, badges (YOUR VESSEL, TOW, USACE), barge config, destination
-  - Files: `Dashboard.jsx` (handleVesselClickFromList), `RiverVisualization.jsx` (mapSelectedVessel state, info overlay)
+**Root Cause**: 
+1. Component mounting timing - RiverVisualization unmounts when not on Map tab
+2. Setting focusedVessel and switching tabs simultaneously caused race condition
+3. Memo comparison function wasn't detecting focusedVessel changes
 
-### January 2026 - Previous Session
-- ✅ **Running Lockage Averages (P1)** - Implemented average lockage times and wait times for all 27 locks
-  - Shows Tow vs Recreational breakdown
-  - Displays both lockage duration and wait times
-  - Uses USACE baseline data that varies by lock (busier southern locks have higher times)
-  - **Real-time vessel passage tracking** - automatically records actual lockage times as vessels transit
-  - Data stored in MongoDB and incorporated into running averages
-  - Direction breakdown (upbound/downbound) available in API
-- ✅ **Touch Gesture Support** - Mobile map now supports drag-to-pan (touch drag up = view south)
-- ✅ **Lock Status on Desktop** - Added Lock Status panel to desktop right sidebar (was mobile-only)
-- ✅ **Zoom Slider** - Replaced binary zoom toggle with multi-level slider (10mi-500mi range)
-- ✅ **Diamond Vessel Markers** - Commercial vessels now render as orange diamonds, user vessel as cyan circle
-- ✅ **Scroll-to-Pan Map** - Mouse wheel scrolling pans the river map view up/down
-- ✅ **Default Zoom 20mi** - Changed from 25mi to 20mi
-- ✅ **Cleaner Map Title** - Simplified from "±20mi around Lock 2" to "River Map"
-- ✅ **View Range Indicator** - Shows "RM X – Y" with responsive hint ("Scroll to pan" on desktop, "Drag to pan" on mobile)
-- ✅ **Tabbed Desktop Layout** - Performance optimization with conditional rendering
-- ✅ **"At Lock" Status** - Vessels inside lock chamber geo-fence show "At Lock" badge
-- ✅ **Lockage History in Vessel Detail** - Shows vessel's past transit times through locks
+**Solution**:
+1. Added `focusedVessel?.mmsi` check to memo comparison function
+2. Added 100ms delay before setting focusedVessel (allows component to mount first)
+3. Modified scrollOffset reset logic to not reset when focusing on a vessel
+4. Removed orphaned VesselMiniMap.jsx component
 
-### Previous Sessions
-- ✅ Global "Show Vessel Names" toggle
-- ✅ Mobile feature parity & UI overhaul
-- ✅ UI & terminology refinements ("Lock Timing" instead of "Race")
-- ✅ Editable vessel type in detail modal
-- ✅ Direction indicators on vessel markers
-- ✅ Dynamic lock border colors based on timing status
-- ✅ Dismissible "Traffic Delay" alert
-- ✅ USACE lock status scraping
+### Code Cleanup
+- Removed unused VesselMiniMap component and imports from VesselList.jsx
+- Cleaned up debug console.log statements after fix verification
 
-## Known Blockers
-- **USACE LPMS Integration** - Blocked due to JavaScript-rendered content requiring headless browser
+## Known Issues
+- WebSocket dev server errors in console (harmless - hot reload trying to connect)
 
-## Database Schema
-- `db.vessel_names`: `{ mmsi, name, ship_type, updated_at }`
-- `db.blocked_mmsis`: `{ mmsi, reason, blocked_at }`
-- `db.lockage_history`: `{ lock_id, vessel_mmsi, is_tow, wait_time_minutes, lockage_duration_minutes, recorded_at }`
-
-## Key Files
-- `/app/backend/server.py` - FastAPI server, AIS parsing, scraping
-- `/app/frontend/src/pages/Dashboard.jsx` - Main dashboard component
-- `/app/frontend/src/components/RiverVisualization.jsx` - River map with vessels
-- `/app/frontend/src/components/RaceAnalysisPanel.jsx` - Lock timing analysis
-- `/app/frontend/src/App.css` - Custom styles
-
-## Upcoming Tasks (P1)
-- Sound/Vibration alerts for "Traffic Delay" warnings
-- MarineTraffic API integration for vessel name lookups
-
-## Future Tasks (P2-P3)
-- Offline mode with data caching
-- Multiple target locks display
-- "Recent Lockages" Tab - UI section to display raw lockage history
-
-## Refactoring Needs
-- Break down `server.py` (~2500 lines) into modules (routes, services, database)
-- Split `Dashboard.jsx` (1300+ lines) into smaller components and custom hooks
-- Extract state management from App.js into custom hooks (useVessels, useConnection)
+## Refactoring Needed
+- Break down `backend/server.py` into smaller modules:
+  - `ais_parser.py`
+  - `usace_api.py`
+  - `websocket_manager.py`
+  - `api_routes.py`

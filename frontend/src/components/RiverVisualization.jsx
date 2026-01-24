@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
-import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gauge, Box, Timer } from "lucide-react";
+import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gauge, Box, Timer, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getVesselDisplayName, getVesselShortName } from "@/utils/vesselDisplay";
 
 // Default River Mile range for Upper Mississippi (Lock 1 to Chain of Rocks)

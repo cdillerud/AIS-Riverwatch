@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
-import { VesselMiniMap } from "./VesselMiniMap";
 
 // Lock positions for "At Lock" detection
 const LOCK_POSITIONS = {

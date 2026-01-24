@@ -154,8 +154,6 @@ function App() {
           if (settings.connection_config) {
             const config = JSON.parse(settings.connection_config);
             setConnectionConfig(config);
-            // Mark for auto-connect
-            pendingAutoConnect.current = config;
           }
         }
       } catch (error) {

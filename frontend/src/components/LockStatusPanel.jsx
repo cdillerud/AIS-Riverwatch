@@ -232,11 +232,21 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
                     </div>
                   )}
                   
-                  {/* Phone */}
-                  {status.phone && (
-                    <div className="mt-2 text-xs text-slate-500 flex items-center gap-1">
-                      <Phone className="w-3 h-3" />
-                      {status.phone}
+                  {/* View Details Button */}
+                  {onLockDetails && (
+                    <div className="mt-2 pt-2 border-t border-white/5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 text-xs h-7"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onLockDetails(lock.id);
+                        }}
+                      >
+                        <Info className="w-3 h-3 mr-1" />
+                        View Details & Wait Prediction
+                      </Button>
                     </div>
                   )}
                 </button>

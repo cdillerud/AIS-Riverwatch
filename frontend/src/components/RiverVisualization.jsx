@@ -426,20 +426,22 @@ const RiverVisualizationComponent = ({
         );
       })}
 
-      {/* Vessels - dots on CENTER, labels offset to the RIGHT with gap */}
+      {/* Vessels - dots spread horizontally when close together */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
         const isFocused = focusedVessel?.mmsi === vessel.mmsi;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
+        const horizontalOffset = vesselOffsets[vessel.mmsi] || 0;
+        const isOffset = horizontalOffset !== 0;
 
         return (
           <div
             key={vessel.mmsi}
-            className={`absolute z-20 transition-all duration-1000 ease-out cursor-pointer hover:z-30 ${isFocused ? 'z-40' : ''}`}
+            className={`absolute z-20 transition-all duration-500 ease-out cursor-pointer hover:z-30 ${isFocused ? 'z-40' : ''}`}
             style={{ 
               top: `${topPosition}%`,
-              left: '50%',
+              left: `calc(50% + ${horizontalOffset}px)`,
               transform: 'translateY(-50%)'
             }}
             data-testid={`vessel-marker-${vessel.mmsi}`}
@@ -449,7 +451,19 @@ const RiverVisualizationComponent = ({
             {isFocused && (
               <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full border-2 border-yellow-400 animate-ping" />
             )}
-            {/* Vessel pip - exactly on centerline */}
+            {/* Connector line to centerline when offset */}
+            {isOffset && (
+              <div 
+                className="absolute top-1/2 h-px bg-slate-600/50"
+                style={{
+                  left: horizontalOffset > 0 ? 'auto' : '0',
+                  right: horizontalOffset > 0 ? '0' : 'auto',
+                  width: `${Math.abs(horizontalOffset)}px`,
+                  transform: horizontalOffset > 0 ? 'translateX(-100%)' : 'translateX(0)'
+                }}
+              />
+            )}
+            {/* Vessel pip */}
             <div 
               className={`
                 vessel-pip absolute
@@ -464,13 +478,18 @@ const RiverVisualizationComponent = ({
               }}
             />
 
-            {/* Vessel info label - clearly to the right with gap */}
+            {/* Vessel info label - position based on offset direction */}
             <div 
               className={`
                 absolute px-1.5 py-1 rounded text-[10px] leading-tight flex items-center gap-1 whitespace-nowrap
                 ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
               `}
-              style={{ left: compact ? '15px' : '20px', top: '50%', transform: 'translateY(-50%)' }}
+              style={{ 
+                left: horizontalOffset >= 0 ? (compact ? '15px' : '20px') : 'auto',
+                right: horizontalOffset < 0 ? (compact ? '15px' : '20px') : 'auto',
+                top: '50%', 
+                transform: 'translateY(-50%)'
+              }}
             >
               {/* Direction arrow */}
               <div className={`flex-shrink-0 ${vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'}`}>

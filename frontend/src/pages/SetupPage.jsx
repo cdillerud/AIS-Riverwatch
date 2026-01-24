@@ -10,8 +10,8 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 // Default connection settings - can be edited in advanced settings
-const DEFAULT_IP = "192.168.1.100";
-const DEFAULT_PORT = "5353";
+const DEFAULT_IP = "136.116.165.255";
+const DEFAULT_PORT = "7000";
 
 export default function SetupPage({ onConnect }) {
   const [userMmsi, setUserMmsi] = useState("");

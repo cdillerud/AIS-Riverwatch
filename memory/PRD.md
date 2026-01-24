@@ -49,6 +49,23 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 
 ## Recent Changes (Dec 2024)
 
+### Critical Fix: Docker + WebSocket Connection (Jan 2025)
+**Problem**: Frontend couldn't connect to backend on production VM - mixed content errors and WebSocket reconnection loops.
+
+**Root Causes**:
+1. `docker-compose.yml` used `environment:` instead of `build.args` for `REACT_APP_BACKEND_URL`
+2. Site served over HTTPS but frontend tried connecting via HTTP/WS (mixed content blocked)
+3. WebSocket reconnection logic had race conditions causing connect/disconnect loops
+
+**Solution**:
+1. Fixed `docker-compose.yml` to use `build.args` (React needs env vars at build time)
+2. Set `REACT_APP_BACKEND_URL=https://riverwatchais.com` for HTTPS compatibility
+3. Rewrote WebSocket connection logic in `App.js`:
+   - Set `isConnected=true` in `onopen` instead of waiting for server message
+   - Clear `wsRef.current` before closing to prevent race conditions
+   - Only trigger reconnect from active socket's `onclose`
+   - Removed `isConnected` from auto-connect dependencies
+
 ### Bug Fix: Map Centering from Vessel List
 **Problem**: Clicking a vessel in the list showed info overlay but map didn't pan to vessel location.
 

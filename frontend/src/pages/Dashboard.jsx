@@ -1314,9 +1314,9 @@ export default function Dashboard({
               </Card>
               
               {/* Secondary Tabs for Locks/Debug - Fills remaining height */}
-              <Card className="glass-panel hud-border flex-1 flex flex-col">
-                <Tabs defaultValue="locks" className="w-full flex-1 flex flex-col">
-                  <TabsList className="w-full bg-slate-900/50 border-b border-white/10 rounded-none rounded-t-lg">
+              <Card className="glass-panel hud-border flex-1 flex flex-col min-h-0">
+                <Tabs defaultValue="locks" className="w-full h-full flex flex-col">
+                  <TabsList className="w-full bg-slate-900/50 border-b border-white/10 rounded-none rounded-t-lg flex-shrink-0">
                     <TabsTrigger value="locks" className="flex-1 text-xs data-[state=active]:bg-cyan-500/10">
                       <Lock className="w-3 h-3 mr-1" />
                       Locks
@@ -1326,7 +1326,7 @@ export default function Dashboard({
                       Raw
                     </TabsTrigger>
                   </TabsList>
-                  <TabsContent value="locks" className="mt-0 flex-1">
+                  <TabsContent value="locks" className="mt-0 flex-1 min-h-0">
                     <ScrollArea className="h-full">
                       <div className="p-2 space-y-1">
                         {locks.map(lock => (

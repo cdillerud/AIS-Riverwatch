@@ -939,10 +939,10 @@ export default function Dashboard({
         {/* Desktop Split-View Layout */}
         <div className="hidden md:block">
           {/* Desktop Split-View Layout - Map always visible with sidebar */}
-          <div className="grid grid-cols-12 gap-4">
+          <div className="grid grid-cols-12 gap-4" style={{ height: 'calc(100vh - 220px)', minHeight: '500px' }}>
             {/* Main Map Area - Takes 8 columns */}
             <div className="col-span-8">
-              <Card className="glass-panel hud-border h-[calc(100vh-220px)] min-h-[500px]" data-testid="river-map-card">
+              <Card className="glass-panel hud-border h-full" data-testid="river-map-card">
                 {/* Compact Map Header */}
                 <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
                   <div className="flex items-center gap-3">

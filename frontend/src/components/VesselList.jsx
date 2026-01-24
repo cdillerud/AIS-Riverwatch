@@ -248,11 +248,6 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
             })}
           </div>
         )}
-        <VesselMiniMap
-          vessel={miniMapVessel}
-          isOpen={!!miniMapVessel}
-          onClose={() => setMiniMapVessel(null)}
-        />
       </div>
     );
   }

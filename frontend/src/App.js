@@ -126,6 +126,7 @@ function App() {
 
   // Track if we should auto-connect (set by loadSettings)
   const pendingAutoConnect = useRef(null);
+  const hasTriedAutoConnect = useRef(false);
 
   // Load saved settings on mount
   useEffect(() => {
@@ -149,15 +150,15 @@ function App() {
             alert_sound_enabled: settings.alert_sound_enabled !== "false",
             alert_speed_threshold: parseInt(settings.alert_speed_threshold) || 25,
             boat_name: settings.boat_name || "",
-            show_buoys: settings.show_buoys === "true", // Default false
+            show_buoys: settings.show_buoys === "true",
             lock_buffer_minutes: parseInt(settings.lock_buffer_minutes) || 20,
-            use_device_gps: settings.use_device_gps === "true", // Default false
-            show_vessel_names: settings.show_vessel_names !== "false", // Default true
+            use_device_gps: settings.use_device_gps === "true",
+            show_vessel_names: settings.show_vessel_names !== "false",
           }));
           if (settings.connection_config) {
             const config = JSON.parse(settings.connection_config);
             setConnectionConfig(config);
-            // Store config for auto-connect after WebSocket hook is ready
+            // Mark for auto-connect
             pendingAutoConnect.current = config;
           }
         }

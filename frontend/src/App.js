@@ -358,8 +358,18 @@ function App() {
   const connectWebSocket = useCallback((config) => {
     if (!config) return;
     
+    // Clear any pending reconnect
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
+    // Close existing connection if any
     if (wsRef.current) {
-      wsRef.current.close();
+      const oldWs = wsRef.current;
+      wsRef.current = null;
+      oldWs.onclose = null; // Prevent triggering reconnect from old socket
+      oldWs.close();
     }
 
     console.log("Connecting to WebSocket with config:", config.ip_address, config.port);
@@ -368,6 +378,7 @@ function App() {
 
     ws.onopen = () => {
       console.log("WebSocket connected, sending connection request...");
+      setIsConnected(true);
       // Send connection config including boat name for proper identification
       ws.send(JSON.stringify({
         action: "connect",
@@ -382,10 +393,8 @@ function App() {
       const data = JSON.parse(event.data);
       
       if (data.type === "connected") {
-        setIsConnected(true);
         toast.success(data.message);
       } else if (data.type === "disconnected") {
-        setIsConnected(false);
         toast.info(data.message);
       } else if (data.type === "error") {
         toast.error(data.message);
@@ -426,15 +435,20 @@ function App() {
 
     ws.onerror = (error) => {
       console.error("WebSocket error:", error);
-      toast.error("Connection error");
     };
 
     ws.onclose = () => {
-      setIsConnected(false);
-      // Attempt reconnect after 5 seconds using the config passed to this function
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connectWebSocket(config);
-      }, 5000);
+      // Only handle if this is still our active socket
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+        setIsConnected(false);
+        // Attempt reconnect after 5 seconds
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (config) {
+            connectWebSocket(config);
+          }
+        }, 5000);
+      }
     };
   }, [userSettings.boat_name]);
 

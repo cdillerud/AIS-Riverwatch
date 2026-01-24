@@ -170,6 +170,42 @@ export default function Dashboard({
   // Focused vessel - when set, map will center on this vessel
   const [focusedVessel, setFocusedVessel] = useState(null);
 
+  // Find the nearest lock to a given vessel based on its heading
+  const findNearestLock = (vessel) => {
+    if (!vessel?.river_mile || !locks.length) return null;
+    
+    const vesselRM = vessel.river_mile;
+    const heading = vessel.heading;
+    const sortedLocks = [...locks].sort((a, b) => a.river_mile - b.river_mile);
+    
+    // If vessel has a heading, find the next lock in that direction
+    if (heading === 'southbound') {
+      for (let i = sortedLocks.length - 1; i >= 0; i--) {
+        if (sortedLocks[i].river_mile < vesselRM) {
+          return sortedLocks[i];
+        }
+      }
+    } else if (heading === 'northbound') {
+      for (let i = 0; i < sortedLocks.length; i++) {
+        if (sortedLocks[i].river_mile > vesselRM) {
+          return sortedLocks[i];
+        }
+      }
+    }
+    
+    // Fallback: find the closest lock regardless of direction
+    let closest = sortedLocks[0];
+    let minDist = Math.abs(sortedLocks[0].river_mile - vesselRM);
+    for (const lock of sortedLocks) {
+      const dist = Math.abs(lock.river_mile - vesselRM);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = lock;
+      }
+    }
+    return closest;
+  };
+
   // Handle vessel click from map (no longer used - map handles its own overlay)
   const handleVesselClick = (vessel) => {
     // Map now handles its own info overlay, but we keep this for backwards compatibility
@@ -180,6 +216,13 @@ export default function Dashboard({
     // First switch to map tab
     setDesktopPanel("map");
     setMobilePanel("map");
+    
+    // Auto-select the nearest lock to this vessel
+    const nearestLock = findNearestLock(vessel);
+    if (nearestLock) {
+      setAutoNextLock(false); // Disable auto-tracking since we're manually selecting
+      onSelectLock(nearestLock.id);
+    }
     
     // Then set focused vessel after a brief delay to ensure map component is mounted
     setTimeout(() => {

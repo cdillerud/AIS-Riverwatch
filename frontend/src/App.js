@@ -517,24 +517,22 @@ function App() {
     setConnectionConfig(config);
     setUserMmsi(config.user_mmsi);
     
-    // Save settings
+    // Store MMSI in localStorage for session persistence
+    localStorage.setItem('riverwatch_mmsi', config.user_mmsi);
+    
+    // Save user-specific settings
     try {
-      await fetch(`${API}/settings`, {
+      await fetch(`${API}/user/${config.user_mmsi}/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_mmsi: config.user_mmsi,
-          connection_config: JSON.stringify(config)
+          connection_config: config,
+          boat_name: config.boat_name || userSettings.boat_name || ""
         })
       });
-      
-      await fetch(`${API}/set-user-mmsi`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mmsi: config.user_mmsi })
-      });
+      console.log(`Saved settings for MMSI: ${config.user_mmsi}`);
     } catch (error) {
-      console.error("Failed to save settings:", error);
+      console.error("Failed to save user settings:", error);
     }
     
     connectWebSocket(config);
@@ -555,6 +553,9 @@ function App() {
     handleDisconnect();
     setConnectionConfig(null);
     setVessels([]);
+    // Clear stored MMSI so user can enter a different one
+    localStorage.removeItem('riverwatch_mmsi');
+    setUserMmsi("");
   };
 
   const handleSettingsUpdate = async (newSettings) => {

@@ -319,19 +319,6 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                           {vessel.nav_status_text}
                         </Badge>
                       )}
-                      {/* Mini map button */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 text-slate-400 hover:text-cyan-400 ml-auto"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMiniMapVessel(vessel);
-                        }}
-                        title="Show on map"
-                      >
-                        <MapPin className="w-4 h-4" />
-                      </Button>
                     </div>
 
                     {/* Vessel details */}

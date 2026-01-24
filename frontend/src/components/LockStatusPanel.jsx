@@ -73,34 +73,50 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
                 const isSelected = lock.id === selectedLock;
                 
                 return (
-                  <button
+                  <div
                     key={lock.id}
                     ref={el => lockRefs.current[lock.id] = el}
-                    onClick={() => onSelectLock(lock.id)}
                     className={`w-full p-3 text-left transition-colors ${
                       isSelected ? 'bg-cyan-500/10 border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-white text-sm">
-                        Lock {lock.id.replace('lock_', '').toUpperCase()}
-                      </span>
-                      <Badge className={`text-[10px] ${getStatusColor(status.status)}`}>
-                        {getStatusIcon(status.status)}
-                        <span className="ml-1">{status.status || 'UNKNOWN'}</span>
-                      </Badge>
-                    </div>
-                    <div className="text-xs text-slate-500">RM {lock.river_mile}</div>
-                    {status.avg_wait_minutes > 0 && (
-                      <div className="text-xs text-amber-400 mt-1 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        ~{status.avg_wait_minutes} min wait
+                    <button
+                      onClick={() => onSelectLock(lock.id)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium text-white text-sm">
+                          Lock {lock.id.replace('lock_', '').toUpperCase()}
+                        </span>
+                        <Badge className={`text-[10px] ${getStatusColor(status.status)}`}>
+                          {getStatusIcon(status.status)}
+                          <span className="ml-1">{status.status || 'UNKNOWN'}</span>
+                        </Badge>
                       </div>
+                      <div className="text-xs text-slate-500">RM {lock.river_mile}</div>
+                      {status.avg_wait_minutes > 0 && (
+                        <div className="text-xs text-amber-400 mt-1 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          ~{status.avg_wait_minutes} min wait
+                        </div>
+                      )}
+                      {status.closure_info && (
+                        <div className="text-xs text-red-400 mt-1">{status.closure_info}</div>
+                      )}
+                    </button>
+                    {/* Tap for details */}
+                    {onLockDetails && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full mt-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 text-xs h-6"
+                        onClick={() => onLockDetails(lock.id)}
+                      >
+                        <Info className="w-3 h-3 mr-1" />
+                        Details
+                      </Button>
                     )}
-                    {status.closure_info && (
-                      <div className="text-xs text-red-400 mt-1">{status.closure_info}</div>
-                    )}
-                  </button>
+                  </div>
                 );
               })}
             </div>

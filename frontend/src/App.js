@@ -443,14 +443,12 @@ function App() {
 
     ws.onclose = () => {
       setIsConnected(false);
-      // Attempt reconnect after 5 seconds if we have config
-      if (connectionConfig) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket(connectionConfig);
-        }, 5000);
-      }
+      // Attempt reconnect after 5 seconds using the config passed to this function
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connectWebSocket(config);
+      }, 5000);
     };
-  }, [connectionConfig]);
+  }, [userSettings.boat_name]);
 
   // Cleanup on unmount
   useEffect(() => {

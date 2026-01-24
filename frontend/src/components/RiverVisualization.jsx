@@ -52,7 +52,8 @@ const RiverVisualizationComponent = ({
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [focusedVessel?.mmsi, focusedVessel?.river_mile, selectedLockRM, onFocusClear]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedVessel, selectedLockRM, onFocusClear]);
 
   // Reset scroll offset when selected lock changes (but NOT when focusing on a vessel)
   const prevSelectedLock = useRef(selectedLock);

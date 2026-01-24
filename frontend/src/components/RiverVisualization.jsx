@@ -68,6 +68,8 @@ const RiverVisualizationComponent = ({
 
   // Calculate the visible river mile range based on zoomRange and scroll offset
   const { minRM, maxRM } = useMemo(() => {
+    console.log('[RiverViz] Calculating minRM/maxRM - scrollOffset:', scrollOffset, 'selectedLockRM:', selectedLockRM, 'zoomRange:', zoomRange);
+    
     // If zoomRange >= 500, show full river (no scrolling needed)
     if (zoomRange >= 500) {
       return { minRM: FULL_MIN_RM, maxRM: FULL_MAX_RM };
@@ -90,6 +92,7 @@ const RiverVisualizationComponent = ({
       max = Math.min(FULL_MAX_RM, FULL_MIN_RM + totalRange);
     }
     
+    console.log('[RiverViz] Result: minRM:', min, 'maxRM:', max);
     return { minRM: min, maxRM: max };
   }, [selectedLockRM, zoomRange, scrollOffset]);
 

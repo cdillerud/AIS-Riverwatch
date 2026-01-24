@@ -3,19 +3,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Anchor, Wifi, Ship, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { Anchor, Ship, ArrowRight, Settings, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Default connection settings - can be edited in advanced settings
+const DEFAULT_IP = "192.168.1.100";
+const DEFAULT_PORT = "5353";
+
 export default function SetupPage({ onConnect }) {
-  const [ipAddress, setIpAddress] = useState("");
-  const [port, setPort] = useState("5353");
   const [userMmsi, setUserMmsi] = useState("");
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [ipAddress, setIpAddress] = useState(DEFAULT_IP);
+  const [port, setPort] = useState(DEFAULT_PORT);
 
   // Load saved settings on mount
   useEffect(() => {
@@ -27,6 +30,7 @@ export default function SetupPage({ onConnect }) {
           if (settings.user_mmsi) {
             setUserMmsi(settings.user_mmsi);
           }
+          // Load saved IP/port if they exist, otherwise keep defaults
           if (settings.last_ip) {
             setIpAddress(settings.last_ip);
           }
@@ -43,49 +47,13 @@ export default function SetupPage({ onConnect }) {
     loadSavedSettings();
   }, []);
 
-  const handleTestConnection = async () => {
-    if (!ipAddress) {
-      toast.error("Please enter an IP address");
-      return;
-    }
-    
-    setTesting(true);
-    setTestResult(null);
-    
-    try {
-      const response = await fetch(`${API}/connection/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ip_address: ipAddress,
-          port: parseInt(port),
-          user_mmsi: userMmsi
-        })
-      });
-      
-      const data = await response.json();
-      setTestResult(data);
-      
-      if (data.success) {
-        toast.success("Connection test successful!");
-      } else {
-        toast.error(data.message || "Connection test failed");
-      }
-    } catch (error) {
-      setTestResult({ success: false, message: error.message });
-      toast.error("Connection test failed: " + error.message);
-    } finally {
-      setTesting(false);
-    }
-  };
-
   const handleConnect = async () => {
-    if (!ipAddress || !userMmsi) {
-      toast.error("Please fill in all required fields");
+    if (!userMmsi) {
+      toast.error("Please enter your vessel's MMSI");
       return;
     }
     
-    // Save settings for next time
+    // Save settings
     try {
       await fetch(`${API}/settings`, {
         method: "POST",
@@ -100,6 +68,7 @@ export default function SetupPage({ onConnect }) {
       console.error("Failed to save settings:", error);
     }
     
+    // Connect with the config
     onConnect({
       ip_address: ipAddress,
       port: parseInt(port),
@@ -107,183 +76,114 @@ export default function SetupPage({ onConnect }) {
     });
   };
 
-  return (
-    <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl" />
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
+        <div className="text-cyan-400 text-lg">Loading...</div>
       </div>
+    );
+  }
 
-      <div className="w-full max-w-lg relative z-10">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-cyan-500/10 border border-cyan-500/30 mb-4">
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md glass-panel border-cyan-500/20">
+        <CardHeader className="text-center pb-2">
+          <div className="mx-auto w-16 h-16 rounded-full bg-cyan-500/10 flex items-center justify-center mb-4">
             <Anchor className="w-8 h-8 text-cyan-400" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-wide">RIVER WATCH</h1>
-          <p className="text-slate-400 mt-2">AIS Vessel Tracker & Lock Timer</p>
-        </div>
+          <CardTitle className="text-2xl text-white">River Watch</CardTitle>
+          <CardDescription className="text-slate-400">
+            Enter your vessel's MMSI to get started
+          </CardDescription>
+        </CardHeader>
+        
+        <CardContent className="space-y-6">
+          {/* MMSI Input - Primary */}
+          <div className="space-y-2">
+            <Label htmlFor="mmsi" className="text-slate-300 flex items-center gap-2">
+              <Ship className="w-4 h-4 text-cyan-400" />
+              Your Vessel MMSI *
+            </Label>
+            <Input
+              id="mmsi"
+              type="text"
+              placeholder="e.g., 367123456"
+              value={userMmsi}
+              onChange={(e) => setUserMmsi(e.target.value)}
+              className="bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500"
+              data-testid="mmsi-input"
+            />
+            <p className="text-xs text-slate-500">
+              9-digit Maritime Mobile Service Identity number
+            </p>
+          </div>
 
-        {/* Loading State */}
-        {loading ? (
-          <Card className="glass-panel border-white/10">
-            <CardContent className="p-8 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 text-cyan-400 animate-spin mr-2" />
-              <span className="text-slate-400">Loading saved settings...</span>
-            </CardContent>
-          </Card>
-        ) : (
-        <>
-        {/* Setup Card */}
-        <Card className="glass-panel border-white/10" data-testid="setup-card">
-          <CardHeader>
-            <CardTitle className="text-xl text-white flex items-center gap-2">
-              <Wifi className="w-5 h-5 text-cyan-400" />
-              Connection Setup
-            </CardTitle>
-            <CardDescription className="text-slate-400">
-              Enter your Boat Beacon AIS connection details
-            </CardDescription>
-          </CardHeader>
-          
-          <CardContent className="space-y-6">
-            {/* IP Address */}
-            <div className="space-y-2">
-              <Label htmlFor="ip" className="text-slate-300">
-                Boat Beacon IP Address <span className="text-red-400">*</span>
-              </Label>
-              <Input
-                id="ip"
-                data-testid="ip-input"
-                placeholder="192.168.1.100"
-                value={ipAddress}
-                onChange={(e) => setIpAddress(e.target.value)}
-                className="bg-slate-950 border-slate-700 text-white font-mono placeholder:text-slate-600 focus:border-cyan-500"
-              />
-              <p className="text-xs text-slate-500">
-                Find this in Boat Beacon app under Settings → AIS Output
-              </p>
-            </div>
+          {/* Advanced Settings Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-2 text-sm text-slate-400 hover:text-cyan-400 transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            Advanced Connection Settings
+            {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
 
-            {/* Port */}
-            <div className="space-y-2">
-              <Label htmlFor="port" className="text-slate-300">Port</Label>
-              <Input
-                id="port"
-                data-testid="port-input"
-                placeholder="5353"
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-                className="bg-slate-950 border-slate-700 text-white font-mono placeholder:text-slate-600 focus:border-cyan-500"
-              />
-            </div>
-
-            {/* MMSI */}
-            <div className="space-y-2">
-              <Label htmlFor="mmsi" className="text-slate-300">
-                Your Vessel MMSI <span className="text-red-400">*</span>
-              </Label>
-              <Input
-                id="mmsi"
-                data-testid="mmsi-input"
-                placeholder="123456789"
-                value={userMmsi}
-                onChange={(e) => setUserMmsi(e.target.value)}
-                className="bg-slate-950 border-slate-700 text-white font-mono placeholder:text-slate-600 focus:border-cyan-500"
-              />
-              <p className="text-xs text-slate-500">
-                Your 9-digit Maritime Mobile Service Identity number
-                {userMmsi && <span className="text-cyan-400 ml-1">• Saved for next time</span>}
-              </p>
-            </div>
-
-            {/* Test Result */}
-            {testResult && (
-              <div className={`p-4 rounded-lg border ${testResult.success ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
-                <div className="flex items-center gap-2">
-                  {testResult.success ? (
-                    <CheckCircle2 className="w-5 h-5 text-green-400" />
-                  ) : (
-                    <AlertCircle className="w-5 h-5 text-red-400" />
-                  )}
-                  <span className={testResult.success ? 'text-green-400' : 'text-red-400'}>
-                    {testResult.message}
-                  </span>
-                </div>
+          {/* Advanced Settings - Collapsible */}
+          {showAdvanced && (
+            <div className="space-y-4 p-4 rounded-lg bg-slate-800/50 border border-slate-700">
+              <div className="space-y-2">
+                <Label htmlFor="ip" className="text-slate-300">
+                  AIS Server IP Address
+                </Label>
+                <Input
+                  id="ip"
+                  type="text"
+                  placeholder="192.168.1.100"
+                  value={ipAddress}
+                  onChange={(e) => setIpAddress(e.target.value)}
+                  className="bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500 font-mono"
+                  data-testid="ip-input"
+                />
               </div>
-            )}
-
-            {/* Buttons */}
-            <div className="flex gap-3 pt-4">
-              <Button
-                variant="outline"
-                onClick={handleTestConnection}
-                disabled={testing || !ipAddress}
-                className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white"
-                data-testid="test-connection-btn"
-              >
-                {testing ? (
-                  <span className="spinner mr-2" />
-                ) : (
-                  <Wifi className="w-4 h-4 mr-2" />
-                )}
-                Test Connection
-              </Button>
               
-              <Button
-                onClick={handleConnect}
-                disabled={!ipAddress || !userMmsi}
-                className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-black font-bold btn-hover"
-                data-testid="connect-btn"
-              >
-                <Ship className="w-4 h-4 mr-2" />
-                Connect
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
+              <div className="space-y-2">
+                <Label htmlFor="port" className="text-slate-300">
+                  Port
+                </Label>
+                <Input
+                  id="port"
+                  type="text"
+                  placeholder="5353"
+                  value={port}
+                  onChange={(e) => setPort(e.target.value)}
+                  className="bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500 font-mono w-32"
+                  data-testid="port-input"
+                />
+              </div>
+              
+              <p className="text-xs text-slate-500">
+                Connection to Boat Beacon TCP relay. Only change if you know your server details.
+              </p>
             </div>
-          </CardContent>
-        </Card>
+          )}
 
-        {/* Info Section */}
-        <div className="mt-6 p-4 rounded-lg bg-slate-900/50 border border-slate-800">
-          <h3 className="text-sm font-semibold text-slate-300 mb-2">Quick Start</h3>
-          <ol className="text-xs text-slate-500 space-y-1 list-decimal list-inside">
-            <li>Open Boat Beacon on your mobile device</li>
-            <li>Go to Settings → AIS Output → Enable TCP Server</li>
-            <li>Note the IP address shown in the app</li>
-            <li>Enter the IP address and your vessel's MMSI above</li>
-          </ol>
-        </div>
-
-        {/* Network Note */}
-        <div className="mt-4 p-4 rounded-lg bg-amber-900/20 border border-amber-500/30">
-          <h3 className="text-sm font-semibold text-amber-400 mb-2">⚠️ Network Note</h3>
-          <p className="text-xs text-slate-400">
-            This app runs on a cloud server and <strong>cannot connect to local network IPs</strong> (192.168.x.x). 
-            For testing, use <strong>Demo Mode</strong> on the dashboard. For live AIS data, you'll need to 
-            either run this app locally or use a public IP/port forwarding.
+          {/* Connect Button */}
+          <Button
+            onClick={handleConnect}
+            disabled={!userMmsi}
+            className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-6 text-lg"
+            data-testid="connect-btn"
+          >
+            Connect
+            <ArrowRight className="w-5 h-5 ml-2" />
+          </Button>
+          
+          <p className="text-xs text-center text-slate-500">
+            Connecting to {ipAddress}:{port}
           </p>
-        </div>
-
-        {/* Pool Info */}
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-800 text-center">
-            <div className="text-[10px] text-slate-500 uppercase">Lock 2</div>
-            <div className="text-white font-mono text-xs">RM 815</div>
-          </div>
-          <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-800 text-center">
-            <div className="text-[10px] text-slate-500 uppercase">Lock 5</div>
-            <div className="text-white font-mono text-xs">RM 738</div>
-          </div>
-          <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-800 text-center">
-            <div className="text-[10px] text-slate-500 uppercase">Lock 10</div>
-            <div className="text-white font-mono text-xs">RM 615</div>
-          </div>
-        </div>
-        </>
-        )}
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

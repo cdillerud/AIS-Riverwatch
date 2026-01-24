@@ -1019,6 +1019,7 @@ export default function Dashboard({
                     raceAnalysis={raceAnalysis}
                     zoomRange={zoomLevel}
                     onVesselClick={handleVesselClick}
+                    onLockClick={setSelectedLockDetail}
                     showVesselNames={userSettings.show_vessel_names !== false}
                     focusedVessel={focusedVessel}
                     onFocusClear={() => setFocusedVessel(null)}

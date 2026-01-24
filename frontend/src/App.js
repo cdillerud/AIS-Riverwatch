@@ -444,19 +444,13 @@ function App() {
     };
   }, [userSettings.boat_name]);
 
-  // Auto-connect ONCE when connectionConfig is loaded from saved settings
+  // Auto-connect when we have config but aren't connected
   useEffect(() => {
-    if (pendingAutoConnect.current && !hasTriedAutoConnect.current) {
-      hasTriedAutoConnect.current = true;
-      const config = pendingAutoConnect.current;
-      pendingAutoConnect.current = null;
-      console.log("Auto-connecting with saved config:", config.ip_address);
-      // Small delay to ensure everything is ready
-      setTimeout(() => {
-        connectWebSocket(config);
-      }, 500);
+    if (connectionConfig && !isConnected && !wsRef.current) {
+      console.log("Auto-connecting to AIS server:", connectionConfig.ip_address, connectionConfig.port);
+      connectWebSocket(connectionConfig);
     }
-  }, [connectionConfig, connectWebSocket]);
+  }, [connectionConfig, isConnected, connectWebSocket]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -124,10 +124,6 @@ function App() {
     };
   }, [performSoftRefresh]);
 
-  // Track if we should auto-connect (set by loadSettings)
-  const pendingAutoConnect = useRef(null);
-  const hasTriedAutoConnect = useRef(false);
-
   // Load saved settings on mount
   useEffect(() => {
     const loadSettings = async () => {

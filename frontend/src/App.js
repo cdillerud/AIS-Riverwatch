@@ -368,15 +368,18 @@ function App() {
 
   // WebSocket connection
   const connectWebSocket = useCallback((config) => {
+    if (!config) return;
+    
     if (wsRef.current) {
       wsRef.current.close();
     }
 
+    console.log("Connecting to WebSocket with config:", config.ip_address, config.port);
     const ws = new WebSocket(`${WS_URL}/ws/ais`);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log("WebSocket connected");
+      console.log("WebSocket connected, sending connection request...");
       // Send connection config including boat name for proper identification
       ws.send(JSON.stringify({
         action: "connect",

@@ -1374,6 +1374,18 @@ export default function Dashboard({
                                 })()}
                               </div>
                             )}
+                            </div>
+                            {/* View Details button */}
+                            <button
+                              className="mt-1 text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedLockDetail(lock.id);
+                              }}
+                            >
+                              <Info className="w-3 h-3" />
+                              View Details
+                            </button>
                           </div>
                         ))}
                       </div>

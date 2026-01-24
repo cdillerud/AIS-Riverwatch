@@ -16,6 +16,7 @@ const RiverVisualizationComponent = ({
   compact = false,
   zoomRange = 20, // Range in miles (10-500, 500+ = full view)
   onVesselClick = () => {},
+  onVesselDetails = () => {}, // Callback to open full vessel detail modal
   showVesselNames = true,
   focusedVessel = null,
   onFocusClear = () => {}

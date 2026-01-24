@@ -411,15 +411,17 @@ const RiverVisualizationComponent = ({
         return (
           <div
             key={lock.id}
-            className="absolute left-1/2 transform -translate-x-1/2 z-10"
+            className="absolute left-1/2 transform -translate-x-1/2 z-10 cursor-pointer"
             style={{ 
               top: `${getRiverPosition(lock.river_mile)}%`,
               transform: 'translate(-50%, -50%)'
             }}
             data-testid={`lock-marker-${lock.id}`}
+            onClick={() => onLockClick(lock.id)}
+            title={`Click for ${lock.name} details`}
           >
             <div 
-              className={`lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6`}
+              className={`lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6 hover:scale-110 transition-transform`}
               style={lockStyle}
             >
               <Lock className="w-2 h-2 md:w-3 md:h-3 mr-0.5 md:mr-1" />

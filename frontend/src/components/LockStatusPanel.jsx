@@ -1,13 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Lock, Phone, Clock, AlertTriangle, CheckCircle2, 
-  XCircle, Users, ChevronUp, ChevronDown, Timer
+  XCircle, Users, ChevronUp, ChevronDown, Timer, Info
 } from "lucide-react";
-import { useEffect, useRef, useCallback, memo } from "react";
+import { useEffect, useRef, memo } from "react";
 
-const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, compact = false }) => {
+const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, onLockDetails, compact = false }) => {
   // Refs for auto-scrolling to selected lock
   const lockRefs = useRef({});
   

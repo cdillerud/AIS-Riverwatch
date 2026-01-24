@@ -147,7 +147,7 @@ class AISConnectionManager:
         self._connected: bool = False
         self._reconnect_task: Optional[asyncio.Task] = None
         self._read_task: Optional[asyncio.Task] = None
-        self._subscribers: set = set()  # WebSocket clients subscribed to updates
+        self._subscribers: dict = {}  # {websocket: {"mmsi": str, "boat_name": str}} - per-user tracking
         self._lock = asyncio.Lock()
         self._should_run: bool = False
         self._reconnect_delay: float = 1.0  # Start with 1 second

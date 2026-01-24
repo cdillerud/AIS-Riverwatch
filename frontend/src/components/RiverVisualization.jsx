@@ -143,7 +143,7 @@ const RiverVisualizationComponent = ({
   // Filter locks in view
   const visibleLocks = useMemo(() => {
     return locks.filter(lock => isInView(lock.river_mile));
-  }, [locks, minRM, maxRM]);
+  }, [locks, isInView]);
 
   // Calculate horizontal offsets for vessels that are close together
   // This prevents overlapping markers on the map

@@ -37,7 +37,6 @@ const RiverVisualizationComponent = ({
     if (focusedVessel && focusedVessel.river_mile !== undefined && focusedVessel.river_mile !== null) {
       const vesselRM = focusedVessel.river_mile;
       const offsetNeeded = vesselRM - selectedLockRM;
-      console.log('[RiverViz] Centering on vessel:', focusedVessel.mmsi, 'at RM:', vesselRM, 'offset:', offsetNeeded);
       
       // Update scroll offset to center on the vessel
       setScrollOffset(offsetNeeded);
@@ -47,7 +46,6 @@ const RiverVisualizationComponent = ({
       
       // Clear focus after a delay (so user can scroll freely after)
       const timer = setTimeout(() => {
-        console.log('[RiverViz] Clearing focus');
         onFocusClear();
       }, 1000);
       return () => clearTimeout(timer);
@@ -60,7 +58,6 @@ const RiverVisualizationComponent = ({
   useEffect(() => {
     // Only reset if lock changed and we're not focusing on a vessel
     if (prevSelectedLock.current !== selectedLock && !focusedVessel) {
-      console.log('[RiverViz] Lock changed, resetting offset');
       setScrollOffset(0);
     }
     prevSelectedLock.current = selectedLock;
@@ -68,8 +65,6 @@ const RiverVisualizationComponent = ({
 
   // Calculate the visible river mile range based on zoomRange and scroll offset
   const { minRM, maxRM } = useMemo(() => {
-    console.log('[RiverViz] Calculating minRM/maxRM - scrollOffset:', scrollOffset, 'selectedLockRM:', selectedLockRM, 'zoomRange:', zoomRange);
-    
     // If zoomRange >= 500, show full river (no scrolling needed)
     if (zoomRange >= 500) {
       return { minRM: FULL_MIN_RM, maxRM: FULL_MAX_RM };
@@ -92,7 +87,6 @@ const RiverVisualizationComponent = ({
       max = Math.min(FULL_MAX_RM, FULL_MIN_RM + totalRange);
     }
     
-    console.log('[RiverViz] Result: minRM:', min, 'maxRM:', max);
     return { minRM: min, maxRM: max };
   }, [selectedLockRM, zoomRange, scrollOffset]);
 

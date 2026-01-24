@@ -2126,7 +2126,6 @@ async def get_lock_details(lock_id: str):
         return {"error": "Invalid lock ID"}
     
     lock_info = LOCKS[lock_id]
-    lock_num = lock_id.replace("lock_", "")
     
     # Fetch all relevant data in parallel
     status_data = await fetch_usace_lock_status()
@@ -2154,10 +2153,6 @@ async def get_lock_details(lock_id: str):
     # Calculate wait time prediction
     tow_lockage_time = lock_averages.get('avg_tow_lockage_minutes') or 45
     rec_lockage_time = lock_averages.get('avg_recreational_lockage_minutes') or 20
-    
-    # Count tows vs recreational in queue
-    tows_waiting = sum(1 for v in vessels_at_lock if v.get('num_barges') and v.get('num_barges') > 0)
-    rec_waiting = len(vessels_at_lock) - tows_waiting
     
     # Estimate wait time based on queue
     # Tows take priority, then recreational boats go through together

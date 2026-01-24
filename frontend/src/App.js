@@ -124,6 +124,9 @@ function App() {
     };
   }, [performSoftRefresh]);
 
+  // Track if we've attempted auto-connect
+  const hasAutoConnected = useRef(false);
+
   // Load saved settings on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -154,8 +157,7 @@ function App() {
           if (settings.connection_config) {
             const config = JSON.parse(settings.connection_config);
             setConnectionConfig(config);
-            // Auto-connect when config exists
-            return config; // Return config for auto-connect
+            return config;
           }
         }
         return null;
@@ -177,17 +179,23 @@ function App() {
       }
     };
 
-    // Load settings and auto-connect if config exists
     loadSettings().then(config => {
-      if (config) {
-        // Auto-connect after a brief delay to ensure state is ready
-        setTimeout(() => {
-          connectWebSocket(config);
-        }, 500);
+      if (config && !hasAutoConnected.current) {
+        hasAutoConnected.current = true;
+        // Store config for auto-connect effect
+        setConnectionConfig(config);
       }
     });
     loadLocks();
-  }, [connectWebSocket]);
+  }, []);
+
+  // Auto-connect when connectionConfig is set and we haven't connected yet
+  useEffect(() => {
+    if (connectionConfig && !isConnected && hasAutoConnected.current) {
+      console.log("Auto-connecting with saved config...");
+      connectWebSocket(connectionConfig);
+    }
+  }, [connectionConfig, isConnected, connectWebSocket]);
 
   // Fetch lock status from USACE
   useEffect(() => {

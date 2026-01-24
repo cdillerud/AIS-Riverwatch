@@ -2111,7 +2111,144 @@ async def get_lock_status(lock_id: str):
     }
 
 
-@api_router.get("/locks/lockage-times")
+@api_router.get("/locks/{lock_id}/details")
+async def get_lock_details(lock_id: str):
+    """
+    Get comprehensive lock details including:
+    - Basic info (name, location, phone)
+    - Current USACE status (open/closed/restricted)
+    - Wait time predictions based on queue
+    - Current vessels waiting/locking
+    - Historical average lockage times
+    - Recent lockage history
+    """
+    if lock_id not in LOCKS:
+        return {"error": "Invalid lock ID"}
+    
+    lock_info = LOCKS[lock_id]
+    lock_num = lock_id.replace("lock_", "")
+    
+    # Fetch all relevant data in parallel
+    status_data = await fetch_usace_lock_status()
+    status = status_data.get(lock_id, LockStatus(lock_id=lock_id, status="UNKNOWN"))
+    
+    # Get lock queue data for vessels at this lock
+    queue_data = await fetch_usace_lock_queue_data()
+    vessels_at_lock = [
+        v for v in queue_data.values() 
+        if v.get('lock_id') == lock_id and v.get('status') in ('waiting', 'locking')
+    ]
+    
+    # Sort by arrival time
+    vessels_at_lock.sort(key=lambda v: v.get('arrival_date') or '')
+    
+    # Separate by status and direction
+    vessels_waiting_up = [v for v in vessels_at_lock if v.get('status') == 'waiting' and v.get('direction') == 'U']
+    vessels_waiting_down = [v for v in vessels_at_lock if v.get('status') == 'waiting' and v.get('direction') == 'D']
+    vessels_locking = [v for v in vessels_at_lock if v.get('status') == 'locking']
+    
+    # Get lockage time averages
+    averages = await get_lockage_averages(lock_id)
+    lock_averages = averages.get(lock_id, {})
+    
+    # Calculate wait time prediction
+    tow_lockage_time = lock_averages.get('avg_tow_lockage_minutes') or 45
+    rec_lockage_time = lock_averages.get('avg_recreational_lockage_minutes') or 20
+    
+    # Count tows vs recreational in queue
+    tows_waiting = sum(1 for v in vessels_at_lock if v.get('num_barges') and v.get('num_barges') > 0)
+    rec_waiting = len(vessels_at_lock) - tows_waiting
+    
+    # Estimate wait time based on queue
+    # Tows take priority, then recreational boats go through together
+    estimated_wait_minutes = 0
+    if vessels_locking:
+        # Currently locking vessel - estimate remaining time
+        locking_vessel = vessels_locking[0]
+        if locking_vessel.get('num_barges') and locking_vessel['num_barges'] > 0:
+            estimated_wait_minutes += tow_lockage_time // 2  # Assume halfway done
+        else:
+            estimated_wait_minutes += rec_lockage_time // 2
+    
+    # Add time for each vessel ahead in queue
+    for v in vessels_at_lock:
+        if v.get('status') == 'waiting':
+            if v.get('num_barges') and v['num_barges'] > 0:
+                # Tow - check for double lockage
+                if v['num_barges'] > 9:
+                    estimated_wait_minutes += tow_lockage_time * 2  # Double lockage
+                else:
+                    estimated_wait_minutes += tow_lockage_time
+            else:
+                estimated_wait_minutes += rec_lockage_time
+    
+    # Get recent lockage history from database
+    recent_lockages = []
+    try:
+        recent = await db.lockage_history.find(
+            {"lock_id": lock_id},
+            {"_id": 0}
+        ).sort("recorded_at", -1).limit(10).to_list(10)
+        recent_lockages = recent
+    except Exception as e:
+        logger.warning(f"Failed to fetch lockage history for {lock_id}: {e}")
+    
+    # Calculate prediction confidence
+    sample_count = lock_averages.get('sample_count', 0)
+    is_baseline = lock_averages.get('combined', {}).get('is_baseline', True)
+    prediction_confidence = "low" if is_baseline else ("medium" if sample_count < 20 else "high")
+    
+    return {
+        "lock_id": lock_id,
+        "name": lock_info["name"],
+        "river_mile": lock_info["river_mile"],
+        "lat": lock_info["lat"],
+        "lon": lock_info["lon"],
+        "phone": lock_info.get("phone"),
+        
+        # Current status
+        "status": status.status,
+        "closure_info": status.closure_info,
+        "last_updated": status.last_updated,
+        
+        # Queue info
+        "upbound_queue": status.upbound_queue or len(vessels_waiting_up),
+        "downbound_queue": status.downbound_queue or len(vessels_waiting_down),
+        "total_queue": len(vessels_at_lock),
+        
+        # Wait time prediction
+        "estimated_wait_minutes": round(estimated_wait_minutes),
+        "usace_avg_wait_minutes": status.avg_wait_minutes,
+        "prediction_confidence": prediction_confidence,
+        
+        # Vessels at lock
+        "vessels_locking": [{
+            "name": v.get('vessel_name'),
+            "num_barges": v.get('num_barges'),
+            "direction": v.get('direction'),
+            "arrival_date": v.get('arrival_date'),
+            "sol_date": v.get('sol_date')
+        } for v in vessels_locking],
+        "vessels_waiting": [{
+            "name": v.get('vessel_name'),
+            "num_barges": v.get('num_barges'),
+            "direction": v.get('direction'),
+            "arrival_date": v.get('arrival_date'),
+            "position": i + 1
+        } for i, v in enumerate(vessels_at_lock) if v.get('status') == 'waiting'],
+        
+        # Average times
+        "avg_tow_lockage_minutes": lock_averages.get('avg_tow_lockage_minutes'),
+        "avg_recreational_lockage_minutes": lock_averages.get('avg_recreational_lockage_minutes'),
+        "avg_tow_wait_minutes": lock_averages.get('avg_tow_wait_minutes'),
+        "avg_recreational_wait_minutes": lock_averages.get('avg_recreational_wait_minutes'),
+        "is_baseline_data": is_baseline,
+        "sample_count": sample_count,
+        
+        # Recent history
+        "recent_lockages": recent_lockages[:5]
+    }
+
 async def get_all_lockage_times():
     """Get recent lockage times and running averages for all locks."""
     # Note: LPMS scraping is blocked by JS rendering, so we use baseline + observed data

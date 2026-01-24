@@ -178,10 +178,16 @@ export default function Dashboard({
   // Handle vessel click specifically from list (switches to map and centers)
   const handleVesselClickFromList = (vessel) => {
     console.log('[Dashboard] Vessel clicked from list:', vessel.mmsi, 'river_mile:', vessel.river_mile);
-    // Switch to map tab and set focused vessel (map will show overlay)
-    setFocusedVessel(vessel);
+    
+    // First switch to map tab
     setDesktopPanel("map");
     setMobilePanel("map");
+    
+    // Then set focused vessel after a brief delay to ensure map component is mounted
+    setTimeout(() => {
+      console.log('[Dashboard] Setting focusedVessel after tab switch');
+      setFocusedVessel(vessel);
+    }, 100);
   };
 
   // Open position editor with current values

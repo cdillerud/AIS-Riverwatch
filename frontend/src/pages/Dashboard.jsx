@@ -930,28 +930,25 @@ export default function Dashboard({
             </button>
           </div>
 
-          {/* Tab Content - Only render active panel */}
-          
-          {/* Map Panel */}
-          {desktopPanel === "map" && (
-            <Card className="glass-panel hud-border min-h-[600px]" data-testid="river-map-card">
-              <CardHeader className="border-b border-white/10 pb-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg text-white flex items-center gap-2">
-                    <Navigation className="w-5 h-5 text-cyan-400" />
-                    River Map
-                    {autoNextLock && nextLock && (
-                      <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-xs ml-2">
-                        Auto
-                      </Badge>
+          {/* Desktop Split-View Layout - Map always visible with sidebar */}
+          <div className="grid grid-cols-12 gap-4">
+            {/* Main Map Area - Takes 8 columns */}
+            <div className="col-span-8">
+              <Card className="glass-panel hud-border h-[calc(100vh-220px)] min-h-[500px]" data-testid="river-map-card">
+                {/* Compact Map Header */}
+                <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+                  <div className="flex items-center gap-3">
+                    <Navigation className="w-4 h-4 text-cyan-400" />
+                    <span className="text-sm font-medium text-white">River Map</span>
+                    {autoNextLock && (
+                      <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-[10px]">AUTO</Badge>
                     )}
-                  </CardTitle>
+                  </div>
                   
-                  {/* Lock Selector + Zoom Slider */}
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     {/* Auto Next Lock Toggle */}
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
                       onClick={() => {
                         setAutoNextLock(!autoNextLock);
@@ -960,17 +957,16 @@ export default function Dashboard({
                           toast.success(`Auto-tracking: ${nextLock.name}`);
                         }
                       }}
-                      className={`border-slate-600 ${autoNextLock ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'text-slate-400'}`}
-                      data-testid="auto-next-lock-btn"
-                      title={nextLock ? `Next lock: ${nextLock.name} (RM ${nextLock.river_mile})` : 'No vessel heading detected'}
+                      className={`h-7 px-2 ${autoNextLock ? 'bg-green-500/20 text-green-400' : 'text-slate-400 hover:text-white'}`}
+                      title={nextLock ? `Next lock: ${nextLock.name}` : 'No heading detected'}
                     >
-                      <Target className="w-4 h-4 mr-1" />
+                      <Target className="w-3 h-3 mr-1" />
                       {autoNextLock ? 'Auto' : 'Next'}
                     </Button>
                     
-                    {/* Zoom Slider */}
-                    <div className="flex items-center gap-2">
-                      <ZoomOut className="w-4 h-4 text-slate-400" />
+                    {/* Zoom Controls */}
+                    <div className="flex items-center gap-1">
+                      <ZoomOut className="w-3 h-3 text-slate-500" />
                       <input
                         type="range"
                         min="10"
@@ -978,14 +974,13 @@ export default function Dashboard({
                         step="10"
                         value={zoomLevel}
                         onChange={(e) => setZoomLevel(parseInt(e.target.value))}
-                        className="w-24 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                        data-testid="zoom-slider"
+                        className="w-20 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                       />
-                      <ZoomIn className="w-4 h-4 text-slate-400" />
-                      <span className="text-xs text-slate-400 w-12">{zoomLevel < 500 ? `${zoomLevel}mi` : 'Full'}</span>
+                      <ZoomIn className="w-3 h-3 text-slate-500" />
+                      <span className="text-[10px] text-slate-500 w-8">{zoomLevel < 500 ? `${zoomLevel}mi` : 'Full'}</span>
                     </div>
                     
-                    {/* Manual Lock Selector */}
+                    {/* Lock Selector */}
                     <select
                       value={selectedLock}
                       onChange={(e) => {
@@ -993,130 +988,291 @@ export default function Dashboard({
                         onSelectLock(e.target.value);
                       }}
                       disabled={autoNextLock}
-                      className={`bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm font-mono focus:border-cyan-500 focus:outline-none ${autoNextLock ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      data-testid="lock-selector"
+                      className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono"
                     >
                       {locks.map(lock => (
                         <option key={lock.id} value={lock.id}>
-                          Lock {lock.id.replace('lock_', '')} (RM {lock.river_mile})
+                          L{lock.id.replace('lock_', '')} (RM {lock.river_mile})
                         </option>
                       ))}
                     </select>
                   </div>
                 </div>
-              </CardHeader>
+                
+                {/* Map Content with Floating Overlays */}
+                <div className="relative h-[calc(100%-44px)]">
+                  <RiverVisualization
+                    vessels={vessels}
+                    userMmsi={userMmsi}
+                    locks={locks}
+                    selectedLock={selectedLock}
+                    raceAnalysis={raceAnalysis}
+                    zoomRange={zoomLevel}
+                    onVesselClick={handleVesselClick}
+                    showVesselNames={userSettings.show_vessel_names !== false}
+                    focusedVessel={focusedVessel}
+                    onFocusClear={() => setFocusedVessel(null)}
+                    onVesselDetails={(vessel) => setSelectedVessel(vessel)}
+                  />
+                  
+                  {/* Floating Status Indicator - Top Left */}
+                  <div className={`absolute top-3 left-3 z-30 px-3 py-2 rounded-lg border ${
+                    isDangerous 
+                      ? 'bg-red-950/90 border-red-500/50 animate-pulse' 
+                      : raceAnalysis?.analysis?.threatening_vessel 
+                        ? 'bg-amber-950/90 border-amber-500/50'
+                        : 'bg-green-950/90 border-green-500/50'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-3 h-3 rounded-full ${
+                        isDangerous ? 'bg-red-500' : raceAnalysis?.analysis?.threatening_vessel ? 'bg-amber-500' : 'bg-green-500'
+                      }`} />
+                      <div>
+                        <div className={`text-xs font-semibold ${
+                          isDangerous ? 'text-red-400' : raceAnalysis?.analysis?.threatening_vessel ? 'text-amber-400' : 'text-green-400'
+                        }`}>
+                          {isDangerous ? 'TRAFFIC DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC AHEAD' : 'CLEAR'}
+                        </div>
+                        {raceAnalysis?.analysis?.required_speed_mph && (
+                          <div className="text-[10px] text-slate-400">
+                            Need {raceAnalysis.analysis.required_speed_mph.toFixed(0)} mph to beat
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Floating Quick Stats - Bottom Center */}
+                  {userVessel && (
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 glass-panel border border-slate-600 rounded-lg px-4 py-2">
+                      <div className="flex items-center gap-6">
+                        <div className="text-center">
+                          <div className="text-[10px] text-slate-500 uppercase">Your RM</div>
+                          <div className="text-lg font-mono text-cyan-400">{userVessel.river_mile?.toFixed(1) || '--'}</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-[10px] text-slate-500 uppercase">Speed</div>
+                          <div className="text-lg font-mono text-white">{(userVessel.speed * 1.15078).toFixed(1)} <span className="text-xs text-slate-400">mph</span></div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-[10px] text-slate-500 uppercase">ETA Lock</div>
+                          <div className="text-lg font-mono text-amber-400">
+                            {raceAnalysis?.analysis?.user_eta_minutes 
+                              ? `${Math.round(raceAnalysis.analysis.user_eta_minutes)}m`
+                              : '--'}
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-[10px] text-slate-500 uppercase">Need</div>
+                          <div className={`text-lg font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                            {raceAnalysis?.analysis?.required_speed_mph?.toFixed(0) || '--'} <span className="text-xs">mph</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+            
+            {/* Sidebar - Takes 4 columns */}
+            <div className="col-span-4 space-y-4">
+              {/* Lock Timing Card - Compact */}
+              <Card className="glass-panel hud-border" data-testid="timing-sidebar">
+                <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-cyan-400" />
+                    <span className="text-sm font-medium text-white">Lock Timing</span>
+                  </div>
+                  <Badge className={`text-[10px] ${
+                    isDangerous 
+                      ? 'bg-red-500/20 text-red-400 border-red-500/50' 
+                      : raceAnalysis?.analysis?.threatening_vessel 
+                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
+                        : 'bg-green-500/20 text-green-400 border-green-500/50'
+                  }`}>
+                    {isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
+                  </Badge>
+                </div>
+                <div className="p-3">
+                  {/* Target Lock */}
+                  <div className="mb-3 pb-3 border-b border-slate-700">
+                    <div className="text-[10px] text-slate-500 uppercase">Target Lock</div>
+                    <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
+                    <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
+                  </div>
+                  
+                  {/* Threat Info */}
+                  {raceAnalysis?.analysis?.threatening_vessel ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-amber-400">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span className="text-sm font-semibold">Traffic Ahead</span>
+                      </div>
+                      <div className="bg-slate-800/50 rounded p-2 text-xs">
+                        <div className="font-medium text-white mb-1">
+                          {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)}
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-slate-400">
+                          <span>ETA: {raceAnalysis.analysis.threat_eta_minutes?.toFixed(0)}m</span>
+                          <span>RM: {raceAnalysis.analysis.threatening_vessel.river_mile?.toFixed(1)}</span>
+                        </div>
+                      </div>
+                      <div className="text-center py-2">
+                        <div className="text-[10px] text-slate-500 uppercase">Speed to Beat</div>
+                        <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                          {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
+                        </div>
+                        {isDangerous && (
+                          <div className="text-[10px] text-red-400 mt-1">Exceeds max speed (25 mph)</div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-2">
+                        <Check className="w-5 h-5 text-green-400" />
+                      </div>
+                      <div className="text-green-400 font-semibold">No Traffic</div>
+                      <div className="text-xs text-slate-400 mt-1">Clear path to lock</div>
+                    </div>
+                  )}
+                </div>
+              </Card>
               
-              <CardContent className="p-0 h-[550px]">
-                <RiverVisualization
-                  vessels={vessels}
-                  userMmsi={userMmsi}
-                  locks={locks}
-                  selectedLock={selectedLock}
-                  raceAnalysis={raceAnalysis}
-                  zoomRange={zoomLevel}
-                  onVesselClick={handleVesselClick}
-                  showVesselNames={userSettings.show_vessel_names !== false}
-                  focusedVessel={focusedVessel}
-                  onFocusClear={() => setFocusedVessel(null)}
-                  onVesselDetails={(vessel) => setSelectedVessel(vessel)}
-                />
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Lock Timing Panel */}
-          {desktopPanel === "timing" && (
-            <RaceAnalysisPanel 
-              raceAnalysis={raceAnalysis}
-              userVessel={userVessel}
-              isDangerous={isDangerous}
-              showVesselNames={userSettings.show_vessel_names !== false}
-            />
-          )}
-
-          {/* Vessels Panel */}
-          {desktopPanel === "vessels" && (
-            <Card className="glass-panel hud-border" data-testid="vessel-list-card">
-              <CardHeader className="border-b border-white/10 pb-3">
-                <CardTitle className="text-lg text-white flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Ship className="w-5 h-5 text-cyan-400" />
-                    Tracked Vessels
-                  </span>
-                  <Badge variant="outline" className="border-cyan-500/50 text-cyan-400">
+              {/* Nearby Vessels Card */}
+              <Card className="glass-panel hud-border" data-testid="vessels-sidebar">
+                <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Ship className="w-4 h-4 text-cyan-400" />
+                    <span className="text-sm font-medium text-white">Nearby Vessels</span>
+                  </div>
+                  <Badge variant="outline" className="border-cyan-500/50 text-cyan-400 text-[10px]">
                     {vessels.length}
                   </Badge>
-                </CardTitle>
-              </CardHeader>
+                </div>
+                <ScrollArea className="h-[200px]">
+                  <div className="p-2 space-y-1">
+                    {vessels.length === 0 ? (
+                      <div className="text-center py-4 text-slate-500 text-sm">No vessels in range</div>
+                    ) : (
+                      vessels.slice(0, 8).map(vessel => {
+                        const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+                        return (
+                          <div 
+                            key={vessel.mmsi}
+                            className={`p-2 rounded cursor-pointer transition-colors ${
+                              isUser ? 'bg-cyan-500/10 border-l-2 border-cyan-500' : 'hover:bg-slate-800/50'
+                            }`}
+                            onClick={() => handleVesselClickFromList(vessel)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className={`text-xs font-medium truncate ${isUser ? 'text-cyan-400' : 'text-white'}`}>
+                                {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                RM {vessel.river_mile?.toFixed(1)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
+                              <span>{(vessel.speed * 1.15078).toFixed(1)} mph</span>
+                              <span className={vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : ''}>
+                                {vessel.heading === 'northbound' ? '↑N' : vessel.heading === 'southbound' ? '↓S' : '—'}
+                              </span>
+                              {vessel.barge_count > 0 && (
+                                <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
+                                  {vessel.barge_count}B
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                    {vessels.length > 8 && (
+                      <div className="text-center py-2 text-xs text-slate-500">
+                        +{vessels.length - 8} more vessels
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </Card>
               
-              <CardContent className="p-0">
-                <Tabs defaultValue="all" className="w-full">
-                  <TabsList className="w-full bg-slate-900/50 border-b border-white/10 rounded-none">
-                    <TabsTrigger 
-                      value="all" 
-                      className="flex-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400"
-                    >
-                      All ({vessels.length})
+              {/* Secondary Tabs for Locks/Debug */}
+              <Card className="glass-panel hud-border">
+                <Tabs defaultValue="locks" className="w-full">
+                  <TabsList className="w-full bg-slate-900/50 border-b border-white/10 rounded-none rounded-t-lg">
+                    <TabsTrigger value="locks" className="flex-1 text-xs data-[state=active]:bg-cyan-500/10">
+                      <Lock className="w-3 h-3 mr-1" />
+                      Locks
                     </TabsTrigger>
-                    <TabsTrigger 
-                      value="commercial"
-                      className="flex-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400"
-                    >
-                      Commercial ({commercialVessels.length})
+                    <TabsTrigger value="debug" className="flex-1 text-xs data-[state=active]:bg-cyan-500/10">
+                      <Terminal className="w-3 h-3 mr-1" />
+                      Raw
                     </TabsTrigger>
                   </TabsList>
-                  
-                  <TabsContent value="all" className="mt-0">
-                    <ScrollArea className="h-[500px]">
-                      <VesselList 
-                        vessels={vessels} 
-                        userMmsi={userMmsi}
-                        selectedLock={locks.find(l => l.id === selectedLock)}
-                        onVesselClick={handleVesselClickFromList}
-                        showVesselNames={userSettings.show_vessel_names !== false}
-                      />
+                  <TabsContent value="locks" className="mt-0">
+                    <ScrollArea className="h-[180px]">
+                      <div className="p-2 space-y-1">
+                        {locks.map(lock => (
+                          <div 
+                            key={lock.id}
+                            className={`p-2 rounded cursor-pointer transition-colors ${
+                              lock.id === selectedLock 
+                                ? 'bg-cyan-500/20 border-l-2 border-cyan-500' 
+                                : 'hover:bg-slate-800/50'
+                            }`}
+                            onClick={() => {
+                              setAutoNextLock(false);
+                              onSelectLock(lock.id);
+                            }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-white">
+                                {lock.name || `Lock ${lock.id.replace('lock_', '')}`}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                RM {lock.river_mile}
+                              </span>
+                            </div>
+                            {lockStatus?.[lock.id] && (
+                              <div className="mt-1">
+                                <Badge className={`text-[8px] ${
+                                  lockStatus[lock.id] === 'open' 
+                                    ? 'bg-green-900/30 text-green-400' 
+                                    : 'bg-red-900/30 text-red-400'
+                                }`}>
+                                  {lockStatus[lock.id].toUpperCase()}
+                                </Badge>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </ScrollArea>
                   </TabsContent>
-                  
-                  <TabsContent value="commercial" className="mt-0">
-                    <ScrollArea className="h-[500px]">
-                      <VesselList 
-                        vessels={commercialVessels}
-                        userMmsi={userMmsi}
-                        selectedLock={locks.find(l => l.id === selectedLock)}
-                        onVesselClick={handleVesselClickFromList}
-                        showVesselNames={userSettings.show_vessel_names !== false}
-                      />
+                  <TabsContent value="debug" className="mt-0">
+                    <ScrollArea className="h-[180px]">
+                      <div className="p-2 text-[10px] font-mono text-slate-400">
+                        <div>Vessels: {vessels.length}</div>
+                        <div>Connected: {isConnected ? 'Yes' : 'No'}</div>
+                        <div>User MMSI: {userMmsi || 'N/A'}</div>
+                        <div>Selected Lock: {selectedLock}</div>
+                        {raceAnalysis?.analysis && (
+                          <>
+                            <div className="mt-2 text-cyan-400">Race Analysis:</div>
+                            <div>User ETA: {raceAnalysis.analysis.user_eta_minutes?.toFixed(1)}m</div>
+                            <div>Threat ETA: {raceAnalysis.analysis.threat_eta_minutes?.toFixed(1) || 'N/A'}m</div>
+                            <div>Required Speed: {raceAnalysis.analysis.required_speed_mph?.toFixed(1) || 'N/A'} mph</div>
+                          </>
+                        )}
+                      </div>
                     </ScrollArea>
                   </TabsContent>
                 </Tabs>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Locks Panel */}
-          {desktopPanel === "locks" && (
-            <LockStatusPanel
-              locks={locks}
-              lockStatus={lockStatus}
-              lockageTimes={lockageTimes}
-              selectedLock={selectedLock}
-              onSelectLock={(lockId) => {
-                setAutoNextLock(false);
-                onSelectLock(lockId);
-              }}
-              compact={false}
-            />
-          )}
-
-          {/* Debug Panel */}
-          {desktopPanel === "debug" && (
-            <RawDataPanel 
-              vessels={vessels}
-              raceAnalysis={raceAnalysis}
-              connectionConfig={connectionConfig}
-            />
-          )}
+              </Card>
+            </div>
+          </div>
         </div>
 
         {/* Mobile Content Panels */}

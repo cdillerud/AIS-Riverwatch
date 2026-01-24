@@ -38,7 +38,6 @@ const getVesselLockStatus = (vessel) => {
 
 const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false, onVesselClick = () => {}, showVesselNames = true }) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [miniMapVessel, setMiniMapVessel] = useState(null);
 
   // Filter vessels based on search query (MMSI or name)
   const filteredVessels = useMemo(() => {

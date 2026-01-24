@@ -1255,8 +1255,8 @@ export default function Dashboard({
                 </div>
               </Card>
               
-              {/* Nearby Vessels Card */}
-              <Card className="glass-panel hud-border" data-testid="vessels-sidebar">
+              {/* Nearby Vessels Card - Compact */}
+              <Card className="glass-panel hud-border flex-shrink-0" data-testid="vessels-sidebar">
                 <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Ship className="w-4 h-4 text-cyan-400" />
@@ -1266,7 +1266,7 @@ export default function Dashboard({
                     {vessels.length}
                   </Badge>
                 </div>
-                <ScrollArea className="h-[200px]">
+                <ScrollArea className="h-[140px]">
                   <div className="p-2 space-y-1">
                     {vessels.length === 0 ? (
                       <div className="text-center py-4 text-slate-500 text-sm">No vessels in range</div>

@@ -124,36 +124,75 @@ function App() {
     };
   }, [performSoftRefresh]);
 
-  // Load saved settings on mount
+  // Load saved settings on mount - check localStorage for MMSI first
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const response = await fetch(`${API}/settings`);
-        if (response.ok) {
-          const settings = await response.json();
-          if (settings.user_mmsi) {
-            setUserMmsi(settings.user_mmsi);
+        // Check localStorage for stored MMSI (persists across sessions)
+        const storedMmsi = localStorage.getItem('riverwatch_mmsi');
+        
+        if (storedMmsi) {
+          // Load user-specific settings
+          setUserMmsi(storedMmsi);
+          const response = await fetch(`${API}/user/${storedMmsi}/settings`);
+          if (response.ok) {
+            const data = await response.json();
+            const settings = data.settings || {};
+            
+            if (settings.default_lock) {
+              setSelectedLock(settings.default_lock);
+            }
+            setUserSettings(prev => ({
+              ...prev,
+              max_speed_mph: parseInt(settings.max_speed_mph) || 25,
+              map_zoom_miles: parseInt(settings.map_zoom_miles) || 25,
+              show_all_locks: settings.show_all_locks !== false,
+              alert_sound_enabled: settings.alert_sound_enabled !== false,
+              alert_speed_threshold: parseInt(settings.alert_speed_threshold) || 25,
+              boat_name: settings.boat_name || "",
+              show_buoys: settings.show_buoys === true,
+              lock_buffer_minutes: parseInt(settings.lock_buffer_minutes) || 20,
+              use_device_gps: settings.use_device_gps === true,
+              show_vessel_names: settings.show_vessel_names !== false,
+            }));
+            if (settings.connection_config) {
+              const config = typeof settings.connection_config === 'string' 
+                ? JSON.parse(settings.connection_config) 
+                : settings.connection_config;
+              setConnectionConfig(config);
+            }
+            console.log(`Loaded settings for MMSI: ${storedMmsi}`);
           }
-          if (settings.default_lock) {
-            setSelectedLock(settings.default_lock);
-          }
-          // Load user settings
-          setUserSettings(prev => ({
-            ...prev,
-            max_speed_mph: parseInt(settings.max_speed_mph) || 25,
-            map_zoom_miles: parseInt(settings.map_zoom_miles) || 25,
-            show_all_locks: settings.show_all_locks !== "false",
-            alert_sound_enabled: settings.alert_sound_enabled !== "false",
-            alert_speed_threshold: parseInt(settings.alert_speed_threshold) || 25,
-            boat_name: settings.boat_name || "",
-            show_buoys: settings.show_buoys === "true",
-            lock_buffer_minutes: parseInt(settings.lock_buffer_minutes) || 20,
-            use_device_gps: settings.use_device_gps === "true",
-            show_vessel_names: settings.show_vessel_names !== "false",
-          }));
-          if (settings.connection_config) {
-            const config = JSON.parse(settings.connection_config);
-            setConnectionConfig(config);
+        } else {
+          // No stored MMSI - try legacy global settings
+          const response = await fetch(`${API}/settings`);
+          if (response.ok) {
+            const settings = await response.json();
+            if (settings.user_mmsi) {
+              setUserMmsi(settings.user_mmsi);
+              // Store in localStorage for future sessions
+              localStorage.setItem('riverwatch_mmsi', settings.user_mmsi);
+            }
+            if (settings.default_lock) {
+              setSelectedLock(settings.default_lock);
+            }
+            setUserSettings(prev => ({
+              ...prev,
+              max_speed_mph: parseInt(settings.max_speed_mph) || 25,
+              map_zoom_miles: parseInt(settings.map_zoom_miles) || 25,
+              show_all_locks: settings.show_all_locks !== "false",
+              alert_sound_enabled: settings.alert_sound_enabled !== "false",
+              alert_speed_threshold: parseInt(settings.alert_speed_threshold) || 25,
+              boat_name: settings.boat_name || "",
+              show_buoys: settings.show_buoys === "true",
+              lock_buffer_minutes: parseInt(settings.lock_buffer_minutes) || 20,
+              use_device_gps: settings.use_device_gps === "true",
+              show_vessel_names: settings.show_vessel_names !== "false",
+            }));
+            if (settings.connection_config) {
+              const config = JSON.parse(settings.connection_config);
+              setConnectionConfig(config);
+            }
           }
         }
       } catch (error) {

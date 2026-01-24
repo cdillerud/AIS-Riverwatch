@@ -21,6 +21,7 @@ import VesselList from "@/components/VesselList";
 import ConnectionStatus from "@/components/ConnectionStatus";
 import LockStatusPanel from "@/components/LockStatusPanel";
 import VesselDetailModal from "@/components/VesselDetailModal";
+import LockDetailModal from "@/components/LockDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
 

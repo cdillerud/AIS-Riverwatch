@@ -1641,6 +1641,7 @@ export default function Dashboard({
               lockageTimes={lockageTimes}
               selectedLock={selectedLock}
               onSelectLock={onSelectLock}
+              onLockDetails={setSelectedLockDetail}
               compact={true}
             />
           )}

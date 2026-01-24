@@ -1,42 +1,20 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Lock, Phone, Clock, AlertTriangle, CheckCircle2, 
-  XCircle, Users, ChevronUp, ChevronDown, Timer, Info
+  XCircle, Users, ChevronUp, ChevronDown, Timer, Info, ExternalLink
 } from "lucide-react";
-import { useEffect, useRef, memo } from "react";
+import { memo } from "react";
 
 const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, onLockDetails, compact = false }) => {
-  // Refs for auto-scrolling to selected lock
-  const lockRefs = useRef({});
-  
-  // Auto-scroll to selected lock when it changes
-  useEffect(() => {
-    if (selectedLock && lockRefs.current[selectedLock]) {
-      // Use requestAnimationFrame for smoother scroll timing
-      requestAnimationFrame(() => {
-        const element = lockRefs.current[selectedLock];
-        if (element) {
-          // Find the scroll container (Radix ScrollArea viewport)
-          const scrollContainer = element.closest('[data-radix-scroll-area-viewport]');
-          if (scrollContainer) {
-            const containerRect = scrollContainer.getBoundingClientRect();
-            const elementRect = element.getBoundingClientRect();
-            const scrollOffset = elementRect.top - containerRect.top - (containerRect.height / 2) + (elementRect.height / 2);
-            scrollContainer.scrollTo({
-              top: scrollContainer.scrollTop + scrollOffset,
-              behavior: 'smooth'
-            });
-          } else {
-            // Fallback to scrollIntoView
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-        }
-      });
-    }
-  }, [selectedLock]);
   
   const getStatusColor = (status) => {
     switch (status?.toUpperCase()) {
@@ -56,76 +34,126 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
     }
   };
 
+  // Get the currently selected lock's data
+  const currentLock = locks.find(l => l.id === selectedLock);
+  const currentStatus = lockStatus[selectedLock] || {};
+  const currentLockageTimes = lockageTimes[selectedLock];
+  const totalQueue = (currentStatus.upbound_queue || 0) + (currentStatus.downbound_queue || 0);
+
+  // Format lock label for dropdown
+  const getLockLabel = (lock) => {
+    const status = lockStatus[lock.id];
+    const lockNum = lock.id.replace('lock_', '').toUpperCase();
+    const location = lock.name?.split('(')[1]?.replace(')', '') || '';
+    return `L${lockNum} - ${location}`;
+  };
+
+  // Compact mobile version
   if (compact) {
     return (
       <Card className="glass-panel hud-border" data-testid="lock-status-panel-mobile">
         <CardHeader className="border-b border-white/10 pb-2 px-3 pt-3">
           <CardTitle className="text-base text-white flex items-center gap-2">
             <Lock className="w-4 h-4 text-cyan-400" />
-            Lock Status (USACE)
+            Lock Status
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          <ScrollArea className="h-[300px]">
-            <div className="divide-y divide-white/5">
+        <CardContent className="p-3 space-y-3">
+          {/* Lock Selector Dropdown */}
+          <Select value={selectedLock} onValueChange={onSelectLock}>
+            <SelectTrigger className="w-full bg-slate-800/50 border-slate-600 text-white">
+              <SelectValue placeholder="Select a lock" />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-600 max-h-[300px]">
               {locks.map(lock => {
-                const status = lockStatus[lock.id] || {};
-                const isSelected = lock.id === selectedLock;
-                
+                const status = lockStatus[lock.id];
                 return (
-                  <div
-                    key={lock.id}
-                    ref={el => lockRefs.current[lock.id] = el}
-                    className={`w-full p-3 text-left transition-colors ${
-                      isSelected ? 'bg-cyan-500/10 border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'
-                    }`}
+                  <SelectItem 
+                    key={lock.id} 
+                    value={lock.id}
+                    className="text-white hover:bg-slate-700 focus:bg-slate-700"
                   >
-                    <button
-                      onClick={() => onSelectLock(lock.id)}
-                      className="w-full text-left"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-white text-sm">
-                          Lock {lock.id.replace('lock_', '').toUpperCase()}
-                        </span>
-                        <Badge className={`text-[10px] ${getStatusColor(status.status)}`}>
-                          {getStatusIcon(status.status)}
-                          <span className="ml-1">{status.status || 'UNKNOWN'}</span>
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-slate-500">RM {lock.river_mile}</div>
-                      {status.avg_wait_minutes > 0 && (
-                        <div className="text-xs text-amber-400 mt-1 flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          ~{status.avg_wait_minutes} min wait
-                        </div>
-                      )}
-                      {status.closure_info && (
-                        <div className="text-xs text-red-400 mt-1">{status.closure_info}</div>
-                      )}
-                    </button>
-                    {/* Tap for details */}
-                    {onLockDetails && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full mt-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 text-xs h-6"
-                        onClick={() => onLockDetails(lock.id)}
-                      >
-                        <Info className="w-3 h-3 mr-1" />
-                        Details
-                      </Button>
-                    )}
-                  </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${
+                        status?.status?.toUpperCase() === 'OPEN' ? 'bg-green-400' :
+                        status?.status?.toUpperCase() === 'CLOSED' ? 'bg-red-400' :
+                        status?.status?.toUpperCase() === 'RESTRICTED' ? 'bg-amber-400' :
+                        'bg-slate-400'
+                      }`} />
+                      <span>{getLockLabel(lock)}</span>
+                      <span className="text-slate-500 text-xs ml-auto">RM {lock.river_mile}</span>
+                    </div>
+                  </SelectItem>
                 );
               })}
+            </SelectContent>
+          </Select>
+
+          {/* Selected Lock Details */}
+          {currentLock && (
+            <div className="space-y-3">
+              {/* Status Badge */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Status</span>
+                <Badge className={`${getStatusColor(currentStatus.status)}`}>
+                  {getStatusIcon(currentStatus.status)}
+                  <span className="ml-1">{currentStatus.status || 'UNKNOWN'}</span>
+                </Badge>
+              </div>
+
+              {/* Queue Info */}
+              {totalQueue > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-400">Queue</span>
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1 text-green-400">
+                      <ChevronUp className="w-3 h-3" />
+                      {currentStatus.upbound_queue || 0}
+                    </span>
+                    <span className="flex items-center gap-1 text-amber-400">
+                      <ChevronDown className="w-3 h-3" />
+                      {currentStatus.downbound_queue || 0}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Wait Time */}
+              {currentStatus.avg_wait_minutes > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-400">Avg Wait</span>
+                  <span className="text-amber-400 font-mono">{currentStatus.avg_wait_minutes} min</span>
+                </div>
+              )}
+
+              {/* Closure Info */}
+              {currentStatus.closure_info && (
+                <div className="p-2 rounded bg-red-900/20 border border-red-500/30 text-xs text-red-300">
+                  <AlertTriangle className="w-3 h-3 inline mr-1" />
+                  {currentStatus.closure_info}
+                </div>
+              )}
+
+              {/* View Details Button */}
+              {onLockDetails && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10"
+                  onClick={() => onLockDetails(selectedLock)}
+                >
+                  <Info className="w-3 h-3 mr-2" />
+                  Full Details & Wait Prediction
+                </Button>
+              )}
             </div>
-          </ScrollArea>
+          )}
         </CardContent>
       </Card>
     );
   }
 
+  // Desktop version
   return (
     <Card className="glass-panel hud-border" data-testid="lock-status-panel">
       <CardHeader className="border-b border-white/10 pb-3">
@@ -140,136 +168,157 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
         </CardTitle>
       </CardHeader>
       
-      <CardContent className="p-0">
-        <ScrollArea className="h-[400px]">
-          <div className="divide-y divide-white/5">
+      <CardContent className="p-4 space-y-4">
+        {/* Lock Selector Dropdown */}
+        <Select value={selectedLock} onValueChange={onSelectLock}>
+          <SelectTrigger className="w-full bg-slate-800/50 border-slate-600 text-white h-10">
+            <SelectValue placeholder="Select a lock" />
+          </SelectTrigger>
+          <SelectContent className="bg-slate-800 border-slate-600 max-h-[400px]">
             {locks.map(lock => {
-              const status = lockStatus[lock.id] || {};
-              const isSelected = lock.id === selectedLock;
-              const totalQueue = (status.upbound_queue || 0) + (status.downbound_queue || 0);
-              
+              const status = lockStatus[lock.id];
+              const queue = (status?.upbound_queue || 0) + (status?.downbound_queue || 0);
               return (
-                <button
-                  key={lock.id}
-                  ref={el => lockRefs.current[lock.id] = el}
-                  onClick={() => onSelectLock(lock.id)}
-                  className={`w-full p-4 text-left transition-colors ${
-                    isSelected ? 'bg-cyan-500/10 border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'
-                  }`}
-                  data-testid={`lock-status-${lock.id}`}
+                <SelectItem 
+                  key={lock.id} 
+                  value={lock.id}
+                  className="text-white hover:bg-slate-700 focus:bg-slate-700 py-2"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold text-white">
-                          Lock {lock.id.replace('lock_', '').toUpperCase()}
-                        </span>
-                        <Badge className={`text-xs ${getStatusColor(status.status)}`}>
-                          {getStatusIcon(status.status)}
-                          <span className="ml-1">{status.status || 'UNKNOWN'}</span>
-                        </Badge>
-                      </div>
-                      <div className="text-sm text-slate-400">{lock.name?.split('(')[1]?.replace(')', '') || ''}</div>
-                      <div className="text-xs text-slate-500 font-mono">RM {lock.river_mile}</div>
-                    </div>
-                    
-                    <div className="text-right">
-                      {status.avg_wait_minutes !== undefined && status.avg_wait_minutes !== null && (
-                        <div className={`text-lg font-mono ${status.avg_wait_minutes > 30 ? 'text-amber-400' : 'text-white'}`}>
-                          {status.avg_wait_minutes}<span className="text-xs text-slate-500 ml-1">min wait</span>
-                        </div>
-                      )}
-                      {totalQueue > 0 && (
-                        <div className="text-xs text-slate-400 flex items-center gap-1 justify-end">
-                          <Users className="w-3 h-3" />
-                          {totalQueue} in queue
-                        </div>
-                      )}
-                    </div>
+                  <div className="flex items-center gap-2 w-full">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      status?.status?.toUpperCase() === 'OPEN' ? 'bg-green-400' :
+                      status?.status?.toUpperCase() === 'CLOSED' ? 'bg-red-400' :
+                      status?.status?.toUpperCase() === 'RESTRICTED' ? 'bg-amber-400' :
+                      'bg-slate-400'
+                    }`} />
+                    <span className="flex-1">{getLockLabel(lock)}</span>
+                    {queue > 0 && (
+                      <span className="text-amber-400 text-xs flex items-center gap-0.5">
+                        <Users className="w-3 h-3" />
+                        {queue}
+                      </span>
+                    )}
                   </div>
-                  
-                  {/* Avg Lockage Times */}
-                  {lockageTimes[lock.id] && (
-                    <div className="mt-2 text-xs bg-slate-800/50 rounded p-2">
-                      <div className="flex items-center gap-1 mb-1.5">
-                        <Timer className="w-3 h-3 text-cyan-400" />
-                        <span className="text-slate-400">Avg Times</span>
-                        {lockageTimes[lock.id].is_baseline && (
-                          <span className="text-[10px] text-slate-600">(baseline)</span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {/* Lockage times */}
-                        <div>
-                          <div className="text-[10px] text-slate-500 uppercase mb-0.5">Lockage</div>
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-amber-400 font-mono">
-                              Tow: {lockageTimes[lock.id].avg_tow_lockage_minutes}m
-                            </span>
-                            <span className="text-cyan-400 font-mono">
-                              Rec: {lockageTimes[lock.id].avg_recreational_lockage_minutes}m
-                            </span>
-                          </div>
-                        </div>
-                        {/* Wait times */}
-                        <div>
-                          <div className="text-[10px] text-slate-500 uppercase mb-0.5">Wait</div>
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-amber-400 font-mono">
-                              Tow: {lockageTimes[lock.id].avg_tow_wait_minutes}m
-                            </span>
-                            <span className="text-cyan-400 font-mono">
-                              Rec: {lockageTimes[lock.id].avg_recreational_wait_minutes}m
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Queue breakdown */}
-                  {(status.upbound_queue > 0 || status.downbound_queue > 0) && (
-                    <div className="flex gap-4 mt-2 text-xs">
-                      <span className="flex items-center gap-1 text-slate-400">
-                        <ChevronUp className="w-3 h-3 text-green-400" />
-                        {status.upbound_queue || 0} up
-                      </span>
-                      <span className="flex items-center gap-1 text-slate-400">
-                        <ChevronDown className="w-3 h-3 text-amber-400" />
-                        {status.downbound_queue || 0} down
-                      </span>
-                    </div>
-                  )}
-                  
-                  {/* Closure info */}
-                  {status.closure_info && (
-                    <div className="mt-2 p-2 rounded bg-red-900/20 border border-red-500/30 text-xs text-red-300">
-                      {status.closure_info}
-                    </div>
-                  )}
-                  
-                  {/* View Details Button */}
-                  {onLockDetails && (
-                    <div className="mt-2 pt-2 border-t border-white/5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 text-xs h-7"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onLockDetails(lock.id);
-                        }}
-                      >
-                        <Info className="w-3 h-3 mr-1" />
-                        View Details & Wait Prediction
-                      </Button>
-                    </div>
-                  )}
-                </button>
+                </SelectItem>
               );
             })}
+          </SelectContent>
+        </Select>
+
+        {/* Selected Lock Details */}
+        {currentLock && (
+          <div className="space-y-4">
+            {/* Lock Name & Status */}
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-semibold text-white">
+                  Lock {currentLock.id.replace('lock_', '').toUpperCase()}
+                </h3>
+                <p className="text-sm text-slate-400">
+                  {currentLock.name?.split('(')[1]?.replace(')', '') || currentLock.name}
+                </p>
+                <p className="text-xs text-slate-500 font-mono">RM {currentLock.river_mile}</p>
+              </div>
+              <Badge className={`${getStatusColor(currentStatus.status)} text-sm`}>
+                {getStatusIcon(currentStatus.status)}
+                <span className="ml-1">{currentStatus.status || 'UNKNOWN'}</span>
+              </Badge>
+            </div>
+
+            {/* Closure Alert */}
+            {currentStatus.closure_info && (
+              <div className="p-3 rounded bg-red-900/20 border border-red-500/30 text-sm text-red-300">
+                <AlertTriangle className="w-4 h-4 inline mr-2" />
+                {currentStatus.closure_info}
+              </div>
+            )}
+
+            {/* Queue & Wait Info */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-white">{totalQueue}</div>
+                <div className="text-xs text-slate-400">In Queue</div>
+                {totalQueue > 0 && (
+                  <div className="flex justify-center gap-2 mt-1 text-xs">
+                    <span className="text-green-400">{currentStatus.upbound_queue || 0}↑</span>
+                    <span className="text-amber-400">{currentStatus.downbound_queue || 0}↓</span>
+                  </div>
+                )}
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div className={`text-2xl font-bold ${currentStatus.avg_wait_minutes > 30 ? 'text-amber-400' : 'text-white'}`}>
+                  {currentStatus.avg_wait_minutes || 0}
+                </div>
+                <div className="text-xs text-slate-400">Min Wait</div>
+              </div>
+            </div>
+
+            {/* Avg Lockage Times */}
+            {currentLockageTimes && (
+              <div className="bg-slate-800/30 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Timer className="w-4 h-4 text-cyan-400" />
+                  <span className="text-sm text-slate-300">Average Times</span>
+                  {currentLockageTimes.is_baseline && (
+                    <span className="text-[10px] text-slate-500">(baseline)</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-xs text-slate-500 mb-1">Commercial Tows</div>
+                    <div className="flex gap-3">
+                      <span className="text-amber-400 font-mono">
+                        {currentLockageTimes.avg_tow_lockage_minutes}m lock
+                      </span>
+                      <span className="text-slate-400 font-mono">
+                        {currentLockageTimes.avg_tow_wait_minutes}m wait
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500 mb-1">Recreational</div>
+                    <div className="flex gap-3">
+                      <span className="text-cyan-400 font-mono">
+                        {currentLockageTimes.avg_recreational_lockage_minutes}m lock
+                      </span>
+                      <span className="text-slate-400 font-mono">
+                        {currentLockageTimes.avg_recreational_wait_minutes}m wait
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Phone */}
+            {currentLock.phone && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400 flex items-center gap-2">
+                  <Phone className="w-4 h-4" />
+                  Lock Master
+                </span>
+                <a 
+                  href={`tel:${currentLock.phone.replace(/[^0-9]/g, '')}`}
+                  className="text-cyan-400 hover:text-cyan-300"
+                >
+                  {currentLock.phone}
+                </a>
+              </div>
+            )}
+
+            {/* View Full Details Button */}
+            {onLockDetails && (
+              <Button
+                variant="outline"
+                className="w-full border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10"
+                onClick={() => onLockDetails(selectedLock)}
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Full Details & Wait Prediction
+              </Button>
+            )}
           </div>
-        </ScrollArea>
+        )}
       </CardContent>
     </Card>
   );

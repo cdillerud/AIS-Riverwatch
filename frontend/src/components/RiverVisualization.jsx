@@ -99,10 +99,10 @@ const RiverVisualizationComponent = ({
   };
 
   // Check if a river mile is in view
-  const isInView = (riverMile) => {
+  const isInView = useCallback((riverMile) => {
     if (!riverMile) return false;
     return riverMile >= minRM && riverMile <= maxRM;
-  };
+  }, [minRM, maxRM]);
 
   // Find user vessel
   const userVessel = useMemo(() => {

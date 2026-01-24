@@ -30,7 +30,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - REACT_APP_BACKEND_URL=http://136.116.165.255:8001
+        - REACT_APP_BACKEND_URL=https://riverwatchais.com
     container_name: riverwatch-frontend
     ports:
       - "3000:3000"

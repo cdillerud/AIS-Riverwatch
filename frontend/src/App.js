@@ -450,13 +450,14 @@ function App() {
     };
   }, [userSettings.boat_name]);
 
-  // Auto-connect when connectionConfig is set and we haven't connected yet
+  // Auto-connect ONCE when connectionConfig is loaded from settings
   useEffect(() => {
-    if (connectionConfig && !isConnected && hasAutoConnected.current) {
+    if (connectionConfig && hasAutoConnected.current && !wsRef.current) {
       console.log("Auto-connecting with saved config...");
+      hasAutoConnected.current = false; // Prevent running again
       connectWebSocket(connectionConfig);
     }
-  }, [connectionConfig, isConnected, connectWebSocket]);
+  }, [connectionConfig, connectWebSocket]);
 
   // Cleanup on unmount
   useEffect(() => {

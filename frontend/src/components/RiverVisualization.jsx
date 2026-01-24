@@ -668,6 +668,21 @@ const RiverVisualizationComponent = ({
                 → {mapSelectedVessel.destination}
               </div>
             )}
+
+            {/* View Details Button */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full mt-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 h-8"
+              onClick={() => {
+                onVesselDetails(mapSelectedVessel);
+                setMapSelectedVessel(null);
+              }}
+              data-testid="view-vessel-details-btn"
+            >
+              <ExternalLink className="w-3 h-3 mr-1" />
+              View Details / Edit
+            </Button>
           </div>
         </div>
       )}

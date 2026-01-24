@@ -446,11 +446,15 @@ function App() {
 
   // Auto-connect ONCE when connectionConfig is loaded from saved settings
   useEffect(() => {
-    if (pendingAutoConnect.current && connectionConfig) {
+    if (pendingAutoConnect.current && !hasTriedAutoConnect.current) {
+      hasTriedAutoConnect.current = true;
       const config = pendingAutoConnect.current;
-      pendingAutoConnect.current = null; // Clear so it only runs once
+      pendingAutoConnect.current = null;
       console.log("Auto-connecting with saved config:", config.ip_address);
-      connectWebSocket(config);
+      // Small delay to ensure everything is ready
+      setTimeout(() => {
+        connectWebSocket(config);
+      }, 500);
     }
   }, [connectionConfig, connectWebSocket]);
 

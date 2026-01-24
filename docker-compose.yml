@@ -29,11 +29,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - REACT_APP_BACKEND_URL=http://136.116.165.255:8001
     container_name: riverwatch-frontend
     ports:
       - "3000:3000"
-    environment:
-      - REACT_APP_BACKEND_URL=http://localhost:8001
     depends_on:
       - backend
     restart: unless-stopped

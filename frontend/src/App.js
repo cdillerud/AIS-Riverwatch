@@ -562,11 +562,30 @@ function App() {
     setUserSettings(prev => ({ ...prev, ...newSettings }));
     if (newSettings.user_mmsi) {
       setUserMmsi(newSettings.user_mmsi);
+      localStorage.setItem('riverwatch_mmsi', newSettings.user_mmsi);
     }
     if (newSettings.default_lock) {
       setSelectedLock(newSettings.default_lock);
     }
     setShowSettings(false);
+    
+    // Save user-specific settings if we have an MMSI
+    const mmsiToSave = newSettings.user_mmsi || userMmsi || localStorage.getItem('riverwatch_mmsi');
+    if (mmsiToSave) {
+      try {
+        await fetch(`${API}/user/${mmsiToSave}/settings`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...newSettings,
+            connection_config: connectionConfig
+          })
+        });
+        console.log(`Settings saved for MMSI: ${mmsiToSave}`);
+      } catch (error) {
+        console.error("Failed to save user settings:", error);
+      }
+    }
     
     // Refresh vessels after settings update (in case position was set manually)
     try {

@@ -2965,10 +2965,13 @@ async def websocket_ais(websocket: WebSocket):
     WebSocket endpoint for real-time AIS data streaming.
     
     Uses the singleton AISConnectionManager - all clients share ONE TCP connection.
+    Each client tracks their own MMSI for per-user vessel highlighting.
     """
     await websocket.accept()
     logger.info("WebSocket client connected to /ws/ais")
     subscribed = False
+    client_mmsi = ""  # Track this client's MMSI
+    client_boat_name = ""
     
     try:
         while True:
@@ -2980,19 +2983,23 @@ async def websocket_ais(websocket: WebSocket):
             if msg.get("action") == "connect":
                 ip = msg.get("ip_address")
                 port = msg.get("port", 5353)
-                mmsi = msg.get("user_mmsi", "")
-                boat_name = msg.get("boat_name", "")
+                client_mmsi = msg.get("user_mmsi", "")
+                client_boat_name = msg.get("boat_name", "")
                 
-                logger.info(f"Configuring AIS connection: {ip}:{port}, MMSI: {mmsi}")
+                logger.info(f"Configuring AIS connection: {ip}:{port}, User MMSI: {client_mmsi}")
                 
-                # Configure the shared AIS connection
-                await ais_manager.configure(ip, port, mmsi, boat_name)
+                # Configure the shared AIS connection (only sets up connection if not already connected)
+                await ais_manager.configure(ip, port, client_mmsi, client_boat_name)
                 
-                # Subscribe this WebSocket to receive updates
+                # Subscribe this WebSocket with user's MMSI for per-user vessel tracking
                 if not subscribed:
-                    await ais_manager.subscribe(websocket)
+                    await ais_manager.subscribe(websocket, client_mmsi, client_boat_name)
                     subscribed = True
-                    logger.info("WebSocket subscribed to AIS updates")
+                    logger.info(f"WebSocket subscribed to AIS updates (MMSI: {client_mmsi})")
+                else:
+                    # Update existing subscription with new MMSI if changed
+                    ais_manager._subscribers[websocket] = {"mmsi": client_mmsi, "boat_name": client_boat_name}
+                    logger.info(f"Updated subscription MMSI: {client_mmsi}")
                     
             elif msg.get("action") == "disconnect":
                 # Just unsubscribe from updates - don't close the shared connection
@@ -3004,8 +3011,8 @@ async def websocket_ais(websocket: WebSocket):
             elif msg.get("action") == "get_vessels":
                 vessels = []
                 for mmsi, vessel in active_vessels.items():
-                    # Use prepare_vessel_for_output to ensure clean data
-                    v_dict = prepare_vessel_for_output(vessel, mmsi)
+                    # Use client's MMSI to mark their vessel
+                    v_dict = prepare_vessel_for_output(vessel, client_mmsi)
                     vessels.append(v_dict)
                 await websocket.send_json({"type": "vessels", "vessels": vessels})
                 
@@ -3017,7 +3024,7 @@ async def websocket_ais(websocket: WebSocket):
                 })
                 
     except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
+        logger.info(f"WebSocket client disconnected (MMSI: {client_mmsi})")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:

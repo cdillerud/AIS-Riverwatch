@@ -1374,7 +1374,7 @@ export default function Dashboard({
                       </div>
                     </ScrollArea>
                   </TabsContent>
-                  <TabsContent value="debug" className="mt-0 flex-1">
+                  <TabsContent value="debug" className="mt-0 flex-1 min-h-0">
                     <ScrollArea className="h-full">
                       <div className="p-2 text-[10px] font-mono text-slate-400">
                         <div>Vessels: {vessels.length}</div>

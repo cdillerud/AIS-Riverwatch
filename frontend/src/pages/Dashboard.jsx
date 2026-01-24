@@ -87,6 +87,7 @@ export default function Dashboard({
     return `${hours}h ago`;
   };
   const [selectedVessel, setSelectedVessel] = useState(null); // For vessel detail modal
+  const [selectedLockDetail, setSelectedLockDetail] = useState(null); // For lock detail modal
   
   // Quick position editor state
   const [showPositionEditor, setShowPositionEditor] = useState(false);

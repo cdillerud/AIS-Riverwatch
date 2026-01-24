@@ -1050,6 +1050,51 @@ export default function Dashboard({
                     </div>
                   </div>
                   
+                  {/* Feature #4: Mini Compass/Heading Indicator - Top Right */}
+                  {userVessel && (
+                    <div className="absolute top-3 right-3 z-30 glass-panel border border-slate-600 rounded-lg p-2">
+                      <div className="flex items-center gap-2">
+                        <div className="relative w-10 h-10">
+                          {/* Compass circle */}
+                          <div className="absolute inset-0 rounded-full border border-slate-500 bg-slate-900/80">
+                            {/* Cardinal directions */}
+                            <span className="absolute top-0 left-1/2 -translate-x-1/2 text-[8px] text-red-400 font-bold">N</span>
+                            <span className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[8px] text-slate-500">S</span>
+                            <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[8px] text-slate-500">W</span>
+                            <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[8px] text-slate-500">E</span>
+                          </div>
+                          {/* Heading needle */}
+                          <div 
+                            className="absolute inset-0 flex items-center justify-center"
+                            style={{ 
+                              transform: `rotate(${userVessel.course || 0}deg)`,
+                              transition: 'transform 0.5s ease-out'
+                            }}
+                          >
+                            <div className="w-0.5 h-4 bg-gradient-to-t from-transparent via-cyan-400 to-cyan-400 rounded-full" />
+                          </div>
+                          {/* Center dot */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] text-slate-500 uppercase">Heading</div>
+                          <div className="text-sm font-mono text-white">
+                            {userVessel.course ? `${Math.round(userVessel.course)}°` : '--'}
+                          </div>
+                          <div className={`text-[10px] font-semibold ${
+                            userVessel.heading === 'northbound' ? 'text-green-400' : 
+                            userVessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-400'
+                          }`}>
+                            {userVessel.heading === 'northbound' ? '↑ UPRIVER' : 
+                             userVessel.heading === 'southbound' ? '↓ DOWNRIVER' : 'STATIONARY'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
                   {/* Floating Quick Stats - Bottom Center */}
                   {userVessel && (
                     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 glass-panel border border-slate-600 rounded-lg px-4 py-2">

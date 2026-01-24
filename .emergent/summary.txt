@@ -9,45 +9,43 @@ The user wants to build a local application named River Watch to track vessels o
 5.  **Connection Management:** Allow the user to configure and manage connection settings.
 6.  **Local Deployment:** Provide a  setup.
 7.  **Persistent Configuration:** A Settings page for persisting vessel MMSI, name, max speed, and other UI preferences.
-8.  **USACE Data Integration:** Fetch and display lock status and real-time lockage data (including barge counts) from the U.S. Army Corps of Engineers.
+8.  **USACE Data Integration:** Fetch and display lock status and real-time lockage data.
 9.  **Tow/Barge Estimation:** Identify commercial tows and display their barge count from USACE data.
 10. **Data Visibility:** Show all available AIS data for any vessel in a detail view.
-11. **MMSI/Vessel Name Search:** Implement a search bar in the Vessels tab to filter the list and highlight matches. On clicking a match, a mini-map or info overlay should appear. (New in this session)
-12. **Click-to-Map Info:** Clicking a vessel on the map or in the list should display a compact information card directly on the map view. (New in this session)
+11. **MMSI/Vessel Name Search:** Implement a search bar to filter the vessel list.
+12. **Click-to-Map Info:** Clicking a vessel on the map or in the list should display a compact information card on the map.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI/React application with a MongoDB database, deployed via . The core functionality for tracking vessels, integrating with the USACE API, and displaying data on a map is in place.
+A full-stack FastAPI/React application with a MongoDB database, deployed via . The app features a sophisticated split-view desktop UI with a persistent map, a sidebar for lock timing and vessel lists, and numerous other UX enhancements.
 
-The major bug causing stale barge counts has been definitively fixed. The root cause was identified as the USACE API returning historical completed lockage records, which were being cached and incorrectly applied to live vessels. The fix involved filtering the USACE data to only cache and use records for vessels that are actively  or .
-
-After an extensive and difficult debugging session resolving numerous user-side deployment issues (git branch conflicts, Docker build errors, port conflicts, network corruption), the application is now running correctly on the user's GCP VM.
-
-However, a new problem has emerged: the user's AIS data feed (relayed from the Boat Beacon app) is now exclusively sending position data for a single vessel located in the UK. The application's backend is correctly parsing this data but filtering it out because the coordinates are not on the Mississippi River. Consequently, no vessels appear in the UI.
+However, the application is currently non-functional on the user's GCP VM due to a critical Docker configuration issue. The frontend container cannot connect to the backend, resulting in  errors, as it incorrectly defaults to  for API calls.
 
 **Last working item**:
--   **Last item agent was working**: Diagnosing why the user's AIS feed is not showing any vessels on the map. The agent has determined that the code is working correctly, but the data source itself is providing data from the wrong geographical location (UK instead of Mississippi River). The live data feed only contains messages for MMSI , which is a UK vessel.
--   **Status**: BLOCKED
--   **Agent Testing Done**: Y
--   **Which testing method agent to use?**: Manual debugging by user. The agent is blocked waiting for the user to investigate and fix their AIS data source (the Boat Beacon app and its relay).
+-   **Last item agent was working**: Diagnosing and attempting to fix persistent connection errors on the user's GCP VM. The agent has correctly identified that the root cause is the  environment variable not being available at build time for the React application within its Docker container.
+-   **Status**: IN PROGRESS
+-   **Agent Testing Done**: N
+-   **Which testing method agent to use?**: Manual testing by the user after the  file is corrected and the services are rebuilt.
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: AIS Feed Provides Data from Wrong Location (P0 - CRITICAL)**
-    -   **Description**: The application is not displaying any vessels from the live AIS feed. Investigation revealed that the backend is correctly receiving and parsing AIS data, but the data is for a vessel in the UK (lat 51.7, lon -2.7). The application is designed to only display vessels on the Upper Mississippi River and is correctly filtering these UK-based positions out.
-    -   **Status**: BLOCKED
-    -   **Is recurring issue?**: N
-    -   **Should Test frontend/backend/both after fix?**: Both.
-    -   **Blocked on other issue**: Blocked on user's external data source (Boat Beacon app).
-    -   **Attempted fixes**: Added extensive logging to  to trace the incoming AIS data, which confirmed the data's origin. The issue is not with the application code.
+-   **Issue 1:  on User's VM due to Docker Configuration (P0 - CRITICAL BLOCKER)**
+    -   **Description**: The frontend fails all API and WebSocket requests to the backend because it's trying to connect to . This is because the  environment variable is not being correctly baked in during the  step. The user's  incorrectly uses the  key for the frontend service, which sets a runtime variable, whereas React needs this variable at build time.
+    -   **Attempted fixes**:
+        -   Complex state management changes in  to handle reconnections. These were ineffective as they didn't address the root URL issue.
+        -   Modifying  to use  and . This was a step in the right direction but incomplete without the corresponding change in .
+        -   Hard-coding the IP in . This also failed because the fundamental build process was flawed.
     -   **Next debug checklist**:
-        1.  Instruct the user to investigate their Boat Beacon application and the associated relay.
-        2.  Ask the user to confirm what AIS source Boat Beacon is configured to use.
-        3.  Ask the user to verify if they are physically on the Mississippi River, as this might affect the data being relayed.
-        4.  Ask the user what changed in their setup, as they claim it was previously working with Mississippi data.
-        5.  Suggest adding a temporary debug mode to disable the river mile filter, which would allow them to see the UK vessel on the map and confirm data is flowing end-to-end, even if geographically incorrect.
-    -   **Why fix this issue?**: The application is unusable without a correct AIS data feed. This is the top priority.
+        1.  Instruct the user to edit .
+        2.  In the  service definition, modify the  section and remove the  section entirely. The  section must use  to pass the variable during the build.
+        3.  The final  service in  should look like this:
+            
+        4.  Provide the user with the exact commands to apply the fix: , , , .
+    -   **Why fix this issue?**: The application is completely unusable until the frontend can communicate with the backend. This is the top priority.
+    -   **Status**: IN PROGRESS
+    -   **Is recurring issue?**: Y
+    -   **Should Test frontend/backend/both after fix?**: Both (implicitly, as the entire application will become testable).
 
 **In progress Task List**:
 -   None.
@@ -55,152 +53,117 @@ However, a new problem has emerged: the user's AIS data feed (relayed from the B
 **Upcoming and Future Tasks**
 
 **Upcoming Tasks:**
--   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (Files: ).
--   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster and more reliable vessel name lookups. (Files: ).
+-   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (File: ).
+-   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups. (File: ).
 
 **Future Tasks:**
--   **Offline Mode (P2)**: Cache data to provide graceful degradation when cellular service is lost.
--   **Multiple Target Locks (P3)**: Enhance the UI to show ETAs to the next 2-3 locks simultaneously.
--   **Recent Lockages Tab (P3)**: Add a UI section to display the raw lockage history data being collected by the backend.
+-   **Vessel Watchlist (P2)**: Allow users to star or favorite vessels to highlight them.
+-   **Speed Advisor (P2)**: Suggest an optimal speed to save fuel versus racing to a lock.
+-   **Offline Mode (P2)**: Cache data for graceful degradation when connectivity is lost.
+-   **River Conditions Badge (P3)**: Display river current and water level on the map.
+-   **Multiple Target Locks (P3)**: Show ETAs to the next 2-3 locks simultaneously.
 
 **Completed work in this session**
--   **Fixed Stale Barge Data Bug**: Diagnosed and fixed the true root cause of the bug by filtering the USACE data cache to only include active ( or ) lockages, preventing historical data from being applied to live vessels.
--   **Resolved Extensive User Deployment Issues**: Successfully guided the user through a multitude of environment problems on their local Windows machine and GCP VM, including git branch/merge conflicts, Docker build failures (, ), Docker runtime port conflicts, and corrupted Docker networking.
--   **Implemented Vessel Search**: Added a search bar to the  component to filter vessels by MMSI or name.
--   **Implemented Click-to-Map with Info Overlay**:
-    -   Clicking a vessel in the list now switches to the map tab and centers on the vessel.
-    -   Clicking a vessel on the map (or from the list) now displays a compact information card as an overlay on the map itself, replacing the previous full-screen modal.
--   **Added Connection REST Endpoint**: Created a  endpoint to allow starting the AIS connection via a simple  command for easier debugging.
--   **Added Debug Logging**: Added extensive logging to the AIS parsing functions in  to trace incoming data and diagnose the current data source issue.
-
-**Earlier issues found/mentioned but not fixed**
--   None.
+-   **Fixed Map Centering Bug**: Resolved an issue where clicking a vessel in the list would not pan the map to its location.
+-   **Implemented Auto-Select Nearest Lock**: Clicking a vessel now automatically selects the nearest relevant lock.
+-   **Implemented Overlapping Vessel Solution**: Added horizontal spreading to prevent nearby vessel icons from overlapping on the map.
+-   **Major UI Overhaul**:
+    -   Converted the UI to a split-view layout, keeping the map persistently visible on desktop.
+    -   Created a new sidebar with panels for Lock Timing, Nearby Vessels, and a tabbed Locks/Raw Data view.
+    -   Added a View Details / Edit button on the map's info card to open the full vessel detail modal.
+-   **New Feature Implementation**:
+    -   Added a **Distance & Time Breakdown** card.
+    -   Added a **Lock Queue Preview** to see vessels waiting at a lock.
+    -   Added a floating **Mini Compass** on the map.
+    -   Added **Last Lockage Info** to the lock details.
+-   **Simplified Connection Flow**:
+    -   Rewrote the  to be a simple, single-input form for the user's MMSI.
+    -   Hard-coded the AIS server IP/Port, with an Advanced option to edit.
+    -   Attempted to implement a robust auto-connection mechanism, which ultimately led to the discovery of the P0 Docker configuration bug.
+-   **UI/UX Polish**:
+    -   Updated the app version to v2.1.
+    -   Corrected the color-coding for lock statuses (Open is now green).
+    -   Adjusted sidebar panel heights for better visual alignment with the map.
+-   **Code Cleanup**:
+    -   Removed the unused  file.
+    -   Cleaned up temporary  statements from debugging sessions.
 
 **Known issue recurrence from previous fork**
--   **Issue**: Default Barge Counts Still Appearing in UI.
--   **Recurrence count**: High.
--   **Status**: RESOLVED. The true root cause was found and fixed by filtering the .
+-   None.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend**: FastAPI, WebSockets (), AIS/NMEA parsing,  for async MongoDB.
--   **Frontend**: React, , , , .
--   **Deployment**: Docker, .
--   **Data Source Issue**: The current primary problem is an external data dependency issue, where the AIS feed provider (Boat Beacon) is sending geographically incorrect data.
+-   **Frontend**: React (, , , )
+-   **Backend**: FastAPI, WebSockets
+-   **Database**: MongoDB
+-   **Deployment**: Docker, 
+-   **Core Technical Blocker**: Understanding the difference between Docker build-time arguments () and runtime environment variables (). React's  requires  variables to be present at build time to be included in the static JS bundle.
 
 **key DB schema**
--   **db.settings**: 
--   **db.vessel_names**: 
--   **db.lockage_history**: 
+-   : Stores user preferences and connection configuration.
+-   : Caches known vessel names against their MMSI.
+-   : Stores historical lockage data from USACE.
 
 **changes in tech stack**
 -   None.
 
 **All files of reference**
--   : Heavily modified with bug fixes, new endpoints (), and extensive debug logging.
--   : Modified to handle new click-to-map logic and state management (, ).
--   : Modified to add a search bar and filtering logic.
--   : Modified to handle a , display a selection highlight, and show a new info card overlay.
--   : Updated to use a hardcoded public IP for the backend URL for the user's VM deployment.
--   : Modified to make  optional to fix a user build issue.
--   : Modified to remove the unnecessary  package.
+-   : **Crucial file that needs to be fixed to resolve the P0 blocker.**
+-   : Modified to accept  as a build argument.
+-   : Contains the new split-view UI and most of the recently added features.
+-   : Contains the core connection and data-fetching logic.
+-   : Contains the new simplified setup flow.
 
 **Areas that need refactoring**:
--   ****: The file is now over 3000 lines and is a critical bottleneck. It should be broken down into smaller, more manageable modules (e.g., , , , ).
--   **Orphaned Component**: The file  was created but its logic was later integrated into . The file should be deleted to avoid confusion.
+-   : This is a 3000+ line monolithic file that urgently needs to be broken down into smaller modules (e.g., for AIS parsing, API routes, WebSocket management, USACE data fetching).
+-   : The data-fetching and WebSocket logic could be extracted into custom hooks (e.g., , ) to significantly clean up the component.
 
 **key api endpoints**
--   : **New.** Starts the AIS connection with the provided config.
--   : Returns the contents of the static vessel name cache.
--   : Returns the list of currently active vessels within the river mile range.
--   : Returns the contents of the (now correctly filtered) USACE vessel cache.
--   : Returns the current status of the AIS TCP connection.
+-   : Main endpoint for real-time AIS data.
+-   : Returns the list of active vessels.
+-   : Retrieves saved settings.
+-   : Saves settings.
 
 **Critical Info for New Agent**
--   **THE CURRENT PROBLEM IS THE DATA SOURCE, NOT THE CODE.** The application is correctly receiving AIS data, parsing it, and then filtering it out because the data is for a vessel in the UK, not the Mississippi River. Do not waste time debugging the parsing logic in .
--   Your primary task is to guide the user to investigate their **Boat Beacon app configuration** and the relay that sends data to their VM. Why is it only sending data for one UK vessel? What was the configuration when it was working correctly with Mississippi data?
--   The user's development environments (both local and VM) are extremely fragile. Be prepared to debug usage: git [-v | --version] [-h | --help] [-C <path>] [-c <name>=<value>]
-           [--exec-path[=<path>]] [--html-path] [--man-path] [--info-path]
-           [-p | --paginate | -P | --no-pager] [--no-replace-objects] [--bare]
-           [--git-dir=<path>] [--work-tree=<path>] [--namespace=<name>]
-           [--super-prefix=<path>] [--config-env=<name>=<envvar>]
-           <command> [<args>]
-
-These are common Git commands used in various situations:
-
-start a working area (see also: git help tutorial)
-   clone     Clone a repository into a new directory
-   init      Create an empty Git repository or reinitialize an existing one
-
-work on the current change (see also: git help everyday)
-   add       Add file contents to the index
-   mv        Move or rename a file, a directory, or a symlink
-   restore   Restore working tree files
-   rm        Remove files from the working tree and from the index
-
-examine the history and state (see also: git help revisions)
-   bisect    Use binary search to find the commit that introduced a bug
-   diff      Show changes between commits, commit and working tree, etc
-   grep      Print lines matching a pattern
-   log       Show commit logs
-   show      Show various types of objects
-   status    Show the working tree status
-
-grow, mark and tweak your common history
-   branch    List, create, or delete branches
-   commit    Record changes to the repository
-   merge     Join two or more development histories together
-   rebase    Reapply commits on top of another base tip
-   reset     Reset current HEAD to the specified state
-   switch    Switch branches
-   tag       Create, list, delete or verify a tag object signed with GPG
-
-collaborate (see also: git help workflows)
-   fetch     Download objects and refs from another repository
-   pull      Fetch from and integrate with another repository or a local branch
-   push      Update remote refs along with associated objects
-
-'git help -a' and 'git help -g' list available subcommands and some
-concept guides. See 'git help <command>' or 'git help <concept>'
-to read about a specific subcommand or concept.
-See 'git help git' for an overview of the system., , , and basic shell command issues. Their terminal often gets into a corrupted state when pasting multi-line output. Instruct them to open a new terminal if commands stop producing output.
--   To help the user see that data *is* flowing, you can suggest a temporary debug mode that disables the geographic filtering in . This would make the UK vessel appear on the map, proving the end-to-end connection works and the issue is the data's location.
+-   **Focus exclusively on fixing the  file.** The current blocker is a Docker configuration issue, not a React logic bug. Do not attempt to debug .
+-   The user's  for the  service incorrectly uses the  key. You must guide the user to replace it with  to pass  during the container build process.
+-   Provide very clear, copy-pasteable commands for the user to execute on their VM, as their environment has proven to be fragile. The required command sequence is , then , then , then .
 
 **documents and test reports created in this job**
--   : Updated with the latest fixes and feature implementations.
+-    (updated)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: I am writing an app. and this WAS working. What changed?
-2.  **Agent**: Explains that the live AIS data is from a UK vessel and the app is filtering it correctly. Asks the user what their data source was before.
-3.  **User**: Boat Beacon is BASED in the UK.
-4.  **Agent**: Asks if the user was physically on the river before, or testing remotely.
-5.  **User**: No. i was getting actual AIS data on the mississippi. it was working.
-6.  **Agent**: Concludes something changed on the Boat Beacon side and asks the user to check their settings. Provides commands to check active MMSIs.
-7.  **User**: (Provides output showing 157 cached vessels).
-8.  **Agent**: Asks user to run a command to see which MMSIs are actively sending position updates.
-9.  **User**: (Provides logs showing only MMSI  is being parsed, at UK coordinates).
-10. **Agent**: Confirms the issue is the data source (vessel in England) and asks the user if they want a debug mode to see all vessels regardless of location.
+1.  **User:** still not connecting...just connection errors
+2.  **Agent:** Asks for backend logs.
+3.  **User:** (Provides backend logs showing no WebSocket connection attempts).
+4.  **Agent:** Realizes frontend isn't triggering the connection, simplifies the auto-connect logic.
+5.  **User:** Still getting nothing but connection errors
+6.  **Agent:** Asks for browser console logs.
+7.  **User:** (Provides console logs showing  to ).
+8.  **Agent:** Correctly identifies the frontend is not using the correct backend URL and that it's an environment variable issue.
+9.  **User:** (Provides the  file content).
+10. **Agent:** Analyzes the file and confirms the  key is the problem.
+- **Pending Action:** The agent has identified the root cause and has all the information needed to provide the definitive fix to the user.
 
 **Project Health Check:**
--   **Working**: The application code is functioning as designed. The barge count bug is fixed, new features are implemented, and data is being received/parsed.
--   **Broken**: The user's AIS data feed is providing incorrect geographic data, making the application unusable for its intended purpose. The user's development environments are highly unstable and prone to issues.
--   **Mocked**: No mocked systems.
+-   **Broken**: The application is critically broken and unusable on the user's target environment (GCP VM) due to the Docker build configuration error.
+-   **Mocked**: None.
 
 **3rd Party Integrations**
 -   **MongoDB**: Primary database.
--   **USACE Web Scraping**: For live lock open/closed status.
--   **USACE XML API**: For real-time lock queue and barge count data (via  and ).
+-   **USACE Web Scraping**: For live lock status.
+-   **USACE XML API**: For real-time lock queue and barge count data.
 
 **Testing status**
 -   **Testing agent used after significant changes**: NO
 -   **Troubleshoot agent used after agent stuck in loop**: NO
--   **Test files created**: Temporary python scripts were used via  to test specific functions.
--   **Known regressions**: None in the code. The main regression is in the quality of the user's external data feed.
+-   **Test files created**: No persistent test files were created.
+-   **Known regressions**: The primary connection mechanism has regressed due to incorrect Docker configuration.
 
 **Credentials to test flow:**
--   The user needs a working AIS TCP feed from their Boat Beacon app that provides data for vessels on the Mississippi River.
+-   The application needs to connect to the user's AIS TCP feed at IP  on port .
 
 **What agent forgot to execute**
--   The agent did not delete the orphaned  file after its logic was moved elsewhere. This should be cleaned up.</analysis>
+-   The agent has been correctly focused on solving the critical connection blocker and has not overlooked other tasks. The immediate priority is to communicate the  fix to the user.</analysis>

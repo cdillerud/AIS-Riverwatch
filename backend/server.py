@@ -508,28 +508,35 @@ class AISConnectionManager:
     async def _broadcast_status(self, status_type: str, message: str):
         """Broadcast connection status to all subscribers."""
         msg = {"type": status_type, "message": message}
-        disconnected = set()
+        disconnected = []
         
-        for ws in self._subscribers:
+        for ws in list(self._subscribers.keys()):
             try:
                 await ws.send_json(msg)
             except Exception:
-                disconnected.add(ws)
+                disconnected.append(ws)
         
-        self._subscribers -= disconnected
+        for ws in disconnected:
+            self._subscribers.pop(ws, None)
     
     async def _broadcast_vessel_update(self, vessel_dict: dict):
-        """Broadcast vessel update to all subscribers."""
-        msg = {"type": "vessel_update", "vessel": vessel_dict}
-        disconnected = set()
+        """Broadcast vessel update to all subscribers, marking user's vessel for each."""
+        disconnected = []
+        vessel_mmsi = vessel_dict.get('mmsi', '')
         
-        for ws in self._subscribers:
+        for ws, user_info in list(self._subscribers.items()):
             try:
-                await ws.send_json(msg)
+                # Create copy with user-specific is_user_vessel flag
+                user_vessel_dict = vessel_dict.copy()
+                user_mmsi = user_info.get('mmsi', '')
+                user_vessel_dict['is_user_vessel'] = (vessel_mmsi == user_mmsi)
+                
+                await ws.send_json({"type": "vessel_update", "vessel": user_vessel_dict})
             except Exception:
-                disconnected.add(ws)
+                disconnected.append(ws)
         
-        self._subscribers -= disconnected
+        for ws in disconnected:
+            self._subscribers.pop(ws, None)
     
     async def subscribe(self, websocket: WebSocket, user_mmsi: str = "", boat_name: str = ""):
         """Add a WebSocket client as a subscriber with their MMSI."""

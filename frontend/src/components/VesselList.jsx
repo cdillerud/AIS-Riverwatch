@@ -266,7 +266,8 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
       ) : (
         <div className="divide-y divide-white/5">
           {sortedVessels.map(vessel => {
-            const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+            // ONLY match by MMSI
+            const isUser = userMmsi && vessel.mmsi === userMmsi;
             const speedMph = (vessel.speed * 1.15078).toFixed(1);
             const eta = calculateETA(vessel);
             const isTow = vessel.is_tow || vessel.barge_count > 0;

@@ -540,12 +540,21 @@ function App() {
 
   const handleDisconnect = () => {
     if (wsRef.current) {
-      wsRef.current.send(JSON.stringify({ action: "disconnect" }));
+      // Only try to send if the socket is open (readyState === 1)
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        try {
+          wsRef.current.send(JSON.stringify({ action: "disconnect" }));
+        } catch (e) {
+          console.warn("Failed to send disconnect message:", e);
+        }
+      }
       wsRef.current.close();
+      wsRef.current = null;
     }
     setIsConnected(false);
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
   };
 

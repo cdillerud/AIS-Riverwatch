@@ -297,13 +297,14 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch race analysis periodically
+  // Fetch race analysis periodically - EXPLICITLY scoped to session MMSI
   useEffect(() => {
     const fetchRaceAnalysis = async () => {
-      if (!selectedLock) return;
+      if (!selectedLock || !userMmsi) return;
       try {
         const bufferMinutes = userSettings.lock_buffer_minutes || 20;
-        const response = await fetch(`${API}/race-analysis/${selectedLock}?buffer_minutes=${bufferMinutes}`);
+        // Use session-scoped endpoint
+        const response = await fetch(`${API}/session/${userMmsi}/race-analysis/${selectedLock}?buffer_minutes=${bufferMinutes}`);
         if (response.ok) {
           const data = await response.json();
           setRaceAnalysis(data);
@@ -317,15 +318,18 @@ function App() {
     // Reduced frequency - race analysis doesn't need to update every 5s
     const interval = setInterval(fetchRaceAnalysis, 10000);
     return () => clearInterval(interval);
-  }, [selectedLock, userSettings.lock_buffer_minutes]); // Removed vessels dependency to prevent excessive re-fetches
+  }, [selectedLock, userMmsi, userSettings.lock_buffer_minutes]);
 
-  // Continuous GPS tracking (bypasses AIS self-suppression)
+  // Continuous GPS tracking (bypasses AIS self-suppression) - EXPLICITLY scoped to session MMSI
   useEffect(() => {
     // Send position update to backend
     const sendPositionUpdate = async (position) => {
+      if (!userMmsi) return; // Must have session MMSI
+      
       const { latitude, longitude, speed, heading } = position.coords;
       try {
-        const response = await fetch(`${API}/user-position`, {
+        // Use session-scoped endpoint
+        const response = await fetch(`${API}/session/${userMmsi}/position`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

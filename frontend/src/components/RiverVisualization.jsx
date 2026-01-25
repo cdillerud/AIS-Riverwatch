@@ -592,14 +592,15 @@ const RiverVisualizationComponent = ({
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
             <div className="flex items-center gap-2">
-              {mapSelectedVessel.mmsi === userMmsi || mapSelectedVessel.is_user_vessel ? (
+              {/* ONLY match by MMSI */}
+              {userMmsi && mapSelectedVessel.mmsi === userMmsi ? (
                 <div className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse" />
               ) : mapSelectedVessel.is_tow || mapSelectedVessel.barge_count > 0 ? (
                 <Box className="w-4 h-4 text-amber-400" />
               ) : (
                 <div className="w-2.5 h-2.5 bg-amber-400 rotate-45" />
               )}
-              <span className={`font-semibold text-sm truncate max-w-[180px] ${mapSelectedVessel.mmsi === userMmsi || mapSelectedVessel.is_user_vessel ? 'text-cyan-400' : 'text-white'}`}>
+              <span className={`font-semibold text-sm truncate max-w-[180px] ${userMmsi && mapSelectedVessel.mmsi === userMmsi ? 'text-cyan-400' : 'text-white'}`}>
                 {getVesselDisplayName(mapSelectedVessel, showVesselNames)}
               </span>
             </div>
@@ -642,7 +643,8 @@ const RiverVisualizationComponent = ({
 
             {/* Badges row */}
             <div className="flex flex-wrap gap-1.5">
-              {(mapSelectedVessel.mmsi === userMmsi || mapSelectedVessel.is_user_vessel) && (
+              {/* ONLY match by MMSI */}
+              {userMmsi && mapSelectedVessel.mmsi === userMmsi && (
                 <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-[10px]">YOUR VESSEL</Badge>
               )}
               {(mapSelectedVessel.is_tow || mapSelectedVessel.barge_count > 0) && (

@@ -1288,7 +1288,8 @@ export default function Dashboard({
                       <div className="text-center py-4 text-slate-500 text-sm">No vessels in range</div>
                     ) : (
                       vessels.slice(0, 8).map(vessel => {
-                        const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+                        // ONLY match by MMSI, not is_user_vessel flag
+                        const isUser = userMmsi && vessel.mmsi === userMmsi;
                         return (
                           <div 
                             key={vessel.mmsi}

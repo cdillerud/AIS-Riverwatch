@@ -436,7 +436,8 @@ const RiverVisualizationComponent = ({
 
       {/* Vessels - dots spread horizontally when close together */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
-        const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+        // ONLY match by MMSI
+        const isUser = userMmsi && vessel.mmsi === userMmsi;
         const isFocused = focusedVessel?.mmsi === vessel.mmsi;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);

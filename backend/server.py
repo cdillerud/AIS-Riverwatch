@@ -2921,7 +2921,46 @@ async def set_user_mmsi_legacy(data: dict):
     
     logger.info(f"[SESSION:{mmsi}] Session created via set-user-mmsi")
     
-    return {"success": True, "mmsi": user_mmsi}
+    return {"success": True, "mmsi": mmsi}
+
+
+@api_router.get("/sessions")
+async def get_active_sessions():
+    """
+    Get list of active sessions (for debugging/admin).
+    
+    Shows which MMSIs have active WebSocket connections.
+    """
+    sessions = session_manager.get_active_sessions()
+    return {
+        "total_sessions": len(sessions),
+        "sessions": sessions
+    }
+
+
+@api_router.get("/session/{session_mmsi}/vessels")
+async def get_vessels_for_session(session_mmsi: str):
+    """
+    Get all vessels with is_user_vessel correctly set for this session.
+    
+    CRITICAL: Each session sees their own vessel highlighted.
+    """
+    session_mmsi = str(session_mmsi).strip()
+    if not session_mmsi:
+        raise HTTPException(status_code=400, detail="Session MMSI required")
+    
+    vessels = []
+    for mmsi, vessel in active_vessels.items():
+        if is_mmsi_blocked(mmsi):
+            continue
+        # EXPLICIT: is_user_vessel is TRUE only if vessel MMSI matches session MMSI
+        v_dict = prepare_vessel_for_output(vessel, session_mmsi)
+        v_dict["is_user_vessel"] = (mmsi == session_mmsi)
+        vessels.append(v_dict)
+    
+    logger.info(f"[SESSION:{session_mmsi}] Returned {len(vessels)} vessels")
+    return vessels
+
 
 @api_router.post("/session/{session_mmsi}/position")
 async def update_session_position(session_mmsi: str, data: dict):

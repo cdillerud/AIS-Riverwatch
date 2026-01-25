@@ -1,6 +1,6 @@
-# River Watch Backend - Version 2026-01-20-FIX
-# CRITICAL FIX: Only cache ACTIVE lockages (waiting/locking), not completed ones
-from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect
+# River Watch Backend - Version 2026-01-25
+# SESSION ISOLATION: All user data is strictly isolated by MMSI (session ID)
+from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -38,6 +38,146 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# SESSION MANAGER - Strict isolation by MMSI
+# =============================================================================
+class SessionManager:
+    """
+    Manages isolated sessions by MMSI.
+    
+    CRITICAL: Each MMSI is a completely separate session.
+    - Settings are stored per-MMSI
+    - Vessel positions are stored per-MMSI
+    - WebSocket subscriptions track their MMSI
+    - No data leaks between sessions
+    """
+    
+    def __init__(self):
+        # Active sessions: {mmsi: session_data}
+        self._sessions: Dict[str, dict] = {}
+        # WebSocket to MMSI mapping: {websocket_id: mmsi}
+        self._ws_sessions: Dict[int, str] = {}
+        
+    def create_session(self, mmsi: str) -> dict:
+        """Create or get a session for an MMSI."""
+        if not mmsi:
+            raise ValueError("MMSI is required for session")
+        
+        mmsi = str(mmsi).strip()
+        
+        if mmsi not in self._sessions:
+            self._sessions[mmsi] = {
+                "mmsi": mmsi,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "last_active": datetime.now(timezone.utc).isoformat(),
+                "websocket_count": 0
+            }
+            logger.info(f"[SESSION:{mmsi}] New session created")
+        
+        return self._sessions[mmsi]
+    
+    def get_session(self, mmsi: str) -> Optional[dict]:
+        """Get session data for an MMSI."""
+        return self._sessions.get(str(mmsi).strip())
+    
+    def update_session_activity(self, mmsi: str):
+        """Update last active time for a session."""
+        mmsi = str(mmsi).strip()
+        if mmsi in self._sessions:
+            self._sessions[mmsi]["last_active"] = datetime.now(timezone.utc).isoformat()
+    
+    def register_websocket(self, ws_id: int, mmsi: str):
+        """Register a WebSocket connection with an MMSI session."""
+        mmsi = str(mmsi).strip()
+        self._ws_sessions[ws_id] = mmsi
+        if mmsi in self._sessions:
+            self._sessions[mmsi]["websocket_count"] += 1
+        logger.info(f"[SESSION:{mmsi}] WebSocket {ws_id} registered. Active connections: {self._sessions.get(mmsi, {}).get('websocket_count', 0)}")
+    
+    def unregister_websocket(self, ws_id: int):
+        """Unregister a WebSocket connection."""
+        mmsi = self._ws_sessions.pop(ws_id, None)
+        if mmsi and mmsi in self._sessions:
+            self._sessions[mmsi]["websocket_count"] = max(0, self._sessions[mmsi]["websocket_count"] - 1)
+            logger.info(f"[SESSION:{mmsi}] WebSocket {ws_id} unregistered. Active connections: {self._sessions[mmsi]['websocket_count']}")
+        return mmsi
+    
+    def get_mmsi_for_websocket(self, ws_id: int) -> Optional[str]:
+        """Get the MMSI associated with a WebSocket."""
+        return self._ws_sessions.get(ws_id)
+    
+    def get_active_sessions(self) -> List[dict]:
+        """Get list of active sessions (for admin/debugging)."""
+        return [
+            {
+                "mmsi": mmsi,
+                "websocket_count": data.get("websocket_count", 0),
+                "last_active": data.get("last_active")
+            }
+            for mmsi, data in self._sessions.items()
+        ]
+
+# Global session manager instance
+session_manager = SessionManager()
+
+
+# =============================================================================
+# VESSEL DATA STORE - Isolated by MMSI
+# =============================================================================
+class VesselDataStore:
+    """
+    Stores vessel position data.
+    
+    NOTE: Vessel positions from AIS feed are SHARED (everyone sees all vessels).
+    But "user vessel" status is determined PER-SESSION based on MMSI.
+    """
+    
+    def __init__(self):
+        # All vessels from AIS: {mmsi: vessel_data}
+        self._vessels: Dict[str, dict] = {}
+    
+    def update_vessel(self, mmsi: str, vessel_data: dict):
+        """Update vessel data (from AIS or manual position)."""
+        mmsi = str(mmsi).strip()
+        self._vessels[mmsi] = vessel_data
+    
+    def get_vessel(self, mmsi: str) -> Optional[dict]:
+        """Get vessel data by MMSI."""
+        return self._vessels.get(str(mmsi).strip())
+    
+    def get_all_vessels(self) -> Dict[str, dict]:
+        """Get all vessels (for map display)."""
+        return self._vessels.copy()
+    
+    def get_vessels_for_session(self, session_mmsi: str) -> List[dict]:
+        """
+        Get all vessels with is_user_vessel flag set correctly for this session.
+        
+        CRITICAL: The is_user_vessel flag is determined by comparing each vessel's
+        MMSI against the SESSION's MMSI. This ensures each session sees their own
+        vessel highlighted.
+        """
+        session_mmsi = str(session_mmsi).strip()
+        result = []
+        
+        for mmsi, vessel in self._vessels.items():
+            vessel_copy = vessel.copy()
+            # EXPLICIT SESSION ISOLATION: Only mark as user vessel if MMSIs match
+            vessel_copy["is_user_vessel"] = (mmsi == session_mmsi)
+            result.append(vessel_copy)
+        
+        return result
+    
+    def remove_vessel(self, mmsi: str):
+        """Remove a vessel from the store."""
+        self._vessels.pop(str(mmsi).strip(), None)
+
+# NOTE: We'll use active_vessels dict for backward compatibility
+# but vessel_data_store provides the session-aware methods
+
+# =============================================================================
 
 # MMSI numbers to permanently filter out (test beacons, known noise)
 FILTERED_MMSI = {

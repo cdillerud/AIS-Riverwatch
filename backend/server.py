@@ -321,9 +321,10 @@ class AISConnectionManager:
         """
         Configure and start the AIS connection.
         If already connected with different config, reconnects.
-        """
-        global user_mmsi
         
+        NOTE: user_mmsi_param is stored per-connection config but NOT in a global variable.
+        Each WebSocket subscriber tracks its own MMSI for session isolation.
+        """
         new_config = {
             "ip_address": ip_address,
             "port": port,
@@ -331,11 +332,12 @@ class AISConnectionManager:
             "boat_name": boat_name
         }
         
-        logger.info(f"AISConnectionManager.configure called with {ip_address}:{port}")
+        logger.info(f"[SESSION:{user_mmsi_param}] AISConnectionManager.configure called with {ip_address}:{port}")
         
         async with self._lock:
-            # Update global user MMSI
-            user_mmsi = user_mmsi_param
+            # Create session for this MMSI
+            if user_mmsi_param:
+                session_manager.create_session(user_mmsi_param)
             
             # Pre-populate user vessel in cache
             if user_mmsi_param and boat_name:
@@ -343,11 +345,18 @@ class AISConnectionManager:
                     'name': boat_name,
                     'is_user': True
                 }
-                logger.info(f"Pre-cached user vessel: {user_mmsi_param} = {boat_name}")
+                logger.info(f"[SESSION:{user_mmsi_param}] Pre-cached vessel name: {boat_name}")
             
-            # Check if config changed
-            if self._config == new_config and self._connected:
-                logger.info("AIS connection already active with same config")
+            # Check if config changed (ignore user_mmsi for connection comparison)
+            connection_same = (
+                self._config and 
+                self._config.get("ip_address") == ip_address and 
+                self._config.get("port") == port and 
+                self._connected
+            )
+            
+            if connection_same:
+                logger.info(f"[SESSION:{user_mmsi_param}] AIS connection already active, reusing")
                 return True
             
             # Store new config

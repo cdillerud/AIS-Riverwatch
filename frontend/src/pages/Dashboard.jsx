@@ -209,7 +209,8 @@ export default function Dashboard({
     
     return vessels
       .filter(v => {
-        if (v.mmsi === userMmsi || v.is_user_vessel) return false;
+        // ONLY exclude by MMSI match, not is_user_vessel flag
+        if (userMmsi && v.mmsi === userMmsi) return false;
         if (!v.river_mile) return false;
         
         const distToLock = Math.abs(v.river_mile - lockRM);

@@ -107,9 +107,10 @@ const RiverVisualizationComponent = ({
     return riverMile >= minRM && riverMile <= maxRM;
   }, [minRM, maxRM]);
 
-  // Find user vessel
+  // Find user vessel - ONLY match by MMSI
   const userVessel = useMemo(() => {
-    return vessels.find(v => v.mmsi === userMmsi || v.is_user_vessel);
+    if (!userMmsi) return null;
+    return vessels.find(v => v.mmsi === userMmsi);
   }, [vessels, userMmsi]);
 
   // Check if user vessel is outside visible range

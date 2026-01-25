@@ -2872,21 +2872,25 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
     )
 
 @api_router.post("/set-user-mmsi")
-async def set_user_mmsi(data: dict):
-    """Set the user's MMSI number."""
-    global user_mmsi
-    user_mmsi = data.get("mmsi", "")
+async def set_user_mmsi_legacy(data: dict):
+    """
+    LEGACY: Set the user's MMSI number.
+    
+    DEPRECATED: Sessions are now created automatically when connecting.
+    This endpoint just creates/updates a session.
+    """
+    mmsi = data.get("mmsi", "")
+    if not mmsi:
+        raise HTTPException(status_code=400, detail="mmsi required")
+    
+    # Create session for this MMSI
+    session_manager.create_session(mmsi)
     
     # Update vessel if already tracked
-    if user_mmsi in active_vessels:
-        active_vessels[user_mmsi].is_user_vessel = True
+    if mmsi in active_vessels:
+        active_vessels[mmsi].is_user_vessel = True
     
-    # Save to database
-    await db.settings.update_one(
-        {"key": "user_mmsi"},
-        {"$set": {"value": user_mmsi, "updated_at": datetime.now(timezone.utc).isoformat()}},
-        upsert=True
-    )
+    logger.info(f"[SESSION:{mmsi}] Session created via set-user-mmsi")
     
     return {"success": True, "mmsi": user_mmsi}
 

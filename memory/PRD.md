@@ -84,7 +84,50 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 2. Set `REACT_APP_BACKEND_URL=https://riverwatchais.com` for HTTPS compatibility
 3. Rewrote WebSocket connection logic to prevent reconnect loops
 
-### Multi-User Support (Jan 2025)
+### Multi-User Session Isolation (Jan 2025)
+**CRITICAL: All user data is strictly isolated by MMSI (session ID)**
+
+**Architecture:**
+```
+Session A (MMSI: 338414076)         Session B (MMSI: 367555123)
+         │                                   │
+         ▼                                   ▼
+┌─────────────────────────────────────────────────────────┐
+│                    BACKEND SERVER                        │
+│  SessionManager: tracks active sessions per MMSI         │
+│  VesselDataStore: all vessels, is_user_vessel per-session│
+│  user_settings collection: settings stored BY MMSI       │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Session-Scoped API Endpoints:**
+- `GET /api/session/{mmsi}/vessels` - Get vessels with correct is_user_vessel flag
+- `POST /api/session/{mmsi}/position` - Update position for this session's vessel
+- `GET /api/session/{mmsi}/race-analysis/{lock_id}` - Race analysis for this session
+- `GET /api/user/{mmsi}/settings` - Get settings for this session
+- `POST /api/user/{mmsi}/settings` - Save settings for this session
+- `GET /api/sessions` - Debug: list active sessions
+
+**What's Isolated Per Session:**
+- "Your Vessel" highlighting (is_user_vessel flag)
+- Position updates
+- Race analysis calculations
+- All settings (speed, alerts, preferences)
+- Boat name
+
+**What's Shared (by design):**
+- AIS feed data (all vessels on the river)
+- Lock status (same for everyone)
+- USACE lock queue data
+
+**Key Implementation Details:**
+- Removed global `user_mmsi` variable (was causing session bleed)
+- Added SessionManager class for explicit session tracking
+- All API endpoints now explicitly require session MMSI
+- WebSocket connections track their MMSI for per-user vessel highlighting
+- MongoDB `user_settings` collection keyed by MMSI
+
+## Multi-User Support (Jan 2025)
 **Feature**: Multiple users can use the app simultaneously with their own MMSI and settings.
 
 **How it works:**

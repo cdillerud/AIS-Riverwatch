@@ -2976,28 +2976,7 @@ async def update_user_position_legacy(data: dict):
         raise HTTPException(status_code=400, detail="mmsi required in request body. Use POST /session/{mmsi}/position instead.")
     
     return await update_session_position(mmsi, data)
-    vessel = VesselPosition(
-        mmsi=mmsi,
-        name=boat_name,
-        lat=lat,
-        lon=lon,
-        speed=speed,
-        course=course,
-        river_mile=rm,
-        heading=heading,
-        is_user_vessel=True,
-        vessel_type="recreational",
-    )
-    
-    active_vessels[mmsi] = vessel
-    
-    logger.info(f"User position updated via {source}: lat={lat:.4f}, lon={lon:.4f}, RM={rm:.1f}")
-    
-    # Use prepare_vessel_for_output to ensure clean data
-    v_dict = prepare_vessel_for_output(vessel, user_mmsi)
-    v_dict['source'] = source
-    
-    return {"success": True, "vessel": v_dict}
+
 
 @api_router.get("/settings")
 async def get_settings(mmsi: str = None):

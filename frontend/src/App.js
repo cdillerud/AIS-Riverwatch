@@ -436,10 +436,13 @@ function App() {
       const data = JSON.parse(event.data);
       
       if (data.type === "connected") {
-        toast.success(data.message);
+        // Silently log - don't toast to avoid spam across sessions
+        console.log("AIS feed status:", data.message);
       } else if (data.type === "disconnected") {
-        toast.info(data.message);
+        // Only log, don't toast - this fires for all subscribers
+        console.log("AIS feed status:", data.message);
       } else if (data.type === "error") {
+        // Only show errors to the user
         toast.error(data.message);
       } else if (data.type === "vessel_update") {
         // Optimized: Use functional update with early bailout if no change needed

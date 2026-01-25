@@ -2885,6 +2885,21 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         analysis=analysis
     )
 
+
+# Legacy race analysis endpoint - requires mmsi query param
+@api_router.get("/race-analysis/{lock_id}")
+async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minutes: int = 20):
+    """
+    LEGACY: Get race analysis for a lock.
+    
+    DEPRECATED: Use GET /session/{mmsi}/race-analysis/{lock_id} instead.
+    """
+    if not mmsi:
+        raise HTTPException(status_code=400, detail="mmsi query parameter required. Use GET /session/{mmsi}/race-analysis/{lock_id}")
+    
+    return await get_session_race_analysis(mmsi, lock_id, buffer_minutes)
+
+
 @api_router.post("/set-user-mmsi")
 async def set_user_mmsi_legacy(data: dict):
     """

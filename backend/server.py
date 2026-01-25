@@ -2890,20 +2890,24 @@ async def set_user_mmsi(data: dict):
     
     return {"success": True, "mmsi": user_mmsi}
 
-@api_router.post("/user-position")
-async def update_user_position(data: dict):
+@api_router.post("/session/{session_mmsi}/position")
+async def update_session_position(session_mmsi: str, data: dict):
     """
-    Update user's vessel position directly (bypasses AIS feed).
+    Update position for a specific session (MMSI).
     
-    This solves the common AIS "self-suppression" issue where Boat Beacon
-    and similar apps intentionally filter out your own MMSI from the feed.
+    CRITICAL: This endpoint is EXPLICITLY scoped to a session.
+    Updating position for MMSI 338414076 will NEVER affect MMSI 367555123.
     
     Position can come from:
     - Browser Geolocation API
     - Manual lat/lon entry
     - External GPS source
     """
-    global user_mmsi
+    # Validate session MMSI
+    if not session_mmsi or len(session_mmsi) < 5:
+        raise HTTPException(status_code=400, detail="Valid session MMSI required")
+    
+    session_mmsi = str(session_mmsi).strip()
     
     lat = data.get("lat")
     lon = data.get("lon")
@@ -2912,26 +2916,66 @@ async def update_user_position(data: dict):
     source = data.get("source", "manual")  # "geolocation", "manual", "external"
     
     if lat is None or lon is None:
-        return {"success": False, "error": "lat and lon required"}
+        raise HTTPException(status_code=400, detail="lat and lon required")
     
-    # Use MMSI from request, then global user_mmsi, then default
-    mmsi = data.get("mmsi") or user_mmsi or "USER_VESSEL"
+    logger.info(f"[SESSION:{session_mmsi}] Position update via {source}: lat={lat:.4f}, lon={lon:.4f}")
     
-    # If MMSI provided in request, also update the global user_mmsi
-    if data.get("mmsi") and data.get("mmsi") != user_mmsi:
-        user_mmsi = data.get("mmsi")
-        logger.info(f"Updated user_mmsi to: {user_mmsi}")
+    # Create or get session
+    session_manager.create_session(session_mmsi)
+    session_manager.update_session_activity(session_mmsi)
     
-    # Get boat name - prefer request, then cache, then default
+    # Get boat name from session settings
     boat_name = data.get("name") or "Your Vessel"
-    if mmsi in vessel_static_cache:
-        boat_name = vessel_static_cache[mmsi].get("name", boat_name)
+    user_settings = await db.user_settings.find_one({"mmsi": session_mmsi}, {"_id": 0})
+    if user_settings and user_settings.get("settings", {}).get("boat_name"):
+        boat_name = user_settings["settings"]["boat_name"]
+    elif session_mmsi in vessel_static_cache:
+        boat_name = vessel_static_cache[session_mmsi].get("name", boat_name)
     
     # Calculate river mile and heading
     rm = estimate_river_mile(lat, lon)
     heading = determine_heading(speed, course)
     
-    # Create or update user vessel
+    # Create or update vessel for THIS SESSION ONLY
+    vessel = VesselPosition(
+        mmsi=session_mmsi,
+        name=boat_name,
+        lat=lat,
+        lon=lon,
+        speed=speed,
+        course=course,
+        river_mile=rm,
+        heading=heading,
+        is_user_vessel=True,  # Will be recalculated per-session when sent to clients
+        vessel_type="recreational",
+    )
+    
+    # Store in active_vessels keyed by THIS session's MMSI
+    active_vessels[session_mmsi] = vessel
+    
+    logger.info(f"[SESSION:{session_mmsi}] Position stored: RM={rm:.1f}, speed={speed}")
+    
+    # Return vessel data (is_user_vessel=True because this IS the session's vessel)
+    v_dict = prepare_vessel_for_output(vessel, session_mmsi)
+    v_dict['source'] = source
+    
+    return {"success": True, "session_mmsi": session_mmsi, "vessel": v_dict}
+
+
+# Legacy endpoint - redirects to session-based endpoint
+@api_router.post("/user-position")
+async def update_user_position_legacy(data: dict):
+    """
+    LEGACY: Update user's vessel position.
+    
+    DEPRECATED: Use POST /session/{mmsi}/position instead.
+    This endpoint requires mmsi in the request body.
+    """
+    mmsi = data.get("mmsi")
+    if not mmsi:
+        raise HTTPException(status_code=400, detail="mmsi required in request body. Use POST /session/{mmsi}/position instead.")
+    
+    return await update_session_position(mmsi, data)
     vessel = VesselPosition(
         mmsi=mmsi,
         name=boat_name,

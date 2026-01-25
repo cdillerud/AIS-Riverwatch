@@ -847,9 +847,16 @@ def prepare_vessel_for_output(vessel: VesselPosition, session_mmsi: str = None) 
     v_dict = vessel.model_dump()
     v_dict['timestamp'] = v_dict['timestamp'].isoformat()
     
-    # Use provided mmsi or get from dict
-    vessel_mmsi = mmsi or v_dict.get('mmsi', '')
+    # Get vessel MMSI
+    vessel_mmsi = v_dict.get('mmsi', '')
     vessel_name = v_dict.get('name', '')
+    
+    # CRITICAL: Set is_user_vessel based on session MMSI match
+    # This is the KEY to session isolation!
+    if session_mmsi:
+        v_dict['is_user_vessel'] = (str(vessel_mmsi) == str(session_mmsi))
+    else:
+        v_dict['is_user_vessel'] = False
     
     # Check USACE for authoritative barge data
     usace_info = get_usace_vessel_info(mmsi=vessel_mmsi, vessel_name=vessel_name)

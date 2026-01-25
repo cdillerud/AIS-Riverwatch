@@ -193,8 +193,9 @@ const RiverVisualizationComponent = ({
       } else {
         // Sort group so user vessel is first (stays centered)
         const sortedGroup = [...group].sort((a, b) => {
-          const aIsUser = a.mmsi === userMmsi || a.is_user_vessel;
-          const bIsUser = b.mmsi === userMmsi || b.is_user_vessel;
+          // ONLY match by MMSI
+          const aIsUser = userMmsi && a.mmsi === userMmsi;
+          const bIsUser = userMmsi && b.mmsi === userMmsi;
           if (aIsUser) return -1;
           if (bIsUser) return 1;
           return 0;
@@ -203,7 +204,8 @@ const RiverVisualizationComponent = ({
         // Spread vessels horizontally: center, left, right, further left, further right...
         const spreadDistance = compact ? 25 : 35; // pixels
         sortedGroup.forEach((vessel, idx) => {
-          const isUser = vessel.mmsi === userMmsi || vessel.is_user_vessel;
+          // ONLY match by MMSI
+          const isUser = userMmsi && vessel.mmsi === userMmsi;
           if (isUser) {
             offsets[vessel.mmsi] = 0;
           } else {

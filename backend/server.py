@@ -2791,22 +2791,22 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
     MAX_THREAT_DISTANCE = 100.0
     
     if lock_id not in LOCKS:
-        return {"error": "Invalid lock ID"}
+        raise HTTPException(status_code=404, detail="Invalid lock ID")
     
     lock = LOCKS[lock_id]
     lock_rm = lock["river_mile"]
     
-    # Find user vessel - use prepare_vessel_for_output for clean data
+    # Find THIS SESSION's vessel - completely isolated
     user_vessel = None
     user_rm = None
-    if user_mmsi and user_mmsi in active_vessels:
-        user_vessel = prepare_vessel_for_output(active_vessels[user_mmsi], user_mmsi)
+    if session_mmsi and session_mmsi in active_vessels:
+        user_vessel = prepare_vessel_for_output(active_vessels[session_mmsi], session_mmsi)
         user_rm = user_vessel.get('river_mile') or estimate_river_mile(user_vessel['lat'], user_vessel['lon'])
     
     # Find competitors heading toward this lock
     competitors = []
     for mmsi, vessel in active_vessels.items():
-        if mmsi == user_mmsi:
+        if mmsi == session_mmsi:
             continue
         
         vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)

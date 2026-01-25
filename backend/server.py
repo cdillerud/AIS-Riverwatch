@@ -2766,17 +2766,26 @@ async def get_vessels():
         vessels.append(v_dict)
     return vessels
 
-@api_router.get("/race-analysis/{lock_id}")
-async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
+@api_router.get("/session/{session_mmsi}/race-analysis/{lock_id}")
+async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minutes: int = 20):
     """
-    Get race analysis for a specific lock.
+    Get race analysis for a specific session (MMSI) and lock.
+    
+    CRITICAL: This endpoint is EXPLICITLY scoped to a session.
+    Each session gets race analysis calculated for THEIR vessel.
     
     Args:
+        session_mmsi: The session's MMSI (their vessel)
         lock_id: Target lock ID
         buffer_minutes: Minutes of buffer needed before a commercial tow arrives
-                       (to complete your lockage before they get priority)
     """
-    global user_mmsi
+    session_mmsi = str(session_mmsi).strip()
+    
+    # Validate session
+    if not session_mmsi:
+        raise HTTPException(status_code=400, detail="Session MMSI required")
+    
+    logger.info(f"[SESSION:{session_mmsi}] Race analysis requested for {lock_id}")
     
     # Distance threshold - don't warn about vessels more than 100 miles from USER
     MAX_THREAT_DISTANCE = 100.0

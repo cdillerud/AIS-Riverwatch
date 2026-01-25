@@ -514,7 +514,7 @@ class AISConnectionManager:
     
     async def _process_line(self, line: str):
         """Process a single NMEA/AIS line."""
-        global user_mmsi
+        # NOTE: No global user_mmsi - each subscriber tracks their own MMSI
         
         # Broadcast raw line to debug subscribers
         await broadcast_raw_line(line)
@@ -523,23 +523,24 @@ class AISConnectionManager:
         if len(line) > 5:
             logger.debug(f"Raw NMEA: {line[:100]}")
         
-        user_mmsi_local = self._config.get("user_mmsi", "") if self._config else ""
+        # Get config MMSI (used for GPS data from this connection)
+        config_mmsi = self._config.get("user_mmsi", "") if self._config else ""
         boat_name = self._config.get("boat_name", "") if self._config else ""
         
         # First try to parse as GPS (for user's own position)
         gps_data = parse_nmea_gps(line)
-        if gps_data and user_mmsi_local:
-            # Update user vessel from GPS data
+        if gps_data and config_mmsi:
+            # Update vessel from GPS data - stored by MMSI
             rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
             heading = determine_heading(gps_data['speed'], gps_data['course'])
             
             # Get name from cache or settings
             vessel_name = boat_name
-            if user_mmsi_local in vessel_static_cache:
-                vessel_name = vessel_static_cache[user_mmsi_local].get('name', boat_name)
+            if config_mmsi in vessel_static_cache:
+                vessel_name = vessel_static_cache[config_mmsi].get('name', boat_name)
             
             vessel = VesselPosition(
-                mmsi=user_mmsi_local,
+                mmsi=config_mmsi,
                 name=vessel_name,
                 lat=gps_data['lat'],
                 lon=gps_data['lon'],
@@ -547,17 +548,18 @@ class AISConnectionManager:
                 course=gps_data['course'],
                 river_mile=rm,
                 heading=heading,
-                is_user_vessel=True,
+                is_user_vessel=True,  # Will be recalculated per-session
                 vessel_type='recreational',
             )
             
-            active_vessels[user_mmsi_local] = vessel
+            # Store keyed by MMSI - completely isolated
+            active_vessels[config_mmsi] = vessel
             
             # Throttle GPS updates (send every 5th)
             self._gps_update_count += 1
             if self._gps_update_count % 5 == 0:
-                # Use prepare_vessel_for_output to ensure clean data
-                v_dict = prepare_vessel_for_output(vessel, user_mmsi_local)
+                # Broadcast to all subscribers - each will get is_user_vessel based on their session
+                v_dict = prepare_vessel_for_output(vessel, config_mmsi)
                 v_dict['source'] = 'GPS'
                 await self._broadcast_vessel_update(v_dict)
             return

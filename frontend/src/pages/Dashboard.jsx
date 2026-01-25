@@ -108,9 +108,11 @@ export default function Dashboard({
   // Alert dismissal - tracks which threat was dismissed
   const [dismissedThreatMmsi, setDismissedThreatMmsi] = useState(null);
 
-  // Find user vessel
+  // Find user vessel - ONLY match by MMSI, not is_user_vessel flag
+  // (is_user_vessel from server can be stale/wrong if multiple sessions exist)
   const userVessel = useMemo(() => {
-    return vessels.find(v => v.mmsi === userMmsi || v.is_user_vessel);
+    if (!userMmsi) return null;
+    return vessels.find(v => v.mmsi === userMmsi);
   }, [vessels, userMmsi]);
 
   // Calculate next lock based on vessel position and heading
@@ -159,9 +161,10 @@ export default function Dashboard({
     }
   }, [autoNextLock, nextLock, selectedLock, onSelectLock]);
 
-  // Commercial vessels (non-user)
+  // Commercial vessels (non-user) - ONLY exclude by MMSI match
   const commercialVessels = useMemo(() => {
-    return vessels.filter(v => v.mmsi !== userMmsi && !v.is_user_vessel);
+    if (!userMmsi) return vessels;
+    return vessels.filter(v => v.mmsi !== userMmsi);
   }, [vessels, userMmsi]);
 
   // Check if speed requirement is dangerous

@@ -130,7 +130,9 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
   if (!vessel) return null;
 
   const speedMph = (vessel.speed * 1.15078).toFixed(1);
-  const isUser = vessel.is_user_vessel;
+  // ONLY match by MMSI - need to get userMmsi from localStorage as fallback
+  const storedMmsi = typeof window !== 'undefined' ? localStorage.getItem('riverwatch_mmsi') : null;
+  const isUser = storedMmsi && vessel.mmsi === storedMmsi;
   const isTow = vessel.is_tow || vessel.barge_count > 0 || 
     (vessel.name && (vessel.name.includes('M/V') || vessel.name.includes('CAPT')));
   const lockStatus = getVesselLockStatus(vessel);

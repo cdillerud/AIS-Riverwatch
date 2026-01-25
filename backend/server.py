@@ -591,8 +591,8 @@ class AISConnectionManager:
             if not vessel_name and mmsi_parsed in active_vessels:
                 vessel_name = active_vessels[mmsi_parsed].name
             
-            # Determine if this is the user's vessel
-            is_user = (mmsi_parsed == user_mmsi_local) or vessel_data.get('is_own_vessel', False)
+            # NOTE: is_user_vessel is determined PER-SESSION when sending to subscribers
+            # Here we just store the raw data keyed by MMSI
             
             vessel = VesselPosition(
                 mmsi=mmsi_parsed,
@@ -603,7 +603,7 @@ class AISConnectionManager:
                 course=vessel_data['course'],
                 river_mile=rm,
                 heading=heading,
-                is_user_vessel=is_user,
+                is_user_vessel=False,  # Will be set per-session when broadcasting
                 vessel_type=vessel_data.get('vessel_type', 'unknown'),
                 ship_type=vessel_data.get('ship_type'),
                 length=vessel_data.get('length'),
@@ -622,13 +622,7 @@ class AISConnectionManager:
                 eta=vessel_data.get('eta'),
             )
             
-            # Auto-detect user vessel MMSI
-            if vessel_data.get('is_own_vessel') and not user_mmsi_local:
-                user_mmsi = mmsi_parsed
-                if self._config:
-                    self._config["user_mmsi"] = mmsi_parsed
-                logger.info(f"Auto-detected user vessel MMSI: {mmsi_parsed}")
-            
+            # Store vessel keyed by MMSI - completely isolated
             active_vessels[vessel.mmsi] = vessel
             
             # Track vessel passage through locks

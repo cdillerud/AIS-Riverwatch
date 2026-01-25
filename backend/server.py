@@ -820,15 +820,19 @@ class LockStatus(BaseModel):
 
 # Store active vessels
 active_vessels: Dict[str, VesselPosition] = {}
-user_mmsi: str = ""
+# REMOVED: global user_mmsi - This was causing session bleed
+# Each session now explicitly passes its MMSI for all operations
 
 
-def prepare_vessel_for_output(vessel: VesselPosition, mmsi: str = None) -> dict:
+def prepare_vessel_for_output(vessel: VesselPosition, session_mmsi: str = None) -> dict:
     """
     Prepare a vessel for API output, enriching with USACE data or clearing stale barge info.
     
     This is the SINGLE SOURCE OF TRUTH for vessel data output.
     All endpoints and WebSocket broadcasts should use this function.
+    
+    CRITICAL: session_mmsi determines which vessel gets is_user_vessel=True.
+    Each session sees ONLY their own vessel highlighted.
     
     Rules:
     - If USACE data exists: use authoritative barge count from USACE

@@ -1046,6 +1046,85 @@ export default function Dashboard({
                       </div>
                     </div>
                   )}
+
+                  {/* Floating Position Editor - Shows when editing from map click */}
+                  {showPositionEditor && (
+                    <div className="absolute top-3 left-3 z-50 glass-panel border border-cyan-500/50 rounded-lg shadow-xl w-64" data-testid="map-position-editor">
+                      <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-cyan-400" />
+                          Edit Position
+                        </h4>
+                        <button 
+                          onClick={() => setShowPositionEditor(false)}
+                          className="text-slate-400 hover:text-white p-1"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="p-3 space-y-3">
+                        <div>
+                          <Label className="text-xs text-slate-400">River Mile</Label>
+                          <Input
+                            type="number"
+                            placeholder="e.g., 830"
+                            value={editRM}
+                            onChange={(e) => setEditRM(e.target.value)}
+                            className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                            data-testid="map-edit-rm"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs text-slate-400">Speed (MPH)</Label>
+                            <Input
+                              type="number"
+                              placeholder="15"
+                              value={editSpeed}
+                              onChange={(e) => setEditSpeed(e.target.value)}
+                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              data-testid="map-edit-speed"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-slate-400">Course (°)</Label>
+                            <Input
+                              type="number"
+                              placeholder="180"
+                              value={editCourse}
+                              onChange={(e) => setEditCourse(e.target.value)}
+                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              data-testid="map-edit-course"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowPositionEditor(false)}
+                            className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={updateQuickPosition}
+                            className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
+                            data-testid="map-edit-save-btn"
+                          >
+                            <Check className="w-4 h-4 mr-1" />
+                            Update
+                          </Button>
+                        </div>
+                        
+                        <p className="text-[10px] text-slate-500">
+                          0°=North, 180°=South (downriver)
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </Card>
             </div>

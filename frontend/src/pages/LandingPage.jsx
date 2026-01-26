@@ -241,7 +241,7 @@ export default function LandingPage() {
             <div className="flex items-center gap-2">
               <Radio className="w-5 h-5 text-cyan-400" />
               <span className="font-heading text-sm uppercase tracking-wider text-slate-500">
-                River Watch
+                RiverWatch<span className="text-cyan-400/50 ml-0.5">AIS</span>
               </span>
             </div>
             <p className="text-xs text-slate-600">

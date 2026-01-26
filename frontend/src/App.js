@@ -342,13 +342,22 @@ function MainApp() {
   }, []);
 
   // Periodic vessel fetch (backup for when WebSocket isn't providing updates)
+  // OPTIMIZED: Increased interval from 15s to 30s - WebSocket handles real-time
   useEffect(() => {
     const fetchVessels = async () => {
       try {
         const response = await fetch(`${API}/vessels`);
         if (response.ok) {
           const data = await response.json();
-          setVessels(data);
+          // Only update if data actually changed (compare length and first/last MMSI)
+          setVessels(prev => {
+            if (prev.length === data.length && 
+                prev[0]?.mmsi === data[0]?.mmsi &&
+                prev[prev.length-1]?.mmsi === data[data.length-1]?.mmsi) {
+              return prev; // No change
+            }
+            return data;
+          });
         }
       } catch (error) {
         console.error("Failed to fetch vessels:", error);
@@ -358,12 +367,13 @@ function MainApp() {
     // Fetch immediately on mount
     fetchVessels();
     
-    // Reduce polling to every 15 seconds (WebSocket handles real-time updates)
-    const interval = setInterval(fetchVessels, 15000);
+    // OPTIMIZED: Reduced polling to every 30 seconds (WebSocket handles real-time updates)
+    const interval = setInterval(fetchVessels, 30000);
     return () => clearInterval(interval);
   }, []);
 
   // Fetch race analysis periodically - EXPLICITLY scoped to session MMSI
+  // OPTIMIZED: Increased interval from 10s to 20s
   useEffect(() => {
     const fetchRaceAnalysis = async () => {
       if (!selectedLock || !userMmsi) return;
@@ -373,7 +383,13 @@ function MainApp() {
         const response = await fetch(`${API}/session/${userMmsi}/race-analysis/${selectedLock}?buffer_minutes=${bufferMinutes}`);
         if (response.ok) {
           const data = await response.json();
-          setRaceAnalysis(data);
+          // Only update if analysis actually changed
+          setRaceAnalysis(prev => {
+            if (prev && JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
         }
       } catch (error) {
         console.error("Failed to fetch race analysis:", error);
@@ -381,8 +397,8 @@ function MainApp() {
     };
 
     fetchRaceAnalysis();
-    // Reduced frequency - race analysis doesn't need to update every 5s
-    const interval = setInterval(fetchRaceAnalysis, 10000);
+    // OPTIMIZED: Reduced frequency from 10s to 20s
+    const interval = setInterval(fetchRaceAnalysis, 20000);
     return () => clearInterval(interval);
   }, [selectedLock, userMmsi, userSettings.lock_buffer_minutes]);
 

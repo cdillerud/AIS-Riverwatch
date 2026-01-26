@@ -19,7 +19,8 @@ import {
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
   Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
   Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
-  Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info
+  Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info,
+  LogOut
 } from "lucide-react";
 import { toast } from "sonner";
 import RiverVisualization from "@/components/RiverVisualization";

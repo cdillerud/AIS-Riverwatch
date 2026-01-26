@@ -402,11 +402,11 @@ export default function Dashboard({
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             {/* Left: Logo + Status */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Radio className="w-5 h-5 text-cyan-400" />
-                <span className="font-heading font-bold text-lg uppercase tracking-wider text-white hidden sm:inline">
-                  River Watch
+                <span className="font-heading font-bold text-base sm:text-lg uppercase tracking-wider text-white">
+                  RiverWatch<span className="text-cyan-400 ml-1">AIS</span>
                 </span>
               </div>
               
@@ -416,33 +416,6 @@ export default function Dashboard({
                 <span className="text-xs font-mono uppercase">{isConnected ? 'Live' : 'Offline'}</span>
               </div>
             </div>
-
-            {/* Center: Primary Metric (Lock Timing) */}
-            {raceAnalysis?.analysis && (
-              <div className="hidden md:flex items-center gap-6 bg-slate-900/50 px-6 py-2 rounded-lg border border-white/5">
-                <div className="text-center">
-                  <div className="font-heading text-[10px] uppercase tracking-widest text-slate-500">ETA</div>
-                  <div className="font-mono text-xl text-cyan-400">
-                    {userEta ? `${Math.round(userEta)}m` : '--'}
-                  </div>
-                </div>
-                <div className="w-px h-8 bg-slate-700" />
-                <div className="text-center">
-                  <div className="font-heading text-[10px] uppercase tracking-widest text-slate-500">Need</div>
-                  <div className={`font-mono text-xl font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                    {requiredSpeed?.toFixed(0) || '--'}
-                    <span className="text-xs ml-1">mph</span>
-                  </div>
-                </div>
-                <div className="w-px h-8 bg-slate-700" />
-                <div className="text-center">
-                  <div className="font-heading text-[10px] uppercase tracking-widest text-slate-500">Status</div>
-                  <div className={`font-heading text-sm uppercase tracking-wider ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                    {isDangerous ? 'TRAFFIC' : 'CLEAR'}
-                  </div>
-                </div>
-              </div>
-            )}
             
             {/* Right: Actions */}
             <div className="flex items-center gap-2">

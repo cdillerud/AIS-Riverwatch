@@ -97,6 +97,12 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 - `GET /api/auth/me` - Get current authenticated user
 - `POST /api/auth/logout` - Logout and clear session
 
+#### Vessel Data (with persistence)
+- `GET /api/vessels` - Get active vessels (in-memory)
+- `GET /api/vessels/sightings` - Get persisted vessel sightings from database
+- `GET /api/vessels/history/{mmsi}` - Get historical sightings for a specific vessel
+- `GET /api/vessels/stats` - Get vessel tracking statistics
+
 #### User/Fleet Management
 - `GET /api/user/vessels` - Get all vessels for current user
 - `POST /api/user/vessels` - Add a vessel to user's fleet

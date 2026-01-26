@@ -679,6 +679,12 @@ export default function Dashboard({
               <div className="flex items-center gap-2">
                 <div className={`w-3 h-3 rounded-full ${userVessel ? 'bg-cyan-400 user-vessel-pulse' : 'bg-slate-600'}`} />
                 <span className="text-sm font-semibold text-white">Your Vessel</span>
+                {/* MMSI Badge - Always visible in orange/amber */}
+                {userMmsi && (
+                  <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 font-mono">
+                    MMSI: {userMmsi}
+                  </Badge>
+                )}
                 {userVessel ? (
                   <>
                     <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
@@ -691,8 +697,8 @@ export default function Dashboard({
                     )}
                   </>
                 ) : userMmsi ? (
-                  <Badge className="bg-slate-700 text-slate-400 border-slate-600">
-                    MMSI: {userMmsi} <span className="text-xs ml-1">(awaiting position data)</span>
+                  <Badge className="bg-slate-700 text-slate-400 border-slate-600 text-xs">
+                    (awaiting position data)
                   </Badge>
                 ) : (
                   <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30">

@@ -1376,6 +1376,22 @@ export default function Dashboard({
                     <span className="text-sm font-medium text-white">River Map</span>
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* Auto Next Lock - Mobile */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setAutoNextLock(!autoNextLock);
+                        if (!autoNextLock && nextLock) {
+                          onSelectLock(nextLock.id);
+                          toast.success(`Auto: ${nextLock.name}`);
+                        }
+                      }}
+                      className={`h-7 px-2 ${autoNextLock ? 'bg-green-500/20 text-green-400' : 'text-slate-400'}`}
+                      data-testid="auto-next-lock-btn-mobile"
+                    >
+                      <Target className="w-3 h-3" />
+                    </Button>
                     {/* Zoom Slider - Mobile */}
                     <div className="flex items-center gap-1">
                       <input

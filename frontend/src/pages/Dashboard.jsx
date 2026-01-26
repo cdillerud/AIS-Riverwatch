@@ -454,11 +454,10 @@ export default function Dashboard({
                 onClick={onResetConnection}
                 className="border-slate-600 text-slate-300 hover:bg-slate-800"
                 data-testid="change-connection-btn"
-                title={`Current session: MMSI ${userMmsi}`}
+                title="Change AIS connection settings"
               >
                 <Ship className="w-4 h-4 mr-1" />
-                <span className="hidden lg:inline">MMSI: </span>
-                <span className="font-mono text-xs">{userMmsi?.slice(-4) || '----'}</span>
+                <span className="hidden lg:inline">Connection</span>
               </Button>
               
               {/* Logout Button */}

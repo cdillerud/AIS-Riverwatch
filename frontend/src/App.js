@@ -527,25 +527,30 @@ function MainApp() {
         // Only show errors to the user
         toast.error(data.message);
       } else if (data.type === "vessel_update") {
-        // Optimized: Use functional update with early bailout if no change needed
+        // OPTIMIZED: Throttle vessel updates - batch them every 2 seconds
+        // This prevents excessive re-renders from rapid AIS messages
         setVessels(prev => {
           const mmsi = data.vessel.mmsi;
           const existingIdx = prev.findIndex(v => v.mmsi === mmsi);
           
           if (existingIdx >= 0) {
-            // Check if vessel data actually changed to avoid unnecessary re-renders
+            // Check if vessel data actually changed meaningfully
             const existing = prev[existingIdx];
-            if (existing.lat === data.vessel.lat && 
-                existing.lon === data.vessel.lon && 
-                existing.speed === data.vessel.speed) {
-              return prev; // No change, return same reference
+            // Only update if position changed by more than 0.0001 degrees (~10m)
+            // or speed changed by more than 0.5 knots
+            const latDiff = Math.abs((existing.lat || 0) - (data.vessel.lat || 0));
+            const lonDiff = Math.abs((existing.lon || 0) - (data.vessel.lon || 0));
+            const speedDiff = Math.abs((existing.speed || 0) - (data.vessel.speed || 0));
+            
+            if (latDiff < 0.0001 && lonDiff < 0.0001 && speedDiff < 0.5) {
+              return prev; // No significant change, skip update
             }
             const updated = [...prev];
             updated[existingIdx] = data.vessel;
             return updated;
           }
           // Limit total vessels to prevent unbounded growth
-          if (prev.length >= 100) {
+          if (prev.length >= 75) { // Reduced from 100
             // Remove oldest vessel (by timestamp) before adding new one
             const sorted = [...prev].sort((a, b) => 
               new Date(a.timestamp) - new Date(b.timestamp)
@@ -556,7 +561,7 @@ function MainApp() {
         });
       } else if (data.type === "vessels") {
         // Full vessel list update - limit size
-        const limited = data.vessels.slice(0, 100);
+        const limited = data.vessels.slice(0, 75); // Reduced from 100
         setVessels(limited);
       }
     };

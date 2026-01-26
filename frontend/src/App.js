@@ -146,23 +146,21 @@ function MainApp() {
   const performSoftRefresh = useCallback(async () => {
     console.log("Performing soft refresh...");
     
-    // Clear accumulated vessels older than 5 minutes
-    setVessels(prev => {
-      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-      return prev.filter(v => {
-        const timestamp = new Date(v.timestamp).getTime();
-        return timestamp > fiveMinutesAgo;
-      });
-    });
-    
     setLastRefresh(Date.now());
     
-    // Force refetch lock status and lockage times
+    // Force refetch vessels, lock status, and lockage times
     try {
-      const [lockStatusRes, lockageRes] = await Promise.all([
+      const [vesselsRes, lockStatusRes, lockageRes] = await Promise.all([
+        fetch(`${API}/vessels`),
         fetch(`${API}/locks/status`),
         fetch(`${API}/locks/lockage-times`)
       ]);
+      
+      // Update vessels
+      if (vesselsRes.ok) {
+        const vesselsData = await vesselsRes.json();
+        setVessels(vesselsData);
+      }
       
       if (lockStatusRes.ok) {
         const statusData = await lockStatusRes.json();

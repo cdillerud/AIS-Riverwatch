@@ -19,34 +19,43 @@ The user wants to build a local application named River Watch to track vessels o
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI/React application with a MongoDB database, deployed via . The application was previously non-functional due to critical Docker and frontend connection issues, which have since been resolved. The UI features a split-view desktop layout with a persistent map and a sidebar. Major features include a lock detail modal with wait time predictions, a redesigned lock selection UI, and a multi-user architecture where data is isolated by session. The agent has just begun implementing a full user authentication system.
+A stable, full-stack FastAPI/React application with a MongoDB database. Major features like multi-user authentication (JWT & Google), fleet management (multiple vessels per user), and a redesigned professional UI are now complete and tested. The application features a landing page, a dashboard with a simplified river map, and various informational panels. A significant UI/UX and performance optimization pass has just been completed, resulting in a cleaner, more responsive interface with a consistent design system. The dashboard now features a compact, text-based Heads-Up Display (HUD) bar located between the main header and the content area.
 
 **Last working item**:
--   **Last item agent was working**: Implementing user authentication. The agent has received integration playbooks for JWT and Google Auth, created the necessary backend routes (), and added frontend files for authentication (, , , ). The  file was being modified to incorporate the new routing and auth context.
--   **Status**: IN PROGRESS
--   **Agent Testing Done**: N
--   **Which testing method agent to use?**: both. The frontend testing agent should verify the login, registration, and Google callback flows. The backend testing agent should test the  endpoints for token generation and user creation.
+-   **Last item agent was working**: Refining the dashboard's Heads-Up Display (HUD) based on a final round of user feedback. The agent removed the experimental speedometer graphic, converted the HUD into a compact text-only bar, and added the user's vessel MMSI and name to it. This info bar is now tightly spaced and left-aligned under the main logo, outside the map area.
+-   **Status**: USER VERIFICATION PENDING
+-   **Agent Testing Done**: Y
+-   **Which testing method agent to use?**: screenshot tool
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   None. The critical connection and session isolation bugs have been resolved.
+-   **Issue 1: Monolithic Backend File (P1)**
+-   **Issue 2: Complex Frontend Component (P2)**
+
+Issues Detail:
+-   **Issue 1:**
+    -   **Attempted fixes:** None. This is a technical debt item that has been deferred in favor of feature development.
+    -   **Next debug checklist:** The file  is over 3,800 lines. Plan a refactoring effort to split it into , , , and  handlers.
+    -   **Why fix this issue and what will be achieved with the fix?**: Refactoring will significantly improve code maintainability, readability, and scalability, making future development faster and less error-prone.
+    -   **Status**: NOT STARTED
+    -   **Is recurring issue?**: Y
+    -   **Should Test frontend/backend/both after fix?**: backend
+    -   **Blocked on other issue**: No.
+-   **Issue 2:**
+    -   **Attempted fixes:** Some performance optimizations were made (batching WebSocket updates, reducing fetch intervals), but the core component structure remains complex.
+    -   **Next debug checklist:** The file  is large and handles state, data fetching, and WebSockets. Extract logic into custom hooks (e.g., , ).
+    -   **Why fix this issue and what will be achieved with this?**: Simplifies the main component, improves reusability, and makes the code easier to reason about.
+    -   **Status**: NOT STARTED
+    -   **Is recurring issue?**: N
+    -   **Should Test frontend/backend/both after fix?**: frontend
+    -   **Blocked on other issue**: No.
 
 **In progress Task List**:
--   **Task 1: Complete User Authentication Implementation (P0)**
-    -   **Where to resume**: The agent needs to finish wiring up the authentication flow. This involves:
-        1.  In , wrap the application routes with the  from .
-        2.  Implement protected routes that redirect to the  page if the user is not authenticated.
-        3.  Flesh out the logic in  and  to handle form submissions to the backend.
-        4.  Complete the implementation of the backend auth routes in  and  to handle user creation, password hashing, JWT creation, and Google callback logic.
-    -   **What will be achieved with this?**: A fully functional user authentication system where users can register, log in with email/password or Google, and maintain a persistent, secure session.
-    -   **Status**: IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?**: Both.
-    -   **Blocked on something**: No.
+-   None.
 
 **Upcoming and Future Tasks**
 
 **Upcoming Tasks:**
--   **Associate Multiple MMSIs with User Accounts (P0)**: After auth is complete, refactor the data model so that a single user account can own and manage a list of multiple MMSIs. The UI will need controls to add, remove, and select the active MMSI for the session.
 -   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (File: ).
 -   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups.
 
@@ -61,109 +70,114 @@ A full-stack FastAPI/React application with a MongoDB database, deployed via . T
 -   **Speed Advisor**
 
 **Completed work in this session**
--   **Resolved Critical Connection Errors**: Fixed  by correctly setting  in  and resolved mixed-content browser errors.
--   **Stabilized WebSocket Connection**: Fixed a frontend reconnect loop in  that was causing the connection to constantly drop and reconnect.
--   **Implemented Lock Detail Modal**: Added a new feature to view detailed lock information (wait times, queue, USACE data) in a modal, powered by a new backend endpoint ().
--   **Redesigned Lock List UI**: Replaced the long, scrolling list of locks with a compact dropdown selector for improved usability.
--   **Implemented and Fixed Multi-User Session Isolation**:
-    -   Refactored the backend to eliminate all global state and handle data on a per-session basis, keyed by MMSI.
-    -   Fixed a critical frontend bug where session data was bleeding between users, ensuring strict data isolation.
--   **Removed Noisy Connection Toasts**: Suppressed global connection status toast notifications that were being broadcast to all active users.
--   **Began User Authentication Implementation**: Laid the groundwork for a full user account system by creating the necessary files and initial code for JWT and Google authentication.
+-   **Full User Authentication System**: Completed, debugged, and tested JWT (email/password) and Google Social Login.
+-   **Multi-Vessel Fleet Management**: Implemented backend and frontend for users to manage a list of their vessels.
+-   **Major UI/UX Redesign**: Executed a comprehensive design overhaul based on  feedback.
+    -   Created a new .
+    -   Redesigned  and .
+    -   Rebranded the app to RiverWatch AIS across all pages.
+    -   Iteratively designed and implemented a Heads-Up Display (HUD), settling on a compact info bar below the header.
+-   **Interactive Map Features**:
+    -   Implemented clickable vessels on the map to open a floating position editor.
+    -   Changed vessel detail views from a modal to an inline, expandable panel on the map.
+-   **Performance Optimizations**: Improved frontend responsiveness by batching WebSocket updates and reducing the frequency of periodic API calls.
+-   **Critical Bug Fixes**:
+    -   Resolved a backend  that was crashing the server.
+    -   Fixed a critical frontend bug () by refactoring  routing structure.
+    -   Fixed a UI bug that showed duplicate position editor popups.
 
 **Earlier issues found/mentioned but not fixed**
 -   **Issue 1: Monolithic Backend File**
-    -   **Debug checklist**: The file  has grown to over 3,000 lines and contains logic for API routes, WebSocket handling, data processing, and more.
-    -   **Why to solve this issue and what will be achieved with this?**: Refactoring this file into a structured directory (e.g., , , ) will significantly improve code maintainability, readability, and scalability. This is a high-priority technical debt item.
-    -   **Should Test frontend/backend/both after fix?**: backend.
+    -   **Debug checklist**: Refactor  into smaller, dedicated modules (e.g., , , ).
+    -   **Why to solve this issue and what will be achieved with this?**: To improve code maintainability, readability, and scalability. This is a high-priority technical debt item.
+    -   **Should Test frontend/backend/both after fix?**: backend
     -   **Is recurring issue?**: Y
 -   **Issue 2: Complex Frontend Component**
-    -   **Debug checklist**: The file  contains a large amount of logic for data fetching, state management, and WebSocket handling.
-    -   **Why to solve this issue and what will be achieved with this?**: Extracting logic into custom hooks (e.g., , , ) would simplify the component, improve reusability, and make the code easier to reason about.
-    -   **Should Test frontend/backend/both after fix?**: frontend.
+    -   **Debug checklist**: Refactor  by extracting logic into custom hooks.
+    -   **Why to solve this issue and what will be achieved with this?**: To simplify the component, improve reusability, and make the code easier to manage.
+    -   **Should Test frontend/backend/both after fix?**: frontend
     -   **Is recurring issue?**: N
 
 **Known issue recurrence from previous fork**
--   **Name**: Docker Build Environment Variable Misconfiguration.
--   **Recurrence count**: 1
--   **Status**: RESOLVED. The issue was fixed by changing  to  in .
+-   None in this session.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Frontend**: React (, , ),  for navigation.
+-   **Frontend**: React (, , , ), .
 -   **Backend**: FastAPI, WebSockets, Pydantic models.
--   **Authentication**: JWT for email/password (, ) and OAuth2 for Google Social Login.
+-   **Authentication**: JWT for email/password and OAuth2 for Google Social Login.
 -   **Database**: MongoDB.
 -   **Deployment**: Docker, .
--   **Session Management**: Migrating from an anonymous, -based MMSI session to a full user account model with persistent server-side data.
+-   **UI/UX**: Custom design system with specific fonts (Rajdhani, Manrope), color palette, and component styles.
 
 **key DB schema**
 -   **user_accounts**: 
 -   **vessel_settings**: 
--   **vessel_names**: Cache for MMSI to vessel name mappings.
--   **lockage_history**: Historical USACE lockage data.
 
 **changes in tech stack**
--   **Added**:  and  for JWT authentication.
--   **Added**:  for frontend routing.
+-   None.
 
 **All files of reference**
--   : Core backend logic, needs refactoring.
--   : Core frontend logic, handles routing and global state.
--   : The main application UI.
--   **New Auth Files**: , , and the new pages in  (, , ).
+-   : The main application UI, heavily modified with new header and HUD bar.
+-   : Core monolithic backend logic.
+-   : Core frontend component, handles routing and global state.
+-   : The map component, updated with interactive features.
+-   : New landing page.
+-   : The new design system provided by the design agent.
 
 **Areas that need refactoring**:
--   ****: Urgently needs to be broken down into smaller modules for routes, services, and models to manage complexity.
--   ****: Data fetching and WebSocket logic should be extracted into custom hooks to simplify the main component.
+-   ****: Urgently needs to be broken down into smaller modules.
+-   ****: Data fetching and WebSocket logic should be extracted into custom hooks.
 
 **key api endpoints**
--   **Authentication**: , , , .
--   **Session Data**: , .
+-   **Authentication**: , , .
+-   **Fleet Management**: , , , .
 -   **Real-time**: .
 
 **Critical Info for New Agent**
--   The highest priority is to complete the user authentication feature that was just started. The file structure is in place, but the implementation is incomplete.
--   The user has explicitly stated that a single user account can be associated with multiple MMSIs. This will be the next major task after authentication is working.
--   The application was plagued by session isolation bugs, which have been fixed by refactoring both the backend (removing global state) and frontend (making component logic self-reliant). Do not re-introduce logic that trusts broadcasted flags like . All session-specific logic must be based on the session's unique identifier (the user's active MMSI).
--   After completing the auth feature, proposing a refactor of the monolithic  would be a valuable next step to improve project health.
+-   The user is very hands-on with UI/UX feedback. Be prepared for rapid, iterative visual changes.
+-   The application has just undergone a major professionalization pass. The next agent should adhere strictly to the new design system in .
+-   The highest priority is to get user confirmation on the latest HUD design. After that, move on to the Upcoming Tasks (Sound Alerts, MarineTraffic API).
+-   The technical debt in  and  is significant. Proposing a refactor for one of these after completing the next feature would be a valuable step.
 
 **documents and test reports created in this job**
+-    (updated)
+-   
 -   
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: We need user accounts and to save user data. Can we get this wired up?
-2.  **Agent**: Asks clarifying questions about authentication methods and how MMSIs relate to users.
-3.  **User**: Confirms they want both email/password (JWT) and Google Auth. States that a user can have multiple MMSIs.
-4.  **User**: (After agent started refactoring to fix session bleed) .
-5.  **User**: (Provides screenshot)  - highlighting that session data was still bleeding between browsers.
-6.  **Agent**: Identifies and fixes the root cause on the frontend.
-7.  **User**: (Provides another screenshot)  - showing the bug persists.
-8.  **Agent**: Realizes the fix was incomplete and continues to purge  checks from all frontend components.
-9.  **User**: 
-10. **User**:  - This confirms the priority is shifting to full authentication.
+1.  **User**: Asks to make the speedometer in the HUD look like a gauge.
+2.  **User**: Reports the new speedometer HUD is covering the map legend.
+3.  **User**: Rejects moving the HUD to under the compass ().
+4.  **User**: Rejects moving the HUD under the map title ().
+5.  **User**: Provides clear instructions: move HUD outside/above map, left-align under logo, make it text-only (no speedometer graphic), and reduce spacing.
+6.  **User**: Requests to add vessel MMSI and name to the new text-based HUD bar.
+7.  **Agent**: Implements the final HUD bar with all requested text.
+8.  **Agent**: Presents the final version of the HUD.
+9.  **User**: (Pending) The user has not yet responded to the agent's final implementation of the HUD bar.
+10. **(Summary of last interaction)**: The agent has just completed a series of rapid UI iterations based on user feedback, arriving at a compact, text-only HUD bar. The last action was presenting this final design to the user.
 
 **Project Health Check:**
--   **Broken**: No. The core functionality is stable. The new authentication feature is under construction.
+-   **Broken**: No. The application is stable and feature-complete for the current phase.
 -   **Mocked**: None.
 
 **3rd Party Integrations**
 -   **MongoDB**: Primary database.
 -   **USACE Web Scraping / XML API**: Provides live lock status and queue data.
--   **Emergent-managed Google Auth**: For social login. Integration playbook received.
+-   **Emergent-managed Google Auth**: For social login.
 -   **JWT (python-jose, passlib)**: For custom email/password authentication.
 
 **Testing status**
--   **Testing agent used after significant changes**: NO
+-   **Testing agent used after significant changes**: YES (after auth and fleet management).
 -   **Troubleshoot agent used after agent stuck in loop**: NO
 -   **Test files created**: []
--   **Known regressions**: None. The previous regressions have been fixed.
+-   **Known regressions**: None.
 
 **Credentials to test flow:**
 -   AIS TCP feed connects to IP  on port .
--   User accounts will need to be created via the new registration page once functional.
+-   User accounts can be created via the registration page. Test user: , pass: .
 
 **What agent forgot to execute**
--   The agent did not address the high-priority technical debt of refactoring the monolithic  file. With authentication logic now being added, this file's complexity is increasing, making the refactor more urgent.</analysis>
+-   The agent has consistently deferred the high-priority technical debt task of refactoring the monolithic  and complex  files. While this was a reasonable trade-off to address user-facing features and UI requests, this debt is mounting and should be addressed soon.</analysis>

@@ -190,8 +190,8 @@ async def register_user(data: UserRegistration, response: Response):
     )
     
     # Return user (without password)
-    del user_doc["password_hash"]
-    del user_doc["_id"] if "_id" in user_doc else None
+    user_doc.pop("password_hash", None)
+    user_doc.pop("_id", None)
     
     return {"success": True, "user": user_doc}
 

@@ -489,35 +489,6 @@ export default function Dashboard({
             </div>
           </div>
         </div>
-
-        {/* Mobile Quick Stats Bar */}
-        <div className="md:hidden border-t border-white/5 px-3 py-2 flex items-center justify-between bg-slate-900/30">
-          {raceAnalysis?.analysis ? (
-            <div className="flex items-center gap-4 w-full justify-around">
-              <div className="text-center">
-                <div className="font-heading text-[9px] uppercase tracking-widest text-slate-500">ETA</div>
-                <div className="font-mono text-lg text-cyan-400">
-                  {userEta ? `${Math.round(userEta)}m` : '--'}
-                </div>
-              </div>
-              <div className="text-center">
-                <div className="font-heading text-[9px] uppercase tracking-widest text-slate-500">Need</div>
-                <div className={`font-mono text-lg font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                  {requiredSpeed?.toFixed(0) || '--'} mph
-                </div>
-              </div>
-              <div className="text-center">
-                <div className={`font-heading text-sm uppercase tracking-wider px-2 py-0.5 rounded-sm ${isDangerous ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
-                  {isDangerous ? 'TRAFFIC' : 'CLEAR'}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="w-full text-center text-sm text-slate-500">
-              Select a lock to see timing analysis
-            </div>
-          )}
-        </div>
       </header>
 
       {/* Main Content */}

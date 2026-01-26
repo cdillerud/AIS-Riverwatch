@@ -363,10 +363,25 @@ async def get_current_user_info(request: Request):
 
 @api_router.post("/auth/logout")
 async def logout_user(request: Request, response: Response):
-    """Logout current user."""
+    """Logout current user and clear their vessel data."""
     session_token = request.cookies.get("session_token")
     
     if session_token:
+        # Get the user's session to find their MMSI
+        session = await db.user_sessions.find_one({"session_token": session_token})
+        if session:
+            user_id = session.get("user_id")
+            if user_id:
+                # Get user's vessels to clear them from active_vessels
+                user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+                if user and user.get("vessels"):
+                    for vessel in user["vessels"]:
+                        mmsi = vessel.get("mmsi")
+                        if mmsi and mmsi in active_vessels:
+                            del active_vessels[mmsi]
+                            logger.info(f"[AUTH] Cleared vessel {mmsi} from active_vessels on logout")
+        
+        # Delete the session
         await db.user_sessions.delete_one({"session_token": session_token})
     
     response.delete_cookie(key="session_token", path="/")

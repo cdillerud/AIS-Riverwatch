@@ -697,9 +697,9 @@ export default function Dashboard({
                     </div>
                   )}
                   
-                  {/* Integrated HUD - Bottom Left of Map (avoids legend on right) */}
-                  <div className="absolute bottom-0 left-0 z-30 pointer-events-none">
-                    <div className="pb-2 md:pb-3 pl-2">
+                  {/* Integrated HUD - Bottom Left of Map (desktop only, avoids legend on right) */}
+                  <div className="hidden md:block absolute bottom-0 left-0 z-30 pointer-events-none">
+                    <div className="pb-3 pl-2">
                       <div className="pointer-events-auto bg-slate-950/95 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl overflow-hidden">
                         {/* Main HUD Content */}
                         <div className="flex items-center">

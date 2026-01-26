@@ -719,16 +719,18 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
             )}
           </div>
 
-          {/* Historical USACE Sightings */}
-          {vesselData?.history && vesselData.history.length > 0 && (
-            <div className="glass-panel p-4 rounded-lg border border-green-500/30">
-              <h3 className="text-sm font-semibold text-green-400 mb-3 flex items-center gap-2">
-                <History className="w-4 h-4" />
-                USACE Sighting History
+          {/* Historical USACE Sightings - Always show */}
+          <div className="glass-panel p-4 rounded-lg border border-green-500/30">
+            <h3 className="text-sm font-semibold text-green-400 mb-3 flex items-center gap-2">
+              <History className="w-4 h-4" />
+              USACE Sighting History
+              {vesselData?.history?.length > 0 && (
                 <Badge className="bg-green-900/30 text-green-400 text-xs">
                   {vesselData.history.length} records
                 </Badge>
-              </h3>
+              )}
+            </h3>
+            {vesselData?.history && vesselData.history.length > 0 ? (
               <div className="space-y-2 max-h-[150px] overflow-y-auto">
                 {vesselData.history.slice(0, 10).map((record, idx) => (
                   <div 
@@ -769,15 +771,21 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="text-slate-500 text-sm text-center py-4">
+                No USACE sighting records
+              </div>
+            )}
+          </div>
 
           {/* First Seen Info */}
-          {vesselData?.current?.first_seen && (
-            <div className="text-xs text-slate-500 text-center">
-              First seen: {new Date(vesselData.current.first_seen).toLocaleString()}
-            </div>
-          )}
+          <div className="text-xs text-slate-500 text-center">
+            {vesselData?.current?.first_seen ? (
+              <>First seen: {new Date(vesselData.current.first_seen).toLocaleString()}</>
+            ) : (
+              <>No tracking history</>
+            )}
+          </div>
 
           {/* Data Source */}
           <div className="text-xs text-slate-500 text-center pt-2 border-t border-slate-700">

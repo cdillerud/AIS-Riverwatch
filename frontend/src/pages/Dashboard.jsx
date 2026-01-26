@@ -538,6 +538,17 @@ export default function Dashboard({
                     <Wifi className="w-4 h-4 mr-2" />
                     Change Connection
                   </Button>
+                  
+                  {/* Logout Button */}
+                  <Button
+                    variant="outline"
+                    onClick={() => { handleLogout(); setShowMobileMenu(false); }}
+                    className="border-red-500/50 text-red-400 justify-start mt-4"
+                    data-testid="mobile-logout-btn"
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout {user?.name && `(${user.name})`}
+                  </Button>
                 </div>
               </SheetContent>
             </Sheet>

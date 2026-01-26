@@ -8,6 +8,7 @@ import SetupPage from "@/pages/SetupPage";
 import SettingsPage from "@/pages/SettingsPage";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
+import LandingPage from "@/pages/LandingPage";
 import AuthCallback from "@/pages/AuthCallback";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 
@@ -22,8 +23,11 @@ function ProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
-        <div className="text-cyan-400">Loading...</div>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+          <span className="font-heading text-sm uppercase tracking-wider text-slate-400">Loading...</span>
+        </div>
       </div>
     );
   }
@@ -38,6 +42,7 @@ function ProtectedRoute({ children }) {
 // App Router - Check for auth callback first
 function AppRouter() {
   const location = useLocation();
+  const { isAuthenticated } = useAuth();
   
   // Check URL hash for session_id (Google OAuth callback)
   if (location.hash?.includes('session_id=')) {
@@ -46,13 +51,25 @@ function AppRouter() {
   
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      {/* Landing page - redirect to dashboard if already logged in */}
+      <Route path="/" element={
+        isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />
+      } />
+      <Route path="/login" element={
+        isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />
+      } />
+      <Route path="/register" element={
+        isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />
+      } />
       <Route path="/auth/callback" element={<AuthCallback />} />
-      <Route path="/*" element={
+      <Route path="/dashboard" element={
         <ProtectedRoute>
           <MainApp />
         </ProtectedRoute>
+      } />
+      {/* Catch-all redirect to landing or dashboard */}
+      <Route path="*" element={
+        isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/" replace />
       } />
     </Routes>
   );

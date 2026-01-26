@@ -730,6 +730,24 @@ export default function Dashboard({
                   </div>
                   
                   <div className="flex items-center gap-3">
+                    {/* Auto Next Lock Toggle */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setAutoNextLock(!autoNextLock);
+                        if (!autoNextLock && nextLock) {
+                          onSelectLock(nextLock.id);
+                          toast.success(`Auto-tracking: ${nextLock.name}`);
+                        }
+                      }}
+                      className={`h-7 px-2 ${autoNextLock ? 'bg-green-500/20 text-green-400' : 'text-slate-400 hover:text-white'}`}
+                      title={nextLock ? `Next lock: ${nextLock.name}` : 'No heading detected'}
+                    >
+                      <Target className="w-3 h-3 mr-1" />
+                      {autoNextLock ? 'Auto' : 'Next'}
+                    </Button>
+                    
                     {/* Zoom Controls */}
                     <div className="flex items-center gap-1">
                       <ZoomOut className="w-3 h-3 text-slate-500" />
@@ -750,8 +768,10 @@ export default function Dashboard({
                     <select
                       value={selectedLock}
                       onChange={(e) => {
+                        setAutoNextLock(false);
                         onSelectLock(e.target.value);
                       }}
+                      disabled={autoNextLock}
                       className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono"
                     >
                       {locks.map(lock => (

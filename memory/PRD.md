@@ -35,6 +35,18 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
     - Set primary vessel for lock timing calculations
     - Add/remove vessels from fleet in Settings page
     - MMSI uniqueness enforced (one user per MMSI)
+15. **Position Editor (NEW - Jan 26, 2026)** ✅
+    - Edit position directly from HUD bar (click "Set Position" or RM display)
+    - Set River Mile, Speed (MPH), and Course (°) manually
+    - Accessible even when no AIS data is available
+16. **Keyboard Shortcuts (NEW - Jan 26, 2026)** ✅
+    - `P` - Open position editor
+    - `M` - Switch to Map tab
+    - `L` - Switch to Locks tab
+    - `V` - Switch to Vessels tab
+    - `R` - Refresh data
+    - `Esc` - Close modal/editor
+    - `?` - Show keyboard shortcuts help
 
 ### Upcoming (P1)
 - Sound/Vibration Alerts for "Traffic Delay" warnings

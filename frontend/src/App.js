@@ -1,17 +1,65 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import Dashboard from "@/pages/Dashboard";
 import SetupPage from "@/pages/SetupPage";
 import SettingsPage from "@/pages/SettingsPage";
+import LoginPage from "@/pages/LoginPage";
+import RegisterPage from "@/pages/RegisterPage";
+import AuthCallback from "@/pages/AuthCallback";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
-function App() {
+// Protected Route wrapper
+function ProtectedRoute({ children }) {
+  const { isAuthenticated, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
+        <div className="text-cyan-400">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return children;
+}
+
+// App Router - Check for auth callback first
+function AppRouter() {
+  const location = useLocation();
+  
+  // Check URL hash for session_id (Google OAuth callback)
+  if (location.hash?.includes('session_id=')) {
+    return <AuthCallback />;
+  }
+  
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/*" element={
+        <ProtectedRoute>
+          <MainApp />
+        </ProtectedRoute>
+      } />
+    </Routes>
+  );
+}
+
+function MainApp() {
+  const { user } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [connectionConfig, setConnectionConfig] = useState(null);
   const [vessels, setVessels] = useState([]);
@@ -28,16 +76,34 @@ function App() {
     show_all_locks: true,
     alert_sound_enabled: true,
     alert_speed_threshold: 25,
-    show_buoys: false, // Hide buoys (MMSI starting with 99) by default
-    lock_buffer_minutes: 20, // Buffer time needed before commercial tow arrives
-    use_device_gps: false, // Enable continuous GPS tracking
-    show_vessel_names: true, // Show vessel names when available (vs MMSI)
+    show_buoys: false,
+    lock_buffer_minutes: 20,
+    use_device_gps: false,
+    show_vessel_names: true,
   });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const geoWatchRef = useRef(null);
   const autoRefreshRef = useRef(null);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
+
+  // Load primary vessel from user account
+  useEffect(() => {
+    if (user?.vessels?.length > 0) {
+      const primaryVessel = user.vessels.find(v => v.is_primary) || user.vessels[0];
+      if (primaryVessel) {
+        setUserMmsi(primaryVessel.mmsi);
+        // Auto-configure connection if we have a vessel
+        const storedConfig = localStorage.getItem('riverwatch_connection');
+        if (storedConfig) {
+          const config = JSON.parse(storedConfig);
+          config.user_mmsi = primaryVessel.mmsi;
+          config.boat_name = primaryVessel.boat_name;
+          setConnectionConfig(config);
+        }
+      }
+    }
+  }, [user]);
 
   // Full app refresh - clears stale data and reconnects
   const performFullRefresh = useCallback(() => {

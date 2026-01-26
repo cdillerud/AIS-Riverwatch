@@ -3826,15 +3826,7 @@ async def broadcast_raw_line(line: str):
 app.include_router(api_router)
 
 # CORS: When credentials are used, specific origins must be listed (not '*')
-cors_origins_env = os.environ.get('CORS_ORIGINS', '')
-if cors_origins_env:
-    cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
-else:
-    # Default origins for development and production
-    cors_origins = [
-        "http://localhost:3000",
-        "https://vessel-tracker-24.preview.emergentagent.com"
-    ]
+cors_origins = get_cors_origins()
 
 app.add_middleware(
     CORSMiddleware,

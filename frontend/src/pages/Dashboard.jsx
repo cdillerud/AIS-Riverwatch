@@ -752,32 +752,22 @@ export default function Dashboard({
                     </div>
                   )}
                   
-                  {/* Floating Quick Stats - Bottom Center */}
+                  {/* Floating Vessel HUD - Minimal position display */}
                   {userVessel && (
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 glass-panel border border-slate-600 rounded-lg px-4 py-2">
-                      <div className="flex items-center gap-6">
-                        <div className="text-center">
-                          <div className="text-[10px] text-slate-500 uppercase">Your RM</div>
-                          <div className="text-lg font-mono text-cyan-400">{userVessel.river_mile?.toFixed(1) || '--'}</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-[10px] text-slate-500 uppercase">Speed</div>
-                          <div className="text-lg font-mono text-white">{(userVessel.speed * 1.15078).toFixed(1)} <span className="text-xs text-slate-400">mph</span></div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-[10px] text-slate-500 uppercase">ETA Lock</div>
-                          <div className="text-lg font-mono text-amber-400">
-                            {raceAnalysis?.analysis?.user_eta_minutes 
-                              ? `${Math.round(raceAnalysis.analysis.user_eta_minutes)}m`
-                              : '--'}
-                          </div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-[10px] text-slate-500 uppercase">Need</div>
-                          <div className={`text-lg font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                            {raceAnalysis?.analysis?.required_speed_mph?.toFixed(0) || '--'} <span className="text-xs">mph</span>
-                          </div>
-                        </div>
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30">
+                      <div className="flex items-center gap-1 bg-slate-950/90 backdrop-blur-sm border border-white/10 rounded-sm px-3 py-1.5">
+                        <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                        <span className="font-mono text-sm text-cyan-400 font-medium">
+                          RM {userVessel.river_mile?.toFixed(1)}
+                        </span>
+                        <span className="text-slate-600 mx-1">•</span>
+                        <span className="font-mono text-sm text-white">
+                          {(userVessel.speed * 1.15078).toFixed(0)} mph
+                        </span>
+                        <span className="text-slate-600 mx-1">•</span>
+                        <span className={`font-mono text-sm ${userVessel.heading === 'northbound' ? 'text-green-400' : userVessel.heading === 'southbound' ? 'text-amber-400' : 'text-slate-400'}`}>
+                          {userVessel.heading === 'northbound' ? '↑ N' : userVessel.heading === 'southbound' ? '↓ S' : '—'}
+                        </span>
                       </div>
                     </div>
                   )}

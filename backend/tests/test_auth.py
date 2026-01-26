@@ -27,8 +27,10 @@ NEW_USER_EMAIL = f"newuser_{uuid.uuid4().hex[:8]}@example.com"
 NEW_USER_PASSWORD = "newpass456"
 NEW_USER_NAME = "New User"
 
-TEST_MMSI_1 = "123456789"
-TEST_MMSI_2 = "987654321"
+# Use unique MMSIs for each test run to avoid "already claimed" errors
+import random
+TEST_MMSI_1 = f"{random.randint(100000000, 999999999)}"
+TEST_MMSI_2 = f"{random.randint(100000000, 999999999)}"
 TEST_BOAT_NAME_1 = "Test Boat One"
 TEST_BOAT_NAME_2 = "Test Boat Two"
 

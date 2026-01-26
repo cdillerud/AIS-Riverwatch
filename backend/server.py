@@ -1,6 +1,18 @@
-# River Watch Backend - Version 2026-01-25
+# River Watch Backend - Version 2026-01-26
 # SESSION ISOLATION: All user data is strictly isolated by MMSI (session ID)
 # USER AUTHENTICATION: Email/password + Google OAuth
+#
+# ARCHITECTURE NOTE:
+# This file is being incrementally refactored. New modular structure:
+#   - /backend/config.py          - Configuration and constants
+#   - /backend/database.py        - Database connection
+#   - /backend/models/            - Pydantic models
+#   - /backend/services/          - Business logic
+#   - /backend/routes/            - API route handlers (future)
+#   - /backend/websocket/         - WebSocket handlers (future)
+#
+# For new features, use the modular structure. See /backend/README.md
+
 from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Request, Response, Cookie
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
@@ -21,6 +33,16 @@ from bs4 import BeautifulSoup
 import re
 import hashlib
 import secrets
+
+# Import from new modular structure (for reusable logic)
+from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins
+from services.navigation_service import (
+    estimate_river_mile as _estimate_river_mile,
+    river_mile_to_coords as _river_mile_to_coords,
+    determine_heading as _determine_heading,
+    calculate_eta_to_lock as _calculate_eta_to_lock,
+    calculate_required_speed as _calculate_required_speed
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')

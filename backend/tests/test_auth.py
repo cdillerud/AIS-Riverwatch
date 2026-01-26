@@ -279,6 +279,9 @@ class TestVesselManagement:
         
         self.test_email = vessel_email
         self.session = api_session
+        # Generate unique MMSIs for each test
+        self.mmsi_1 = f"{random.randint(100000000, 999999999)}"
+        self.mmsi_2 = f"{random.randint(100000000, 999999999)}"
         yield
         
         # Cleanup - logout
@@ -289,7 +292,7 @@ class TestVesselManagement:
         response = self.session.post(
             f"{BASE_URL}/api/user/vessels",
             json={
-                "mmsi": TEST_MMSI_1,
+                "mmsi": self.mmsi_1,
                 "boat_name": TEST_BOAT_NAME_1,
                 "is_primary": True
             }
@@ -300,11 +303,11 @@ class TestVesselManagement:
         
         assert data.get("success") == True
         assert "vessel" in data
-        assert data["vessel"]["mmsi"] == TEST_MMSI_1
+        assert data["vessel"]["mmsi"] == self.mmsi_1
         assert data["vessel"]["boat_name"] == TEST_BOAT_NAME_1
         assert data["vessel"]["is_primary"] == True
         
-        print(f"✓ Added vessel: {TEST_BOAT_NAME_1} (MMSI: {TEST_MMSI_1})")
+        print(f"✓ Added vessel: {TEST_BOAT_NAME_1} (MMSI: {self.mmsi_1})")
     
     def test_get_user_vessels(self):
         """Test getting user's fleet."""
@@ -312,7 +315,7 @@ class TestVesselManagement:
         self.session.post(
             f"{BASE_URL}/api/user/vessels",
             json={
-                "mmsi": TEST_MMSI_1,
+                "mmsi": self.mmsi_1,
                 "boat_name": TEST_BOAT_NAME_1,
                 "is_primary": True
             }
@@ -328,7 +331,7 @@ class TestVesselManagement:
         assert len(data["vessels"]) >= 1
         
         # Find our vessel
-        vessel = next((v for v in data["vessels"] if v["mmsi"] == TEST_MMSI_1), None)
+        vessel = next((v for v in data["vessels"] if v["mmsi"] == self.mmsi_1), None)
         assert vessel is not None
         assert vessel["boat_name"] == TEST_BOAT_NAME_1
         
@@ -340,7 +343,7 @@ class TestVesselManagement:
         self.session.post(
             f"{BASE_URL}/api/user/vessels",
             json={
-                "mmsi": TEST_MMSI_1,
+                "mmsi": self.mmsi_1,
                 "boat_name": TEST_BOAT_NAME_1,
                 "is_primary": True
             }
@@ -350,7 +353,7 @@ class TestVesselManagement:
         response = self.session.post(
             f"{BASE_URL}/api/user/vessels",
             json={
-                "mmsi": TEST_MMSI_2,
+                "mmsi": self.mmsi_2,
                 "boat_name": TEST_BOAT_NAME_2,
                 "is_primary": False
             }
@@ -370,15 +373,15 @@ class TestVesselManagement:
         # Add two vessels
         self.session.post(
             f"{BASE_URL}/api/user/vessels",
-            json={"mmsi": TEST_MMSI_1, "boat_name": TEST_BOAT_NAME_1, "is_primary": True}
+            json={"mmsi": self.mmsi_1, "boat_name": TEST_BOAT_NAME_1, "is_primary": True}
         )
         self.session.post(
             f"{BASE_URL}/api/user/vessels",
-            json={"mmsi": TEST_MMSI_2, "boat_name": TEST_BOAT_NAME_2, "is_primary": False}
+            json={"mmsi": self.mmsi_2, "boat_name": TEST_BOAT_NAME_2, "is_primary": False}
         )
         
         # Set second vessel as primary
-        response = self.session.put(f"{BASE_URL}/api/user/vessels/{TEST_MMSI_2}/primary")
+        response = self.session.put(f"{BASE_URL}/api/user/vessels/{self.mmsi_2}/primary")
         
         assert response.status_code == 200, f"Set primary failed: {response.text}"
         data = response.json()
@@ -388,9 +391,11 @@ class TestVesselManagement:
         vessels_response = self.session.get(f"{BASE_URL}/api/user/vessels")
         vessels = vessels_response.json()["vessels"]
         
-        vessel_1 = next((v for v in vessels if v["mmsi"] == TEST_MMSI_1), None)
-        vessel_2 = next((v for v in vessels if v["mmsi"] == TEST_MMSI_2), None)
+        vessel_1 = next((v for v in vessels if v["mmsi"] == self.mmsi_1), None)
+        vessel_2 = next((v for v in vessels if v["mmsi"] == self.mmsi_2), None)
         
+        assert vessel_1 is not None, f"Vessel 1 not found. Vessels: {vessels}"
+        assert vessel_2 is not None, f"Vessel 2 not found. Vessels: {vessels}"
         assert vessel_1["is_primary"] == False
         assert vessel_2["is_primary"] == True
         
@@ -401,11 +406,11 @@ class TestVesselManagement:
         # Add a vessel
         self.session.post(
             f"{BASE_URL}/api/user/vessels",
-            json={"mmsi": TEST_MMSI_1, "boat_name": TEST_BOAT_NAME_1, "is_primary": True}
+            json={"mmsi": self.mmsi_1, "boat_name": TEST_BOAT_NAME_1, "is_primary": True}
         )
         
         # Remove it
-        response = self.session.delete(f"{BASE_URL}/api/user/vessels/{TEST_MMSI_1}")
+        response = self.session.delete(f"{BASE_URL}/api/user/vessels/{self.mmsi_1}")
         
         assert response.status_code == 200, f"Remove vessel failed: {response.text}"
         data = response.json()
@@ -415,23 +420,23 @@ class TestVesselManagement:
         vessels_response = self.session.get(f"{BASE_URL}/api/user/vessels")
         vessels = vessels_response.json()["vessels"]
         
-        vessel = next((v for v in vessels if v["mmsi"] == TEST_MMSI_1), None)
+        vessel = next((v for v in vessels if v["mmsi"] == self.mmsi_1), None)
         assert vessel is None
         
-        print(f"✓ Vessel removed: {TEST_MMSI_1}")
+        print(f"✓ Vessel removed: {self.mmsi_1}")
     
     def test_add_duplicate_vessel_fails(self):
         """Test that adding the same MMSI twice fails."""
         # Add vessel first time
         self.session.post(
             f"{BASE_URL}/api/user/vessels",
-            json={"mmsi": TEST_MMSI_1, "boat_name": TEST_BOAT_NAME_1, "is_primary": True}
+            json={"mmsi": self.mmsi_1, "boat_name": TEST_BOAT_NAME_1, "is_primary": True}
         )
         
         # Try to add same MMSI again
         response = self.session.post(
             f"{BASE_URL}/api/user/vessels",
-            json={"mmsi": TEST_MMSI_1, "boat_name": "Different Name", "is_primary": False}
+            json={"mmsi": self.mmsi_1, "boat_name": "Different Name", "is_primary": False}
         )
         
         assert response.status_code == 400

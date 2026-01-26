@@ -517,6 +517,9 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
 
+          {/* Fleet Management - Multiple Vessels */}
+          <VesselManagement />
+
           {/* Self Position - Bypasses AIS self-suppression */}
           <Card className="glass-panel border-white/10 border-l-4 border-l-green-500">
             <CardHeader>

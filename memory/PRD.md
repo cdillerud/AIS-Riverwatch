@@ -129,6 +129,18 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 
 ## Recent Changes (Jan 2026)
 
+### Backend Refactoring (Jan 26, 2026) ✅
+- Created modular backend structure:
+  - `/backend/config.py` - Configuration constants (LOCKS, CORS origins)
+  - `/backend/database.py` - MongoDB connection
+  - `/backend/models/` - Pydantic models (auth, vessel, lock)
+  - `/backend/services/` - Business logic (auth_service, navigation_service)
+  - `/backend/routes/` - API route templates for future migration
+  - `/backend/README.md` - Architecture documentation
+- Fixed CORS configuration for credentials mode (changed from wildcard to explicit origins)
+- server.py now imports from modular config and services
+- All routes remain functional with zero downtime
+
 ### User Authentication Implementation
 - Added email/password registration and login
 - Integrated Google OAuth via Emergent-managed auth
@@ -144,11 +156,22 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 
 ## Known Issues
 - WebSocket dev server errors in console (harmless - hot reload trying to connect)
-- Backend server.py is monolithic (3000+ lines) - needs refactoring
 
-## Refactoring Needed
-- Break down `backend/server.py` into smaller modules (routes, services, models)
-- Extract frontend logic into custom hooks (useWebSocket, useAuth, useApiData)
+## Refactoring Status
+### Completed ✅
+- Configuration extraction to `/backend/config.py`
+- Pydantic models extraction to `/backend/models/`
+- Navigation service extraction to `/backend/services/navigation_service.py`
+- Auth service extraction to `/backend/services/auth_service.py`
+
+### In Progress 🔄
+- Route migration (templates in `/backend/routes/`)
+
+### Planned ⏳
+- AIS service extraction
+- USACE service extraction
+- WebSocket handlers extraction
+- Frontend hook extraction (useWebSocket, useApiData)
 
 ## Test Reports
 - `/app/test_reports/iteration_3.json` - Latest test results (100% pass rate)

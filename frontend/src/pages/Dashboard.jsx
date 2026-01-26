@@ -702,68 +702,57 @@ export default function Dashboard({
                     <div className="flex justify-center pb-2 md:pb-3 px-2">
                       <div className="pointer-events-auto bg-slate-950/95 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl overflow-hidden max-w-full">
                         {/* Main HUD Content */}
-                        <div className="flex items-stretch flex-wrap md:flex-nowrap justify-center">
-                          {/* Your Position */}
+                        <div className="flex items-center justify-center gap-1 md:gap-0">
+                          {/* Left Side - Position */}
                           {userVessel && (
-                            <div className="flex items-center gap-2 px-2 md:px-4 py-1.5 md:py-2 border-r border-white/10">
-                              <div className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]" />
+                            <div className="flex items-center gap-2 px-3 md:px-4 py-2 border-r border-white/10">
+                              <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]" />
                               <div>
-                                <div className="text-[8px] md:text-[9px] font-heading uppercase tracking-widest text-slate-500">Pos</div>
-                                <div className="font-mono text-sm md:text-lg text-cyan-400 font-semibold leading-tight">
-                                  {userVessel.river_mile?.toFixed(1)}
+                                <div className="text-[8px] font-heading uppercase tracking-widest text-slate-500">Position</div>
+                                <div className="font-mono text-base md:text-lg text-cyan-400 font-semibold leading-tight">
+                                  RM {userVessel.river_mile?.toFixed(1)}
                                 </div>
                               </div>
                             </div>
                           )}
                           
-                          {/* Your Speed */}
-                          {userVessel && (
-                            <div className="flex items-center px-2 md:px-4 py-1.5 md:py-2 border-r border-white/10">
+                          {/* Center - Speedometer */}
+                          <div className="px-2 md:px-4 py-1">
+                            <Speedometer
+                              currentSpeed={userVessel ? userVessel.speed * 1.15078 : 0}
+                              requiredSpeed={requiredSpeed}
+                              maxSpeed={40}
+                              size={90}
+                              isDanger={isDangerous}
+                            />
+                          </div>
+
+                          {/* Right Side - Timing */}
+                          <div className="flex items-center border-l border-white/10">
+                            {/* ETA to Lock */}
+                            <div className="flex items-center px-3 md:px-4 py-2 border-r border-white/10">
                               <div>
-                                <div className="text-[8px] md:text-[9px] font-heading uppercase tracking-widest text-slate-500">Spd</div>
-                                <div className="font-mono text-sm md:text-lg text-white font-semibold leading-tight">
-                                  {(userVessel.speed * 1.15078).toFixed(0)}
+                                <div className="text-[8px] font-heading uppercase tracking-widest text-slate-500">ETA</div>
+                                <div className="font-mono text-base md:text-lg text-amber-400 font-semibold leading-tight">
+                                  {userEta ? `${Math.round(userEta)}m` : '--'}
                                 </div>
                               </div>
                             </div>
-                          )}
 
-                          {/* Divider with glow - hidden on mobile */}
-                          <div className="hidden md:block w-px bg-gradient-to-b from-transparent via-cyan-500/50 to-transparent" />
-
-                          {/* ETA to Lock */}
-                          <div className="flex items-center px-2 md:px-4 py-1.5 md:py-2 border-r border-white/10">
-                            <div>
-                              <div className="text-[8px] md:text-[9px] font-heading uppercase tracking-widest text-slate-500">ETA</div>
-                              <div className="font-mono text-sm md:text-lg text-amber-400 font-semibold leading-tight">
-                                {userEta ? `${Math.round(userEta)}m` : '--'}
+                            {/* Status */}
+                            <div className={`flex items-center px-3 md:px-4 py-2 h-full ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
+                              <div className={`font-heading text-sm md:text-base font-bold uppercase tracking-wider leading-tight ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                                {isDangerous ? 'DELAY' : 'CLEAR'}
                               </div>
+                              {isDangerous && (
+                                <AlertTriangle className="w-4 h-4 text-red-400 ml-1.5 animate-pulse" />
+                              )}
                             </div>
-                          </div>
-
-                          {/* Required Speed */}
-                          <div className="flex items-center px-2 md:px-4 py-1.5 md:py-2 border-r border-white/10">
-                            <div>
-                              <div className="text-[8px] md:text-[9px] font-heading uppercase tracking-widest text-slate-500">Need</div>
-                              <div className={`font-mono text-sm md:text-lg font-bold leading-tight ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                                {requiredSpeed?.toFixed(0) || '--'}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Status */}
-                          <div className={`flex items-center px-2 md:px-4 py-1.5 md:py-2 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
-                            <div className={`font-heading text-xs md:text-sm font-bold uppercase tracking-wider leading-tight ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                              {isDangerous ? 'DELAY' : 'CLEAR'}
-                            </div>
-                            {isDangerous && (
-                              <AlertTriangle className="w-3 h-3 md:w-4 md:h-4 text-red-400 ml-1 animate-pulse" />
-                            )}
                           </div>
                         </div>
                         
-                        {/* Target Lock indicator - hidden on mobile */}
-                        <div className="hidden md:flex bg-slate-900/50 px-4 py-1 border-t border-white/5 items-center justify-center gap-2">
+                        {/* Target Lock indicator */}
+                        <div className="bg-slate-900/50 px-4 py-1 border-t border-white/5 flex items-center justify-center gap-2">
                           <Lock className="w-3 h-3 text-slate-500" />
                           <span className="text-[10px] font-heading uppercase tracking-wider text-slate-500">
                             Target: {selectedLockObj?.name || 'Select Lock'}

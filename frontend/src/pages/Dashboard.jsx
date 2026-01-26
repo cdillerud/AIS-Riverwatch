@@ -497,12 +497,25 @@ export default function Dashboard({
         <div className="container mx-auto px-4 py-1.5">
           <div className="flex items-center">
             <div className="flex items-center bg-slate-950/80 border border-white/10 rounded text-xs">
+              {/* MMSI & Vessel Name */}
+              {userMmsi && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="font-mono text-slate-400">{userMmsi}</span>
+                  {userVessel?.name && (
+                    <>
+                      <span className="text-slate-600">|</span>
+                      <span className="text-cyan-400 font-medium">{userVessel.name}</span>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Position */}
               {userVessel && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                   <span className="text-slate-500 font-heading uppercase text-[10px]">RM</span>
-                  <span className="font-mono text-cyan-400 font-semibold">{userVessel.river_mile?.toFixed(1)}</span>
+                  <span className="font-mono text-white font-semibold">{userVessel.river_mile?.toFixed(1)}</span>
                 </div>
               )}
               
@@ -520,6 +533,7 @@ export default function Dashboard({
                 <span className={`font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
                   {requiredSpeed?.toFixed(0) || '--'}
                 </span>
+                <span className="text-slate-500 text-[10px]">mph</span>
               </div>
 
               {/* ETA */}

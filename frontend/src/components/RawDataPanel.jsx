@@ -30,7 +30,7 @@ const getSentenceInfo = (line) => {
   return { type: 'OTHER', icon: Radio, color: 'text-slate-400', bg: 'bg-slate-900/20' };
 };
 
-export default function RawDataPanel({ isConnected }) {
+export default function RawDataPanel({ isConnected, compact = false }) {
   const [lines, setLines] = useState([]);
   const [isPaused, setIsPaused] = useState(false);
   const [filter, setFilter] = useState('all'); // 'all', 'gps', 'ais', 'own'

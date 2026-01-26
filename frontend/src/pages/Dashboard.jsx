@@ -696,25 +696,84 @@ export default function Dashboard({
                     </div>
                   )}
                   
-                  {/* Floating Vessel HUD - Minimal position display */}
-                  {userVessel && (
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30">
-                      <div className="flex items-center gap-1 bg-slate-950/90 backdrop-blur-sm border border-white/10 rounded-sm px-3 py-1.5">
-                        <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                        <span className="font-mono text-sm text-cyan-400 font-medium">
-                          RM {userVessel.river_mile?.toFixed(1)}
-                        </span>
-                        <span className="text-slate-600 mx-1">•</span>
-                        <span className="font-mono text-sm text-white">
-                          {(userVessel.speed * 1.15078).toFixed(0)} mph
-                        </span>
-                        <span className="text-slate-600 mx-1">•</span>
-                        <span className={`font-mono text-sm ${userVessel.heading === 'northbound' ? 'text-green-400' : userVessel.heading === 'southbound' ? 'text-amber-400' : 'text-slate-400'}`}>
-                          {userVessel.heading === 'northbound' ? '↑ N' : userVessel.heading === 'southbound' ? '↓ S' : '—'}
-                        </span>
+                  {/* Integrated HUD - Bottom of Map */}
+                  <div className="absolute bottom-0 left-0 right-0 z-30 pointer-events-none">
+                    <div className="flex justify-center pb-3">
+                      <div className="pointer-events-auto bg-slate-950/95 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl overflow-hidden">
+                        {/* Main HUD Content */}
+                        <div className="flex items-stretch">
+                          {/* Your Position */}
+                          {userVessel && (
+                            <div className="flex items-center gap-3 px-4 py-2 border-r border-white/10">
+                              <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]" />
+                              <div>
+                                <div className="text-[9px] font-heading uppercase tracking-widest text-slate-500">Position</div>
+                                <div className="font-mono text-lg text-cyan-400 font-semibold leading-tight">
+                                  RM {userVessel.river_mile?.toFixed(1)}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Your Speed */}
+                          {userVessel && (
+                            <div className="flex items-center px-4 py-2 border-r border-white/10">
+                              <div>
+                                <div className="text-[9px] font-heading uppercase tracking-widest text-slate-500">Speed</div>
+                                <div className="font-mono text-lg text-white font-semibold leading-tight">
+                                  {(userVessel.speed * 1.15078).toFixed(0)} <span className="text-xs text-slate-400">mph</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Divider with glow */}
+                          <div className="w-px bg-gradient-to-b from-transparent via-cyan-500/50 to-transparent" />
+
+                          {/* ETA to Lock */}
+                          <div className="flex items-center px-4 py-2 border-r border-white/10">
+                            <div>
+                              <div className="text-[9px] font-heading uppercase tracking-widest text-slate-500">ETA Lock</div>
+                              <div className="font-mono text-lg text-amber-400 font-semibold leading-tight">
+                                {userEta ? `${Math.round(userEta)}` : '--'} <span className="text-xs text-slate-400">min</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Required Speed */}
+                          <div className="flex items-center px-4 py-2 border-r border-white/10">
+                            <div>
+                              <div className="text-[9px] font-heading uppercase tracking-widest text-slate-500">Need</div>
+                              <div className={`font-mono text-lg font-bold leading-tight ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                                {requiredSpeed?.toFixed(0) || '--'} <span className="text-xs text-slate-400">mph</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Status */}
+                          <div className={`flex items-center px-4 py-2 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
+                            <div className="text-center">
+                              <div className="text-[9px] font-heading uppercase tracking-widest text-slate-500">Status</div>
+                              <div className={`font-heading text-lg font-bold uppercase tracking-wider leading-tight ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                                {isDangerous ? 'TRAFFIC' : 'CLEAR'}
+                              </div>
+                            </div>
+                            {isDangerous && (
+                              <AlertTriangle className="w-4 h-4 text-red-400 ml-2 animate-pulse" />
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Target Lock indicator */}
+                        <div className="bg-slate-900/50 px-4 py-1 border-t border-white/5 flex items-center justify-center gap-2">
+                          <Lock className="w-3 h-3 text-slate-500" />
+                          <span className="text-[10px] font-heading uppercase tracking-wider text-slate-500">
+                            Target: {selectedLockObj?.name || 'Select Lock'}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   {/* Floating Position Editor - Shows when editing from map click */}
                   {showPositionEditor && (

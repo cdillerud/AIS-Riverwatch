@@ -694,50 +694,50 @@ function MainApp() {
     );
   }
 
+  // Main dashboard or setup page based on connection state
   return (
     <div className="app-container bg-[#020617] min-h-screen">
-      <BrowserRouter>
-        <Routes>
-          <Route 
-            path="/" 
-            element={
-              connectionConfig ? (
-                <Dashboard 
-                  isConnected={isConnected}
-                  vessels={vessels
-                    .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
-                    .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"))
-                  }
-                  userMmsi={userMmsi}
-                  locks={locks}
-                  lockStatus={lockStatus}
-                  lockageTimes={lockageTimes}
-                  raceAnalysis={raceAnalysis}
-                  selectedLock={selectedLock}
-                  onSelectLock={setSelectedLock}
-                  onDisconnect={handleDisconnect}
-                  onResetConnection={handleResetConnection}
-                  onReconnect={() => connectWebSocket(connectionConfig)}
-                  onOpenSettings={() => setShowSettings(true)}
-                  connectionConfig={connectionConfig}
-                  userSettings={userSettings}
-                  onRefresh={performSoftRefresh}
-                  onFullRefresh={performFullRefresh}
-                  lastRefresh={lastRefresh}
-                />
-              ) : (
-                <SetupPage onConnect={handleConnect} />
-              )
-            } 
-          />
-          <Route 
-            path="/setup" 
-            element={<SetupPage onConnect={handleConnect} />} 
-          />
-        </Routes>
-      </BrowserRouter>
+      {connectionConfig ? (
+        <Dashboard 
+          isConnected={isConnected}
+          vessels={vessels
+            .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
+            .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"))
+          }
+          userMmsi={userMmsi}
+          locks={locks}
+          lockStatus={lockStatus}
+          lockageTimes={lockageTimes}
+          raceAnalysis={raceAnalysis}
+          selectedLock={selectedLock}
+          onSelectLock={setSelectedLock}
+          onDisconnect={handleDisconnect}
+          onResetConnection={handleResetConnection}
+          onReconnect={() => connectWebSocket(connectionConfig)}
+          onOpenSettings={() => setShowSettings(true)}
+          connectionConfig={connectionConfig}
+          userSettings={userSettings}
+          onRefresh={performSoftRefresh}
+          onFullRefresh={performFullRefresh}
+          lastRefresh={lastRefresh}
+        />
+      ) : (
+        <SetupPage onConnect={handleConnect} />
+      )}
       <Toaster position="top-right" theme="dark" />
     </div>
+  );
+}
+
+// Root App component - wraps everything with BrowserRouter and AuthProvider
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRouter />
+      </AuthProvider>
+      <Toaster position="top-right" theme="dark" />
+    </BrowserRouter>
   );
 }
 

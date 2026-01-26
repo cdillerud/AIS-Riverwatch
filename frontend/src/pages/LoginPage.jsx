@@ -58,7 +58,7 @@ export default function LoginPage() {
             <div className="flex items-center justify-center gap-2 mb-4">
               <Radio className="w-8 h-8 text-cyan-400" />
               <span className="font-heading text-xl font-bold uppercase tracking-wider text-white">
-                River Watch
+                RiverWatch<span className="text-cyan-400 ml-1">AIS</span>
               </span>
             </div>
             <h1 className="font-heading text-2xl font-bold uppercase tracking-wide text-white mb-2">

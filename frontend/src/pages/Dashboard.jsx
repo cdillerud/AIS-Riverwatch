@@ -460,6 +460,19 @@ export default function Dashboard({
                 <span className="hidden lg:inline">MMSI: </span>
                 <span className="font-mono text-xs">{userMmsi?.slice(-4) || '----'}</span>
               </Button>
+              
+              {/* Logout Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLogout}
+                className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+                data-testid="logout-btn"
+                title={user?.name || user?.email || 'Logout'}
+              >
+                <LogOut className="w-4 h-4 mr-1" />
+                <span className="hidden lg:inline">Logout</span>
+              </Button>
             </div>
 
             {/* Mobile Menu Button */}

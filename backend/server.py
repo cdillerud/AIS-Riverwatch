@@ -3597,9 +3597,10 @@ async def update_session_position(session_mmsi: str, data: dict):
     
     logger.info(f"[SESSION:{session_mmsi}] Position stored: RM={rm:.1f}, speed={speed}")
     
-    # Return vessel data (is_user_vessel=True because this IS the session's vessel)
+    # Persist vessel sighting to database
     v_dict = prepare_vessel_for_output(vessel, session_mmsi)
     v_dict['source'] = source
+    asyncio.create_task(persist_vessel_sighting(v_dict))
     
     return {"success": True, "session_mmsi": session_mmsi, "vessel": v_dict}
 

@@ -31,6 +31,7 @@ import LockStatusPanel from "@/components/LockStatusPanel";
 import VesselDetailModal from "@/components/VesselDetailModal";
 import LockDetailModal from "@/components/LockDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
+import Speedometer from "@/components/Speedometer";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
 import { useAuth } from "@/context/AuthContext";
 

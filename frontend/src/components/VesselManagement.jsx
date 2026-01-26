@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 
-export default function VesselManagement() {
+function VesselManagementComponent() {
   const { user, addVessel, removeVessel, setPrimaryVessel, refreshUser } = useAuth();
   const [newMmsi, setNewMmsi] = useState("");
   const [newBoatName, setNewBoatName] = useState("");

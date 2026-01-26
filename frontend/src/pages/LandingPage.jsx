@@ -36,7 +36,7 @@ export default function LandingPage() {
               </div>
             </div>
             <h1 className="font-heading text-2xl md:text-3xl font-bold tracking-wider uppercase text-white">
-              River Watch
+              RiverWatch<span className="text-cyan-400 ml-1">AIS</span>
             </h1>
           </div>
 

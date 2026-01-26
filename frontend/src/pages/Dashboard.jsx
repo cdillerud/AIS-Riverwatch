@@ -263,6 +263,82 @@ export default function Dashboard({
   // Focused vessel - when set, map will center on this vessel
   const [focusedVessel, setFocusedVessel] = useState(null);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger shortcuts when typing in inputs
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      // Don't trigger with modifier keys (except for refresh)
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      
+      switch (e.key.toLowerCase()) {
+        case 'p':
+          // P = Edit Position
+          e.preventDefault();
+          openPositionEditor();
+          break;
+        case 'l':
+          // L = Switch to Locks tab
+          e.preventDefault();
+          setDesktopPanel("locks");
+          setMobilePanel("locks");
+          toast.info("Switched to Locks", { duration: 1500 });
+          break;
+        case 'v':
+          // V = Switch to Vessels tab
+          e.preventDefault();
+          setDesktopPanel("vessels");
+          setMobilePanel("vessels");
+          toast.info("Switched to Vessels", { duration: 1500 });
+          break;
+        case 'm':
+          // M = Switch to Map tab
+          e.preventDefault();
+          setDesktopPanel("map");
+          setMobilePanel("map");
+          toast.info("Switched to Map", { duration: 1500 });
+          break;
+        case 'r':
+          // R = Refresh data
+          e.preventDefault();
+          handleRefresh();
+          break;
+        case 'escape':
+          // Escape = Close position editor or modals
+          if (showPositionEditor) {
+            setShowPositionEditor(false);
+          } else if (selectedVessel) {
+            setSelectedVessel(null);
+          } else if (selectedLockDetail) {
+            setSelectedLockDetail(null);
+          }
+          break;
+        case '?':
+          // ? = Show keyboard shortcuts help
+          e.preventDefault();
+          toast.info(
+            <div className="space-y-1 text-xs">
+              <p className="font-bold mb-2">Keyboard Shortcuts</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">P</kbd> Edit Position</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">M</kbd> Map Tab</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">L</kbd> Locks Tab</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">V</kbd> Vessels Tab</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">R</kbd> Refresh</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">Esc</kbd> Close Modal</p>
+            </div>,
+            { duration: 5000 }
+          );
+          break;
+        default:
+          break;
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showPositionEditor, selectedVessel, selectedLockDetail]);
+
   // Find the nearest lock to a given vessel based on its heading
   const findNearestLock = (vessel) => {
     if (!vessel?.river_mile || !locks.length) return null;

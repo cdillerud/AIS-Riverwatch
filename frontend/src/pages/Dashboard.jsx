@@ -116,6 +116,9 @@ export default function Dashboard({
   const [editSpeed, setEditSpeed] = useState("");
   const [editCourse, setEditCourse] = useState("");
   
+  // Auto next lock tracking
+  const [autoNextLock, setAutoNextLock] = useState(false);
+  
   // Alert dismissal - tracks which threat was dismissed
   const [dismissedThreatMmsi, setDismissedThreatMmsi] = useState(null);
 
@@ -164,6 +167,13 @@ export default function Dashboard({
     }
     return closest;
   }, [userVessel, locks]);
+
+  // Auto-update selected lock when autoNextLock is enabled
+  useEffect(() => {
+    if (autoNextLock && nextLock && nextLock.id !== selectedLock) {
+      onSelectLock(nextLock.id);
+    }
+  }, [autoNextLock, nextLock, selectedLock, onSelectLock]);
 
   // Commercial vessels (non-user) - ONLY exclude by MMSI match
   const commercialVessels = useMemo(() => {

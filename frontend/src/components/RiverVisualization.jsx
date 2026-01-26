@@ -679,20 +679,38 @@ const RiverVisualizationComponent = ({
               </div>
             )}
 
-            {/* View Details Button */}
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full mt-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 h-8"
-              onClick={() => {
-                onVesselDetails(mapSelectedVessel);
-                setMapSelectedVessel(null);
-              }}
-              data-testid="view-vessel-details-btn"
-            >
-              <ExternalLink className="w-3 h-3 mr-1" />
-              View Details / Edit
-            </Button>
+            {/* Edit Position Button - Only for user's vessel */}
+            {userMmsi && mapSelectedVessel.mmsi === userMmsi && (
+              <Button
+                size="sm"
+                className="w-full mt-2 bg-cyan-600 hover:bg-cyan-500 text-white h-8"
+                onClick={() => {
+                  onUserVesselEdit(mapSelectedVessel);
+                  setMapSelectedVessel(null);
+                }}
+                data-testid="edit-vessel-position-btn"
+              >
+                <MapPin className="w-3 h-3 mr-1" />
+                Edit Position
+              </Button>
+            )}
+
+            {/* View Details Button - For other vessels */}
+            {!(userMmsi && mapSelectedVessel.mmsi === userMmsi) && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full mt-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10 h-8"
+                onClick={() => {
+                  onVesselDetails(mapSelectedVessel);
+                  setMapSelectedVessel(null);
+                }}
+                data-testid="view-vessel-details-btn"
+              >
+                <ExternalLink className="w-3 h-3 mr-1" />
+                View Details
+              </Button>
+            )}
           </div>
         </div>
       )}

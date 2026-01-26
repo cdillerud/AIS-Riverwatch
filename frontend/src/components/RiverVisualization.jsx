@@ -833,6 +833,7 @@ const RiverVisualizationComponent = ({
           showVesselNames={showVesselNames}
           onClose={() => setMapSelectedVessel(null)}
           onUserVesselEdit={onUserVesselEdit}
+          onVesselDetails={onVesselDetails}
         />
       )}
 

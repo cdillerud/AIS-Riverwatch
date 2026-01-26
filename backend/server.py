@@ -2895,6 +2895,7 @@ async def get_lock_details(lock_id: str):
         "recent_lockages": recent_lockages[:5]
     }
 
+@api_router.get("/locks/lockage-times")
 async def get_all_lockage_times():
     """Get recent lockage times and running averages for all locks."""
     # Note: LPMS scraping is blocked by JS rendering, so we use baseline + observed data

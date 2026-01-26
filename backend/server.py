@@ -3146,6 +3146,101 @@ async def get_lockage_history(lock_id: str = None, days: int = 7):
     }
 
 
+@api_router.get("/vessels/sightings")
+async def get_vessel_sightings(days: int = 30, usace_only: bool = False):
+    """
+    Get historical vessel sightings from the database.
+    
+    Args:
+        days: Number of days to look back (default 30)
+        usace_only: If true, only return sightings with USACE data
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    
+    query = {"timestamp": {"$gte": cutoff}}
+    if usace_only:
+        query["usace_source"] = True
+    
+    sightings = await db.vessel_sightings.find(query, {"_id": 0}).sort("timestamp", -1).to_list(500)
+    
+    # Convert datetime objects
+    for record in sightings:
+        for key in ["timestamp", "first_seen"]:
+            if record.get(key) and isinstance(record[key], datetime):
+                record[key] = record[key].isoformat()
+    
+    return {
+        "count": len(sightings),
+        "sightings": sightings
+    }
+
+
+@api_router.get("/vessels/history/{mmsi}")
+async def get_vessel_history(mmsi: str, days: int = 30):
+    """
+    Get historical sightings for a specific vessel.
+    Includes all USACE data records (barge counts, lock positions, etc.)
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    
+    # Get historical records with USACE data
+    records = await db.vessel_history.find(
+        {"mmsi": mmsi, "recorded_at": {"$gte": cutoff}},
+        {"_id": 0}
+    ).sort("recorded_at", -1).to_list(200)
+    
+    # Convert datetime objects
+    for record in records:
+        for key in ["timestamp", "recorded_at"]:
+            if record.get(key) and isinstance(record[key], datetime):
+                record[key] = record[key].isoformat()
+    
+    # Get current sighting
+    current = await db.vessel_sightings.find_one({"mmsi": mmsi}, {"_id": 0})
+    if current:
+        for key in ["timestamp", "first_seen"]:
+            if current.get(key) and isinstance(current[key], datetime):
+                current[key] = current[key].isoformat()
+    
+    return {
+        "mmsi": mmsi,
+        "current": current,
+        "history_count": len(records),
+        "history": records
+    }
+
+
+@api_router.get("/vessels/stats")
+async def get_vessel_stats():
+    """Get summary statistics of vessel sightings and USACE data."""
+    # Total unique vessels seen
+    total_vessels = await db.vessel_sightings.count_documents({})
+    
+    # Vessels with USACE data
+    usace_vessels = await db.vessel_sightings.count_documents({"usace_source": True})
+    
+    # Tows tracked
+    tows_tracked = await db.vessel_sightings.count_documents({"is_tow": True})
+    
+    # Historical USACE records
+    history_count = await db.vessel_history.count_documents({})
+    
+    # Get recent tow activity (last 7 days)
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    recent_tows = await db.vessel_history.find(
+        {"recorded_at": {"$gte": seven_days_ago}, "is_tow": True},
+        {"_id": 0, "mmsi": 1, "name": 1, "barge_count": 1, "usace_lock": 1}
+    ).sort("recorded_at", -1).to_list(50)
+    
+    return {
+        "total_vessels_seen": total_vessels,
+        "vessels_with_usace_data": usace_vessels,
+        "tows_tracked": tows_tracked,
+        "historical_usace_records": history_count,
+        "recent_tow_activity": recent_tows
+    }
+
+
 @api_router.get("/lockage/stats")
 async def get_lockage_stats():
     """Get summary statistics of recorded lockages."""

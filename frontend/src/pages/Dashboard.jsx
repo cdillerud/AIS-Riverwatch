@@ -1149,7 +1149,7 @@ export default function Dashboard({
                       <Lock className="w-3 h-3 mr-1" />
                       Locks
                     </TabsTrigger>
-                    <TabsTrigger value="debug" className="flex-1 text-xs data-[state=active]:bg-cyan-500/10">
+                    <TabsTrigger value="debug" className="flex-1 text-xs data-[state=active]:bg-cyan-500/10" data-testid="raw-tab-trigger">
                       <Terminal className="w-3 h-3 mr-1" />
                       Raw
                     </TabsTrigger>

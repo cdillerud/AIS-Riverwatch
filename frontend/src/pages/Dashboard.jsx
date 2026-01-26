@@ -1225,23 +1225,8 @@ export default function Dashboard({
                       </div>
                     )}
                   </TabsContent>
-                  <TabsContent value="debug" className="mt-0 flex-1 min-h-0">
-                    <ScrollArea className="h-full">
-                      <div className="p-2 text-[10px] font-mono text-slate-400">
-                        <div>Vessels: {vessels.length}</div>
-                        <div>Connected: {isConnected ? 'Yes' : 'No'}</div>
-                        <div>User MMSI: {userMmsi || 'N/A'}</div>
-                        <div>Selected Lock: {selectedLock}</div>
-                        {raceAnalysis?.analysis && (
-                          <>
-                            <div className="mt-2 text-cyan-400">Race Analysis:</div>
-                            <div>User ETA: {raceAnalysis.analysis.user_eta_minutes?.toFixed(1)}m</div>
-                            <div>Threat ETA: {raceAnalysis.analysis.threat_eta_minutes?.toFixed(1) || 'N/A'}m</div>
-                            <div>Required Speed: {raceAnalysis.analysis.required_speed_mph?.toFixed(1) || 'N/A'} mph</div>
-                          </>
-                        )}
-                      </div>
-                    </ScrollArea>
+                  <TabsContent value="debug" className="mt-0 flex-1 min-h-0 overflow-hidden">
+                    <RawDataPanel isConnected={isConnected} compact={true} />
                   </TabsContent>
                 </Tabs>
               </Card>

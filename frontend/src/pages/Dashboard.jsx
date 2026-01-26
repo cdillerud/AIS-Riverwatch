@@ -31,6 +31,7 @@ import VesselDetailModal from "@/components/VesselDetailModal";
 import LockDetailModal from "@/components/LockDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
+import { useAuth } from "@/context/AuthContext";
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 

@@ -633,14 +633,13 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
               </div>
               {/* Double Lockage Warning */}
               {((vessel.barge_count ?? vesselData?.current?.barge_count) > 9) && (
-                  <div className="col-span-2">
-                    <Badge className="bg-red-900/30 text-red-400 border-red-500/30">
-                      <AlertTriangle className="w-3 h-3 mr-1" />
-                      DOUBLE LOCKAGE REQUIRED
-                    </Badge>
-                  </div>
-                )}
-              </div>
+                <div className="col-span-2">
+                  <Badge className="bg-red-900/30 text-red-400 border-red-500/30">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    DOUBLE LOCKAGE REQUIRED
+                  </Badge>
+                </div>
+              )}
             </div>
           </div>
 

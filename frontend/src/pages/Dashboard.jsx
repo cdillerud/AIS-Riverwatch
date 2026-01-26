@@ -396,175 +396,156 @@ export default function Dashboard({
   const userEta = raceAnalysis?.analysis?.user_eta_minutes;
 
   return (
-    <div className="min-h-screen bg-[#020617]" data-testid="dashboard">
-      {/* Header - Mobile Optimized */}
-      <header className="glass-panel border-b border-white/10 sticky top-0 z-50">
-        <div className="container mx-auto px-3 md:px-4 py-2 md:py-3">
+    <div className="min-h-screen bg-slate-950 font-sans" data-testid="dashboard">
+      {/* Clean Header */}
+      <header className="bg-slate-950/95 backdrop-blur-xl border-b border-white/5 sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            {/* Logo & Status */}
-            <div className="flex items-center gap-2 md:gap-4">
+            {/* Left: Logo + Status */}
+            <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <Anchor className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
-                <h1 className="text-lg md:text-xl font-bold text-white tracking-wide">
-                  RIVER WATCH
-                  <span className="text-xs md:text-sm font-normal text-slate-500 ml-2">v2.1</span>
-                </h1>
+                <Radio className="w-5 h-5 text-cyan-400" />
+                <span className="font-heading font-bold text-lg uppercase tracking-wider text-white hidden sm:inline">
+                  River Watch
+                </span>
               </div>
-              <ConnectionStatus 
-                isConnected={isConnected} 
-                config={connectionConfig}
-                compact={true}
-              />
-            </div>
-            
-            {/* Desktop Actions */}
-            <div className="hidden md:flex items-center gap-3">
-              {!isConnected && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onReconnect}
-                  className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10"
-                  data-testid="reconnect-btn"
-                >
-                  <Wifi className="w-4 h-4 mr-1" />
-                  Retry Connection
-                </Button>
-              )}
               
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onOpenSettings}
-                className="border-slate-600 text-slate-300 hover:bg-slate-800"
-                data-testid="settings-btn"
-              >
-                <Settings className="w-4 h-4 mr-1" />
-                Settings
-              </Button>
-              
-              {/* Refresh Button */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                className="border-slate-600 text-slate-300 hover:bg-slate-800"
-                data-testid="refresh-btn"
-                title={`Last refresh: ${getTimeSinceRefresh()}`}
-              >
-                <RefreshCw className={`w-4 h-4 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onResetConnection}
-                className="border-slate-600 text-slate-300 hover:bg-slate-800"
-                data-testid="change-connection-btn"
-                title="Change AIS connection settings"
-              >
-                <Ship className="w-4 h-4 mr-1" />
-                <span className="hidden lg:inline">Connection</span>
-              </Button>
-              
-              {/* Logout Button */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleLogout}
-                className="border-red-500/50 text-red-400 hover:bg-red-500/10"
-                data-testid="logout-btn"
-                title={user?.name || user?.email || 'Logout'}
-              >
-                <LogOut className="w-4 h-4 mr-1" />
-                <span className="hidden lg:inline">Logout</span>
-              </Button>
+              {/* Connection Status - Minimal */}
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-sm ${isConnected ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'} ${isConnected ? 'animate-pulse' : ''}`} />
+                <span className="text-xs font-mono uppercase">{isConnected ? 'Live' : 'Offline'}</span>
+              </div>
             </div>
 
-            {/* Mobile Menu Button */}
-            <Sheet open={showMobileMenu} onOpenChange={setShowMobileMenu}>
-              <SheetTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="md:hidden text-slate-300"
-                  data-testid="mobile-menu-btn"
-                >
-                  <Menu className="w-5 h-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="bg-slate-900 border-slate-700 w-72">
-                <div className="flex flex-col gap-3 mt-6">
-                  {!isConnected && (
+            {/* Center: Primary Metric (Lock Timing) */}
+            {raceAnalysis?.analysis && (
+              <div className="hidden md:flex items-center gap-6 bg-slate-900/50 px-6 py-2 rounded-lg border border-white/5">
+                <div className="text-center">
+                  <div className="font-heading text-[10px] uppercase tracking-widest text-slate-500">ETA</div>
+                  <div className="font-mono text-xl text-cyan-400">
+                    {userEta ? `${Math.round(userEta)}m` : '--'}
+                  </div>
+                </div>
+                <div className="w-px h-8 bg-slate-700" />
+                <div className="text-center">
+                  <div className="font-heading text-[10px] uppercase tracking-widest text-slate-500">Need</div>
+                  <div className={`font-mono text-xl font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                    {requiredSpeed?.toFixed(0) || '--'}
+                    <span className="text-xs ml-1">mph</span>
+                  </div>
+                </div>
+                <div className="w-px h-8 bg-slate-700" />
+                <div className="text-center">
+                  <div className="font-heading text-[10px] uppercase tracking-widest text-slate-500">Status</div>
+                  <div className={`font-heading text-sm uppercase tracking-wider ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                    {isDangerous ? 'TRAFFIC' : 'CLEAR'}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Right: Actions */}
+            <div className="flex items-center gap-2">
+              {/* Settings - Icon only */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onOpenSettings}
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                data-testid="settings-btn"
+                title="Settings"
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
+              
+              {/* Refresh - Icon only */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                data-testid="refresh-btn"
+                title={`Refresh (${getTimeSinceRefresh()})`}
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </Button>
+              
+              {/* User Menu */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-400 hover:text-white hover:bg-white/5 gap-2"
+                    data-testid="user-menu-btn"
+                  >
+                    <User className="w-4 h-4" />
+                    <span className="hidden lg:inline text-sm">{user?.name || 'Account'}</span>
+                    <ChevronDown className="w-3 h-3 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 bg-slate-900 border-slate-700 p-2" align="end">
+                  <div className="space-y-1">
+                    <div className="px-2 py-1.5 border-b border-slate-700 mb-2">
+                      <p className="text-xs text-slate-500 uppercase tracking-wider font-heading">Signed in as</p>
+                      <p className="text-sm text-white truncate">{user?.email}</p>
+                    </div>
                     <Button
-                      variant="outline"
-                      onClick={() => { onReconnect(); setShowMobileMenu(false); }}
-                      className="border-cyan-500/50 text-cyan-400 justify-start"
+                      variant="ghost"
+                      size="sm"
+                      onClick={onResetConnection}
+                      className="w-full justify-start text-slate-400 hover:text-white hover:bg-white/5"
                     >
                       <Wifi className="w-4 h-4 mr-2" />
-                      Retry Connection
+                      Change Connection
                     </Button>
-                  )}
-                  
-                  <Button
-                    variant="outline"
-                    onClick={() => { onOpenSettings(); setShowMobileMenu(false); }}
-                    className="border-slate-600 text-slate-300 justify-start"
-                  >
-                    <Settings className="w-4 h-4 mr-2" />
-                    Settings
-                  </Button>
-                  
-                  {/* Mobile Refresh Button */}
-                  <Button
-                    variant="outline"
-                    onClick={() => { handleRefresh(); setShowMobileMenu(false); }}
-                    disabled={isRefreshing}
-                    className="border-slate-600 text-slate-300 justify-start"
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    Refresh Data
-                  </Button>
-                  
-                  {/* Full Refresh Button */}
-                  <Button
-                    variant="outline"
-                    onClick={() => { handleFullRefresh(); setShowMobileMenu(false); }}
-                    className="border-amber-500/50 text-amber-400 justify-start"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Full Reload
-                  </Button>
-                  
-                  <Button
-                    variant="outline"
-                    onClick={() => { onResetConnection(); setShowMobileMenu(false); }}
-                    className="border-slate-600 text-slate-300 justify-start"
-                  >
-                    <Wifi className="w-4 h-4 mr-2" />
-                    Change Connection
-                  </Button>
-                  
-                  {/* Logout Button */}
-                  <Button
-                    variant="outline"
-                    onClick={() => { handleLogout(); setShowMobileMenu(false); }}
-                    className="border-red-500/50 text-red-400 justify-start mt-4"
-                    data-testid="mobile-logout-btn"
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Logout {user?.name && `(${user.name})`}
-                  </Button>
-                </div>
-              </SheetContent>
-            </Sheet>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleLogout}
+                      className="w-full justify-start text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      data-testid="logout-btn"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Sign Out
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
         </div>
 
         {/* Mobile Quick Stats Bar */}
-        <div className="md:hidden border-t border-white/5 px-3 py-2 flex items-center justify-between bg-slate-900/50">
+        <div className="md:hidden border-t border-white/5 px-3 py-2 flex items-center justify-between bg-slate-900/30">
+          {raceAnalysis?.analysis ? (
+            <div className="flex items-center gap-4 w-full justify-around">
+              <div className="text-center">
+                <div className="font-heading text-[9px] uppercase tracking-widest text-slate-500">ETA</div>
+                <div className="font-mono text-lg text-cyan-400">
+                  {userEta ? `${Math.round(userEta)}m` : '--'}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="font-heading text-[9px] uppercase tracking-widest text-slate-500">Need</div>
+                <div className={`font-mono text-lg font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                  {requiredSpeed?.toFixed(0) || '--'} mph
+                </div>
+              </div>
+              <div className="text-center">
+                <div className={`font-heading text-sm uppercase tracking-wider px-2 py-0.5 rounded-sm ${isDangerous ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
+                  {isDangerous ? 'TRAFFIC' : 'CLEAR'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full text-center text-sm text-slate-500">
+              Select a lock to see timing analysis
+            </div>
+          )}
+        </div>
+      </header>
           <div className="flex items-center gap-3">
             {/* Your Position */}
             {userVessel ? (

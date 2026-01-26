@@ -2,11 +2,240 @@ import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gauge, Box, Timer, ExternalLink, ChevronRight, Radio, Compass, Ruler, Clock, History } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { getVesselDisplayName, getVesselShortName } from "@/utils/vesselDisplay";
 
 // Default River Mile range for Upper Mississippi (Lock 1 to Chain of Rocks)
 const FULL_MIN_RM = 180;  // Chain of Rocks (RM 185) with buffer
 const FULL_MAX_RM = 850;  // Lock 1 Minneapolis (RM 847.6) with buffer
+
+// Ship type descriptions
+const SHIP_TYPES = {
+  0: "Not available", 20: "Wing in ground", 30: "Fishing", 31: "Towing", 32: "Towing (large)",
+  33: "Dredging", 34: "Diving ops", 35: "Military ops", 36: "Sailing", 37: "Pleasure craft",
+  40: "High speed craft", 50: "Pilot vessel", 51: "Search & rescue", 52: "Tug", 53: "Port tender",
+  54: "Anti-pollution", 55: "Law enforcement", 60: "Passenger", 70: "Cargo", 80: "Tanker", 90: "Other",
+};
+
+const getShipTypeDescription = (code) => {
+  if (!code) return "Unknown";
+  if (SHIP_TYPES[code]) return SHIP_TYPES[code];
+  const base = Math.floor(code / 10) * 10;
+  return SHIP_TYPES[base] || `Type ${code}`;
+};
+
+// Expandable Vessel Info Panel Component
+const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVesselEdit }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isUser = userMmsi && vessel.mmsi === userMmsi;
+  const isTow = vessel.is_tow || vessel.barge_count > 0;
+  const speedMph = (vessel.speed * 1.15078).toFixed(1);
+
+  return (
+    <div 
+      className={`absolute top-2 right-2 z-50 glass-panel border border-slate-600 rounded-lg shadow-xl transition-all duration-300 ${expanded ? 'w-80 max-h-[80%]' : 'max-w-[280px] md:max-w-[320px]'}`}
+      data-testid="vessel-info-overlay"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
+        <div className="flex items-center gap-2">
+          {isUser ? (
+            <div className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse" />
+          ) : isTow ? (
+            <Box className="w-4 h-4 text-amber-400" />
+          ) : (
+            <div className="w-2.5 h-2.5 bg-amber-400 rotate-45" />
+          )}
+          <span className={`font-semibold text-sm truncate max-w-[180px] ${isUser ? 'text-cyan-400' : 'text-white'}`}>
+            {getVesselDisplayName(vessel, showVesselNames)}
+          </span>
+        </div>
+        <button onClick={onClose} className="text-slate-400 hover:text-white p-1">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      
+      {/* Body - Scrollable when expanded */}
+      <ScrollArea className={expanded ? 'max-h-[400px]' : ''}>
+        <div className="px-3 py-2 space-y-2">
+          {/* MMSI */}
+          <div className="text-xs text-slate-500">
+            MMSI: <span className="font-mono text-slate-300">{vessel.mmsi}</span>
+          </div>
+          
+          {/* Position, Speed, Heading in grid */}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-slate-800/50 rounded px-2 py-1.5">
+              <Navigation className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
+              <div className="text-white font-mono text-xs">RM {vessel.river_mile?.toFixed(1) || '--'}</div>
+            </div>
+            <div className="bg-slate-800/50 rounded px-2 py-1.5">
+              <Gauge className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
+              <div className="text-white font-mono text-xs">{speedMph} mph</div>
+            </div>
+            <div className="bg-slate-800/50 rounded px-2 py-1.5">
+              {vessel.heading === 'northbound' ? (
+                <ChevronUp className="w-3 h-3 mx-auto mb-0.5 text-green-400" />
+              ) : vessel.heading === 'southbound' ? (
+                <ChevronDown className="w-3 h-3 mx-auto mb-0.5 text-red-400" />
+              ) : (
+                <Minus className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
+              )}
+              <div className="text-white text-xs capitalize">{vessel.heading || 'Still'}</div>
+            </div>
+          </div>
+
+          {/* Badges row */}
+          <div className="flex flex-wrap gap-1.5">
+            {isUser && (
+              <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50 text-[10px]">YOUR VESSEL</Badge>
+            )}
+            {isTow && (
+              <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[10px]">
+                TOW {vessel.barge_count ? `• ${vessel.barge_count} barges` : ''}
+              </Badge>
+            )}
+            {vessel.usace_source && (
+              <Badge className="bg-green-900/30 text-green-400 border-green-500/30 text-[10px]">USACE</Badge>
+            )}
+          </div>
+
+          {/* Tow details */}
+          {isTow && vessel.tow_config && (
+            <div className="text-xs text-slate-400 flex items-center gap-2">
+              <Box className="w-3 h-3" />
+              <span>Config: {vessel.tow_config}</span>
+              {vessel.estimated_lockage_time && (
+                <span className="flex items-center gap-1">
+                  <Timer className="w-3 h-3" />
+                  ~{vessel.estimated_lockage_time}min
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Destination if available */}
+          {vessel.destination && (
+            <div className="text-xs text-slate-400">
+              → {vessel.destination}
+            </div>
+          )}
+
+          {/* Expanded Details Section */}
+          {expanded && (
+            <div className="pt-2 mt-2 border-t border-slate-700 space-y-3">
+              {/* Course & Coordinates */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-slate-800/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-slate-500 text-[10px] mb-1">
+                    <Compass className="w-3 h-3" />
+                    Course
+                  </div>
+                  <div className="text-white font-mono text-sm">{vessel.course?.toFixed(0) || '--'}°</div>
+                </div>
+                <div className="bg-slate-800/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-slate-500 text-[10px] mb-1">
+                    <Radio className="w-3 h-3" />
+                    Ship Type
+                  </div>
+                  <div className="text-white text-xs">{getShipTypeDescription(vessel.ship_type)}</div>
+                </div>
+              </div>
+
+              {/* Coordinates */}
+              {vessel.lat && vessel.lon && (
+                <div className="bg-slate-800/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-slate-500 text-[10px] mb-1">
+                    <MapPin className="w-3 h-3" />
+                    Coordinates
+                  </div>
+                  <div className="text-white font-mono text-xs">
+                    {vessel.lat?.toFixed(5)}°N, {Math.abs(vessel.lon)?.toFixed(5)}°W
+                  </div>
+                </div>
+              )}
+
+              {/* Dimensions if available */}
+              {(vessel.length || vessel.beam || vessel.draft) && (
+                <div className="bg-slate-800/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-slate-500 text-[10px] mb-1">
+                    <Ruler className="w-3 h-3" />
+                    Dimensions
+                  </div>
+                  <div className="text-white text-xs flex gap-3">
+                    {vessel.length && <span>L: {vessel.length}m</span>}
+                    {vessel.beam && <span>B: {vessel.beam}m</span>}
+                    {vessel.draft && <span>D: {vessel.draft}m</span>}
+                  </div>
+                </div>
+              )}
+
+              {/* Callsign if available */}
+              {vessel.callsign && (
+                <div className="bg-slate-800/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-slate-500 text-[10px] mb-1">
+                    <Radio className="w-3 h-3" />
+                    Callsign
+                  </div>
+                  <div className="text-white font-mono text-sm">{vessel.callsign}</div>
+                </div>
+              )}
+
+              {/* Last Update */}
+              {vessel.timestamp && (
+                <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  Last update: {new Date(vessel.timestamp).toLocaleTimeString()}
+                </div>
+              )}
+
+              {/* All Raw Data (collapsed by default in expanded view) */}
+              <details className="text-xs">
+                <summary className="text-slate-500 cursor-pointer hover:text-slate-300">
+                  Raw AIS Data
+                </summary>
+                <pre className="mt-2 p-2 bg-slate-950 rounded text-[10px] text-slate-400 overflow-x-auto max-h-32">
+                  {JSON.stringify(vessel, null, 2)}
+                </pre>
+              </details>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="pt-2 space-y-2">
+            {/* Edit Position Button - Only for user's vessel */}
+            {isUser && (
+              <Button
+                size="sm"
+                className="w-full bg-cyan-600 hover:bg-cyan-500 text-white h-8"
+                onClick={() => {
+                  onUserVesselEdit(vessel);
+                  onClose();
+                }}
+                data-testid="edit-vessel-position-btn"
+              >
+                <MapPin className="w-3 h-3 mr-1" />
+                Edit Position
+              </Button>
+            )}
+
+            {/* Expand/Collapse Details Button */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-slate-600 text-slate-300 hover:bg-slate-800 h-8"
+              onClick={() => setExpanded(!expanded)}
+              data-testid="expand-vessel-details-btn"
+            >
+              <ChevronRight className={`w-3 h-3 mr-1 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+              {expanded ? 'Show Less' : 'Show More Details'}
+            </Button>
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+};
 
 const RiverVisualizationComponent = ({ 
   vessels, 

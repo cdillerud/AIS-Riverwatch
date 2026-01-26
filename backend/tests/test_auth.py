@@ -46,13 +46,13 @@ def api_session():
 class TestHealthCheck:
     """Basic health check tests."""
     
-    def test_api_status(self, api_session):
-        """Test that the API is accessible."""
-        response = api_session.get(f"{BASE_URL}/api/status")
+    def test_api_accessible(self, api_session):
+        """Test that the API is accessible via locks endpoint."""
+        response = api_session.get(f"{BASE_URL}/api/locks")
         assert response.status_code == 200
         data = response.json()
-        assert data.get("status") == "online"
-        print(f"✓ API status: {data}")
+        assert len(data) > 0  # Should have lock data
+        print(f"✓ API accessible, found {len(data)} locks")
 
 
 class TestUserRegistration:

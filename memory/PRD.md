@@ -57,7 +57,16 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 - **Authentication**: Session tokens (httpOnly cookies), Google OAuth
 
 ### Key Files
-- `/app/backend/server.py` - Monolithic FastAPI server (3000+ lines, needs refactoring)
+#### Backend (Refactored Structure)
+- `/app/backend/server.py` - Main FastAPI server (still monolithic, but imports from modules)
+- `/app/backend/config.py` - Configuration (LOCKS, CORS, constants)
+- `/app/backend/database.py` - MongoDB connection
+- `/app/backend/models/` - Pydantic models (auth.py, vessel.py, lock.py)
+- `/app/backend/services/` - Business logic (auth_service.py, navigation_service.py)
+- `/app/backend/routes/` - Route templates for future migration
+- `/app/backend/README.md` - Architecture documentation
+
+#### Frontend
 - `/app/frontend/src/pages/Dashboard.jsx` - Main dashboard with tab navigation
 - `/app/frontend/src/components/RiverVisualization.jsx` - River map component
 - `/app/frontend/src/components/LockDetailModal.jsx` - Lock details with wait predictions

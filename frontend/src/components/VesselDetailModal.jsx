@@ -577,65 +577,62 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
             </div>
           )}
 
-          {/* Tow/Barge Section */}
-          {(isTow || vesselData?.current?.is_tow || vesselData?.history?.length > 0) && (
-            <div className="glass-panel p-4 rounded-lg border border-amber-500/30 bg-amber-900/10">
-              <h3 className="text-sm font-semibold text-amber-400 mb-3 flex items-center gap-2">
-                <Box className="w-4 h-4" />
-                Tow Information
-                {(vessel.usace_source || vesselData?.current?.usace_source) && (
-                  <Badge className="bg-green-900/30 text-green-400 border-green-500/30 text-xs ml-2">
-                    USACE Verified
-                  </Badge>
-                )}
-              </h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                {/* Barge Count - check current vessel, then persisted data */}
+          {/* Tow/Barge Section - Always show */}
+          <div className="glass-panel p-4 rounded-lg border border-amber-500/30 bg-amber-900/10">
+            <h3 className="text-sm font-semibold text-amber-400 mb-3 flex items-center gap-2">
+              <Box className="w-4 h-4" />
+              Tow Information
+              {(vessel.usace_source || vesselData?.current?.usace_source) && (
+                <Badge className="bg-green-900/30 text-green-400 border-green-500/30 text-xs ml-2">
+                  USACE Verified
+                </Badge>
+              )}
+            </h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {/* Barge Count */}
+              <div>
+                <span className="text-slate-500">Barge Count</span>
                 {(vessel.barge_count !== null && vessel.barge_count !== undefined) || 
                  (vesselData?.current?.barge_count !== null && vesselData?.current?.barge_count !== undefined) ? (
-                  <div>
-                    <span className="text-slate-500">Barge Count</span>
-                    <div className="text-amber-400 font-semibold text-lg">
-                      {vessel.barge_count ?? vesselData?.current?.barge_count}
-                    </div>
+                  <div className="text-amber-400 font-semibold text-lg">
+                    {vessel.barge_count ?? vesselData?.current?.barge_count}
                   </div>
                 ) : (
-                  <div>
-                    <span className="text-slate-500">Barge Count</span>
-                    <div className="text-slate-400 italic">Unknown</div>
-                  </div>
+                  <div className="text-slate-400 italic">No data</div>
                 )}
-                {/* Configuration - check current vessel, then persisted data */}
+              </div>
+              {/* Configuration */}
+              <div>
+                <span className="text-slate-500">Configuration</span>
                 {(vessel.tow_config || vesselData?.current?.tow_config) ? (
-                  <div>
-                    <span className="text-slate-500">Configuration</span>
-                    <div className="font-mono text-white">{vessel.tow_config || vesselData?.current?.tow_config}</div>
+                  <div className="font-mono text-white">{vessel.tow_config || vesselData?.current?.tow_config}</div>
+                ) : (
+                  <div className="text-slate-400 italic">No data</div>
+                )}
+              </div>
+              {/* Estimated Lockage Time */}
+              <div>
+                <span className="text-slate-500">Est. Lockage Time</span>
+                {(vessel.estimated_lockage_time || vesselData?.current?.estimated_lockage_time) ? (
+                  <div className="flex items-center gap-2">
+                    <Timer className="w-4 h-4 text-amber-400" />
+                    <span className="text-white">{vessel.estimated_lockage_time || vesselData?.current?.estimated_lockage_time} min</span>
                   </div>
                 ) : (
-                  <div>
-                    <span className="text-slate-500">Configuration</span>
-                    <div className="text-slate-400 italic">Unknown</div>
-                  </div>
+                  <div className="text-slate-400 italic">No data</div>
                 )}
-                {/* Estimated Lockage Time */}
-                {(vessel.estimated_lockage_time || vesselData?.current?.estimated_lockage_time) && (
-                  <div>
-                    <span className="text-slate-500">Est. Lockage Time</span>
-                    <div className="flex items-center gap-2">
-                      <Timer className="w-4 h-4 text-amber-400" />
-                      <span className="text-white">{vessel.estimated_lockage_time || vesselData?.current?.estimated_lockage_time} min</span>
-                    </div>
-                  </div>
+              </div>
+              {/* Current Lock */}
+              <div>
+                <span className="text-slate-500">USACE Lock</span>
+                {(vessel.usace_lock || vesselData?.current?.usace_lock) ? (
+                  <div className="text-white">Lock {(vessel.usace_lock || vesselData?.current?.usace_lock).replace('lock_', '')}</div>
+                ) : (
+                  <div className="text-slate-400 italic">No data</div>
                 )}
-                {/* Current Lock */}
-                {(vessel.usace_lock || vesselData?.current?.usace_lock) && (
-                  <div>
-                    <span className="text-slate-500">At Lock</span>
-                    <div className="text-white">Lock {(vessel.usace_lock || vesselData?.current?.usace_lock).replace('lock_', '')}</div>
-                  </div>
-                )}
-                {/* Double Lockage Warning */}
-                {((vessel.barge_count ?? vesselData?.current?.barge_count) > 9) && (
+              </div>
+              {/* Double Lockage Warning */}
+              {((vessel.barge_count ?? vesselData?.current?.barge_count) > 9) && (
                   <div className="col-span-2">
                     <Badge className="bg-red-900/30 text-red-400 border-red-500/30">
                       <AlertTriangle className="w-3 h-3 mr-1" />

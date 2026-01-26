@@ -511,13 +511,23 @@ export default function Dashboard({
                 </div>
               )}
 
-              {/* Position */}
-              {userVessel && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
-                  <span className="text-slate-500 font-heading uppercase text-[10px]">RM</span>
-                  <span className="font-mono text-white font-semibold">{userVessel.river_mile?.toFixed(1)}</span>
-                </div>
-              )}
+              {/* Position with Edit Button */}
+              <button 
+                onClick={openPositionEditor}
+                className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10 hover:bg-white/5 transition-colors cursor-pointer group"
+                data-testid="hud-position-edit-btn"
+                title="Edit position (P)"
+              >
+                {userVessel?.river_mile ? (
+                  <>
+                    <span className="text-slate-500 font-heading uppercase text-[10px]">RM</span>
+                    <span className="font-mono text-white font-semibold">{userVessel.river_mile?.toFixed(1)}</span>
+                  </>
+                ) : (
+                  <span className="text-slate-500 text-[10px]">Set Position</span>
+                )}
+                <Edit3 className="w-3 h-3 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+              </button>
               
               {/* Speed */}
               {userVessel && (

@@ -2738,6 +2738,9 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                                     vessel['tow_config'] = f"3x{(bc+2)//3}+"
                             
                             logger.debug(f"Using USACE data for {mmsi}: {usace_info['num_barges']} barges")
+                            
+                            # Persist USACE-enriched vessel data to database
+                            asyncio.create_task(persist_vessel_sighting(vessel))
                         else:
                             # NO USACE data - use AIS-based tow detection only
                             # IMPORTANT: Clear any stale barge data - only show if USACE confirms
@@ -2751,6 +2754,9 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             vessel['usace_source'] = False
                             vessel['usace_lock'] = None
                             vessel['usace_status'] = None
+                        
+                        # Persist vessel sighting (even without USACE for tracking)
+                        asyncio.create_task(persist_vessel_sighting(vessel))
                         
                         return vessel
                         

@@ -697,8 +697,8 @@ export default function Dashboard({
                     </div>
                   )}
                   
-                  {/* Integrated HUD - Under Compass (top-right of map) */}
-                  <div className="hidden md:block absolute top-24 right-2 z-30 pointer-events-none">
+                  {/* Integrated HUD - Top of map, below header */}
+                  <div className="hidden md:block absolute top-14 left-2 z-30 pointer-events-none">
                     <div className="pointer-events-auto bg-slate-950/95 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl overflow-hidden">
                       {/* Main HUD Content */}
                       <div className="flex items-center">

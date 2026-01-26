@@ -965,6 +965,7 @@ export default function Dashboard({
                     zoomRange={zoomLevel}
                     onVesselClick={handleVesselClick}
                     onLockClick={setSelectedLockDetail}
+                    onUserVesselEdit={handleUserVesselEdit}
                     showVesselNames={userSettings.show_vessel_names !== false}
                     focusedVessel={focusedVessel}
                     onFocusClear={() => setFocusedVessel(null)}

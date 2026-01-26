@@ -56,11 +56,22 @@ export default function Dashboard({
   onFullRefresh,
   lastRefresh
 }) {
+  const { user, logout } = useAuth();
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [desktopPanel, setDesktopPanel] = useState("timing"); // "map" | "timing" | "vessels" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(20); // Zoom range in miles (10-500)
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+      // The AuthProvider will clear user state and ProtectedRoute will redirect to login
+    } catch (error) {
+      toast.error("Failed to logout");
+    }
+  };
 
   // Handle manual refresh with visual feedback
   const handleRefresh = async () => {

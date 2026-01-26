@@ -21,7 +21,7 @@ def verify_password(password: str, hashed: str) -> bool:
         salt, hash_value = hashed.split('$')
         hash_obj = hashlib.sha256((salt + password).encode())
         return hash_obj.hexdigest() == hash_value
-    except:
+    except (ValueError, AttributeError):
         return False
 
 

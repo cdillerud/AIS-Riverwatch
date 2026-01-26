@@ -642,7 +642,7 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
                 )}
               </div>
             </div>
-          )}
+          </div>
 
           {/* Lockage History Section */}
           <div className="glass-panel p-4 rounded-lg border border-slate-700">

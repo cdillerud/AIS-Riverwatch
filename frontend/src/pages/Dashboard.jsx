@@ -383,6 +383,10 @@ export default function Dashboard({
       if (response.ok) {
         toast.success(`Position updated to RM ${rm}`);
         setShowPositionEditor(false);
+        // Refresh data to show updated position
+        if (onRefresh) {
+          await onRefresh();
+        }
       } else {
         toast.error("Failed to update position");
       }

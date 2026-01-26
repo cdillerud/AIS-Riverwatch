@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 # Use the public endpoint from frontend .env
-BACKEND_URL = "https://lock-timing.preview.emergentagent.com"
+BACKEND_URL = "https://lock-timer-1.preview.emergentagent.com"
 API_BASE = f"{BACKEND_URL}/api"
 
 class AISBackendTester:

@@ -1,169 +1,169 @@
 <analysis>**original_problem_statement:**
-The user wants to build a local application named River Watch to track vessels on the upper Mississippi River. The application should connect to an AIS (Automatic Identification System) TCP feed from the Boat Beacon app.
+The user wants to build a local application named River Watch to track vessels on the upper Mississippi River. The application should connect to an AIS (Automatic Identification System) TCP feed, calculate Lock Timing to help the user's vessel beat commercial traffic to locks, and display this information on a simplified river map.
 
 **PRODUCT REQUIREMENTS:**
 1.  **AIS/GPS Data Integration:** Connect to a TCP feed to receive and parse AIS and NMEA GPS data.
 2.  **Vessel Tracking:** Display the user's vessel and other commercial vessels on a simplified river map.
 3.  **Lock Timing Calculation:** Calculate the required speed for the user's vessel to reach a target lock before a competing commercial vessel.
 4.  **Alert System:** Trigger a visual alert if the required speed exceeds the user's boat's maximum speed.
-5.  **Connection Management:** Allow the user to configure and manage connection settings.
-6.  **Local Deployment:** Provide a  setup.
-7.  **Persistent Configuration:** A Settings page for persisting vessel MMSI, name, max speed, and other UI preferences.
-8.  **USACE Data Integration:** Fetch and display lock status and real-time lockage data.
-9.  **Tow/Barge Estimation:** Identify commercial tows and display their barge count from USACE data.
-10. **Data Visibility:** Show all available AIS data for any vessel in a detail view.
-11. **MMSI/Vessel Name Search:** Implement a search bar to filter the vessel list.
-12. **Click-to-Map Info:** Clicking a vessel on the map or in the list should display a compact information card on the map.
+5.  **Local Deployment:** Provide a  setup.
+6.  **Persistent Configuration:** A Settings page for persisting vessel MMSI, name, max speed, and other UI preferences.
+7.  **USACE Data Integration:** Fetch and display lock status and real-time lockage data.
+8.  **Tow/Barge Estimation:** Identify commercial tows and display their barge count from USACE data.
+9.  **Data Visibility:** Show all available AIS data for any vessel in a detail view.
+10. **MMSI/Vessel Name Search:** Implement a search bar to filter the vessel list.
+11. **Click-to-Map Info:** Clicking a vessel on the map or in the list should display a compact information card on the map.
+12. **Lock Wait Time Predictions:** When a lock is clicked, show predicted wait times, USACE delays, and other detailed information.
+13. **User Accounts:** Implement user registration and login (Email/Password and Google Social Login) to support multiple users with their own settings and lists of MMSIs.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI/React application with a MongoDB database, deployed via . The app features a sophisticated split-view desktop UI with a persistent map, a sidebar for lock timing and vessel lists, and numerous other UX enhancements.
-
-However, the application is currently non-functional on the user's GCP VM due to a critical Docker configuration issue. The frontend container cannot connect to the backend, resulting in  errors, as it incorrectly defaults to  for API calls.
+A full-stack FastAPI/React application with a MongoDB database, deployed via . The application was previously non-functional due to critical Docker and frontend connection issues, which have since been resolved. The UI features a split-view desktop layout with a persistent map and a sidebar. Major features include a lock detail modal with wait time predictions, a redesigned lock selection UI, and a multi-user architecture where data is isolated by session. The agent has just begun implementing a full user authentication system.
 
 **Last working item**:
--   **Last item agent was working**: Diagnosing and attempting to fix persistent connection errors on the user's GCP VM. The agent has correctly identified that the root cause is the  environment variable not being available at build time for the React application within its Docker container.
+-   **Last item agent was working**: Implementing user authentication. The agent has received integration playbooks for JWT and Google Auth, created the necessary backend routes (), and added frontend files for authentication (, , , ). The  file was being modified to incorporate the new routing and auth context.
 -   **Status**: IN PROGRESS
 -   **Agent Testing Done**: N
--   **Which testing method agent to use?**: Manual testing by the user after the  file is corrected and the services are rebuilt.
+-   **Which testing method agent to use?**: both. The frontend testing agent should verify the login, registration, and Google callback flows. The backend testing agent should test the  endpoints for token generation and user creation.
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1:  on User's VM due to Docker Configuration (P0 - CRITICAL BLOCKER)**
-    -   **Description**: The frontend fails all API and WebSocket requests to the backend because it's trying to connect to . This is because the  environment variable is not being correctly baked in during the  step. The user's  incorrectly uses the  key for the frontend service, which sets a runtime variable, whereas React needs this variable at build time.
-    -   **Attempted fixes**:
-        -   Complex state management changes in  to handle reconnections. These were ineffective as they didn't address the root URL issue.
-        -   Modifying  to use  and . This was a step in the right direction but incomplete without the corresponding change in .
-        -   Hard-coding the IP in . This also failed because the fundamental build process was flawed.
-    -   **Next debug checklist**:
-        1.  Instruct the user to edit .
-        2.  In the  service definition, modify the  section and remove the  section entirely. The  section must use  to pass the variable during the build.
-        3.  The final  service in  should look like this:
-            
-        4.  Provide the user with the exact commands to apply the fix: , , , .
-    -   **Why fix this issue?**: The application is completely unusable until the frontend can communicate with the backend. This is the top priority.
-    -   **Status**: IN PROGRESS
-    -   **Is recurring issue?**: Y
-    -   **Should Test frontend/backend/both after fix?**: Both (implicitly, as the entire application will become testable).
+-   None. The critical connection and session isolation bugs have been resolved.
 
 **In progress Task List**:
--   None.
+-   **Task 1: Complete User Authentication Implementation (P0)**
+    -   **Where to resume**: The agent needs to finish wiring up the authentication flow. This involves:
+        1.  In , wrap the application routes with the  from .
+        2.  Implement protected routes that redirect to the  page if the user is not authenticated.
+        3.  Flesh out the logic in  and  to handle form submissions to the backend.
+        4.  Complete the implementation of the backend auth routes in  and  to handle user creation, password hashing, JWT creation, and Google callback logic.
+    -   **What will be achieved with this?**: A fully functional user authentication system where users can register, log in with email/password or Google, and maintain a persistent, secure session.
+    -   **Status**: IN PROGRESS
+    -   **Should Test frontend/backend/both after fix?**: Both.
+    -   **Blocked on something**: No.
 
 **Upcoming and Future Tasks**
 
 **Upcoming Tasks:**
+-   **Associate Multiple MMSIs with User Accounts (P0)**: After auth is complete, refactor the data model so that a single user account can own and manage a list of multiple MMSIs. The UI will need controls to add, remove, and select the active MMSI for the session.
 -   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (File: ).
--   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups. (File: ).
+-   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups.
 
 **Future Tasks:**
--   **Vessel Watchlist (P2)**: Allow users to star or favorite vessels to highlight them.
--   **Speed Advisor (P2)**: Suggest an optimal speed to save fuel versus racing to a lock.
--   **Offline Mode (P2)**: Cache data for graceful degradation when connectivity is lost.
--   **River Conditions Badge (P3)**: Display river current and water level on the map.
--   **Multiple Target Locks (P3)**: Show ETAs to the next 2-3 locks simultaneously.
+-   **Lock Wait Time Predictions (ML-powered)**
+-   **Mobile App (PWA Conversion)**
+-   **Offline Mode with Smart Sync**
+-   **Trip Planner**
+-   **Community/Social Features**
+-   **Premium Data Integrations (River conditions, weather)**
+-   **Vessel Watchlist**
+-   **Speed Advisor**
 
 **Completed work in this session**
--   **Fixed Map Centering Bug**: Resolved an issue where clicking a vessel in the list would not pan the map to its location.
--   **Implemented Auto-Select Nearest Lock**: Clicking a vessel now automatically selects the nearest relevant lock.
--   **Implemented Overlapping Vessel Solution**: Added horizontal spreading to prevent nearby vessel icons from overlapping on the map.
--   **Major UI Overhaul**:
-    -   Converted the UI to a split-view layout, keeping the map persistently visible on desktop.
-    -   Created a new sidebar with panels for Lock Timing, Nearby Vessels, and a tabbed Locks/Raw Data view.
-    -   Added a View Details / Edit button on the map's info card to open the full vessel detail modal.
--   **New Feature Implementation**:
-    -   Added a **Distance & Time Breakdown** card.
-    -   Added a **Lock Queue Preview** to see vessels waiting at a lock.
-    -   Added a floating **Mini Compass** on the map.
-    -   Added **Last Lockage Info** to the lock details.
--   **Simplified Connection Flow**:
-    -   Rewrote the  to be a simple, single-input form for the user's MMSI.
-    -   Hard-coded the AIS server IP/Port, with an Advanced option to edit.
-    -   Attempted to implement a robust auto-connection mechanism, which ultimately led to the discovery of the P0 Docker configuration bug.
--   **UI/UX Polish**:
-    -   Updated the app version to v2.1.
-    -   Corrected the color-coding for lock statuses (Open is now green).
-    -   Adjusted sidebar panel heights for better visual alignment with the map.
--   **Code Cleanup**:
-    -   Removed the unused  file.
-    -   Cleaned up temporary  statements from debugging sessions.
+-   **Resolved Critical Connection Errors**: Fixed  by correctly setting  in  and resolved mixed-content browser errors.
+-   **Stabilized WebSocket Connection**: Fixed a frontend reconnect loop in  that was causing the connection to constantly drop and reconnect.
+-   **Implemented Lock Detail Modal**: Added a new feature to view detailed lock information (wait times, queue, USACE data) in a modal, powered by a new backend endpoint ().
+-   **Redesigned Lock List UI**: Replaced the long, scrolling list of locks with a compact dropdown selector for improved usability.
+-   **Implemented and Fixed Multi-User Session Isolation**:
+    -   Refactored the backend to eliminate all global state and handle data on a per-session basis, keyed by MMSI.
+    -   Fixed a critical frontend bug where session data was bleeding between users, ensuring strict data isolation.
+-   **Removed Noisy Connection Toasts**: Suppressed global connection status toast notifications that were being broadcast to all active users.
+-   **Began User Authentication Implementation**: Laid the groundwork for a full user account system by creating the necessary files and initial code for JWT and Google authentication.
+
+**Earlier issues found/mentioned but not fixed**
+-   **Issue 1: Monolithic Backend File**
+    -   **Debug checklist**: The file  has grown to over 3,000 lines and contains logic for API routes, WebSocket handling, data processing, and more.
+    -   **Why to solve this issue and what will be achieved with this?**: Refactoring this file into a structured directory (e.g., , , ) will significantly improve code maintainability, readability, and scalability. This is a high-priority technical debt item.
+    -   **Should Test frontend/backend/both after fix?**: backend.
+    -   **Is recurring issue?**: Y
+-   **Issue 2: Complex Frontend Component**
+    -   **Debug checklist**: The file  contains a large amount of logic for data fetching, state management, and WebSocket handling.
+    -   **Why to solve this issue and what will be achieved with this?**: Extracting logic into custom hooks (e.g., , , ) would simplify the component, improve reusability, and make the code easier to reason about.
+    -   **Should Test frontend/backend/both after fix?**: frontend.
+    -   **Is recurring issue?**: N
 
 **Known issue recurrence from previous fork**
--   None.
+-   **Name**: Docker Build Environment Variable Misconfiguration.
+-   **Recurrence count**: 1
+-   **Status**: RESOLVED. The issue was fixed by changing  to  in .
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Frontend**: React (, , , )
--   **Backend**: FastAPI, WebSockets
--   **Database**: MongoDB
--   **Deployment**: Docker, 
--   **Core Technical Blocker**: Understanding the difference between Docker build-time arguments () and runtime environment variables (). React's  requires  variables to be present at build time to be included in the static JS bundle.
+-   **Frontend**: React (, , ),  for navigation.
+-   **Backend**: FastAPI, WebSockets, Pydantic models.
+-   **Authentication**: JWT for email/password (, ) and OAuth2 for Google Social Login.
+-   **Database**: MongoDB.
+-   **Deployment**: Docker, .
+-   **Session Management**: Migrating from an anonymous, -based MMSI session to a full user account model with persistent server-side data.
 
 **key DB schema**
--   : Stores user preferences and connection configuration.
--   : Caches known vessel names against their MMSI.
--   : Stores historical lockage data from USACE.
+-   **user_accounts**: 
+-   **vessel_settings**: 
+-   **vessel_names**: Cache for MMSI to vessel name mappings.
+-   **lockage_history**: Historical USACE lockage data.
 
 **changes in tech stack**
--   None.
+-   **Added**:  and  for JWT authentication.
+-   **Added**:  for frontend routing.
 
 **All files of reference**
--   : **Crucial file that needs to be fixed to resolve the P0 blocker.**
--   : Modified to accept  as a build argument.
--   : Contains the new split-view UI and most of the recently added features.
--   : Contains the core connection and data-fetching logic.
--   : Contains the new simplified setup flow.
+-   : Core backend logic, needs refactoring.
+-   : Core frontend logic, handles routing and global state.
+-   : The main application UI.
+-   **New Auth Files**: , , and the new pages in  (, , ).
 
 **Areas that need refactoring**:
--   : This is a 3000+ line monolithic file that urgently needs to be broken down into smaller modules (e.g., for AIS parsing, API routes, WebSocket management, USACE data fetching).
--   : The data-fetching and WebSocket logic could be extracted into custom hooks (e.g., , ) to significantly clean up the component.
+-   ****: Urgently needs to be broken down into smaller modules for routes, services, and models to manage complexity.
+-   ****: Data fetching and WebSocket logic should be extracted into custom hooks to simplify the main component.
 
 **key api endpoints**
--   : Main endpoint for real-time AIS data.
--   : Returns the list of active vessels.
--   : Retrieves saved settings.
--   : Saves settings.
+-   **Authentication**: , , , .
+-   **Session Data**: , .
+-   **Real-time**: .
 
 **Critical Info for New Agent**
--   **Focus exclusively on fixing the  file.** The current blocker is a Docker configuration issue, not a React logic bug. Do not attempt to debug .
--   The user's  for the  service incorrectly uses the  key. You must guide the user to replace it with  to pass  during the container build process.
--   Provide very clear, copy-pasteable commands for the user to execute on their VM, as their environment has proven to be fragile. The required command sequence is , then , then , then .
+-   The highest priority is to complete the user authentication feature that was just started. The file structure is in place, but the implementation is incomplete.
+-   The user has explicitly stated that a single user account can be associated with multiple MMSIs. This will be the next major task after authentication is working.
+-   The application was plagued by session isolation bugs, which have been fixed by refactoring both the backend (removing global state) and frontend (making component logic self-reliant). Do not re-introduce logic that trusts broadcasted flags like . All session-specific logic must be based on the session's unique identifier (the user's active MMSI).
+-   After completing the auth feature, proposing a refactor of the monolithic  would be a valuable next step to improve project health.
 
 **documents and test reports created in this job**
--    (updated)
+-   
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** still not connecting...just connection errors
-2.  **Agent:** Asks for backend logs.
-3.  **User:** (Provides backend logs showing no WebSocket connection attempts).
-4.  **Agent:** Realizes frontend isn't triggering the connection, simplifies the auto-connect logic.
-5.  **User:** Still getting nothing but connection errors
-6.  **Agent:** Asks for browser console logs.
-7.  **User:** (Provides console logs showing  to ).
-8.  **Agent:** Correctly identifies the frontend is not using the correct backend URL and that it's an environment variable issue.
-9.  **User:** (Provides the  file content).
-10. **Agent:** Analyzes the file and confirms the  key is the problem.
-- **Pending Action:** The agent has identified the root cause and has all the information needed to provide the definitive fix to the user.
+1.  **User**: We need user accounts and to save user data. Can we get this wired up?
+2.  **Agent**: Asks clarifying questions about authentication methods and how MMSIs relate to users.
+3.  **User**: Confirms they want both email/password (JWT) and Google Auth. States that a user can have multiple MMSIs.
+4.  **User**: (After agent started refactoring to fix session bleed) .
+5.  **User**: (Provides screenshot)  - highlighting that session data was still bleeding between browsers.
+6.  **Agent**: Identifies and fixes the root cause on the frontend.
+7.  **User**: (Provides another screenshot)  - showing the bug persists.
+8.  **Agent**: Realizes the fix was incomplete and continues to purge  checks from all frontend components.
+9.  **User**: 
+10. **User**:  - This confirms the priority is shifting to full authentication.
 
 **Project Health Check:**
--   **Broken**: The application is critically broken and unusable on the user's target environment (GCP VM) due to the Docker build configuration error.
+-   **Broken**: No. The core functionality is stable. The new authentication feature is under construction.
 -   **Mocked**: None.
 
 **3rd Party Integrations**
 -   **MongoDB**: Primary database.
--   **USACE Web Scraping**: For live lock status.
--   **USACE XML API**: For real-time lock queue and barge count data.
+-   **USACE Web Scraping / XML API**: Provides live lock status and queue data.
+-   **Emergent-managed Google Auth**: For social login. Integration playbook received.
+-   **JWT (python-jose, passlib)**: For custom email/password authentication.
 
 **Testing status**
 -   **Testing agent used after significant changes**: NO
 -   **Troubleshoot agent used after agent stuck in loop**: NO
--   **Test files created**: No persistent test files were created.
--   **Known regressions**: The primary connection mechanism has regressed due to incorrect Docker configuration.
+-   **Test files created**: []
+-   **Known regressions**: None. The previous regressions have been fixed.
 
 **Credentials to test flow:**
--   The application needs to connect to the user's AIS TCP feed at IP  on port .
+-   AIS TCP feed connects to IP  on port .
+-   User accounts will need to be created via the new registration page once functional.
 
 **What agent forgot to execute**
--   The agent has been correctly focused on solving the critical connection blocker and has not overlooked other tasks. The immediate priority is to communicate the  fix to the user.</analysis>
+-   The agent did not address the high-priority technical debt of refactoring the monolithic  file. With authentication logic now being added, this file's complexity is increasing, making the refactor more urgent.</analysis>

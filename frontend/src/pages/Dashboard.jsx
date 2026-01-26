@@ -750,58 +750,6 @@ export default function Dashboard({
                     </div>
                   )}
                   
-                  {/* Integrated HUD - Top of map, below header */}
-                  <div className="hidden md:block absolute top-14 left-2 z-30 pointer-events-none">
-                    <div className="pointer-events-auto bg-slate-950/95 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl overflow-hidden">
-                      {/* Main HUD Content */}
-                      <div className="flex items-center">
-                        {/* Position */}
-                        {userVessel && (
-                          <div className="flex items-center gap-2 px-3 py-2 border-r border-white/10">
-                            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]" />
-                            <div>
-                              <div className="text-[8px] font-heading uppercase tracking-widest text-slate-500">Pos</div>
-                              <div className="font-mono text-sm text-cyan-400 font-semibold leading-tight">
-                                {userVessel.river_mile?.toFixed(1)}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Speedometer */}
-                        <div className="px-2 py-1">
-                          <Speedometer
-                            currentSpeed={userVessel ? userVessel.speed * 1.15078 : 0}
-                            requiredSpeed={requiredSpeed}
-                            maxSpeed={40}
-                            size={80}
-                            isDanger={isDangerous}
-                          />
-                        </div>
-
-                        {/* ETA */}
-                        <div className="flex items-center px-3 py-2 border-l border-white/10">
-                          <div>
-                            <div className="text-[8px] font-heading uppercase tracking-widest text-slate-500">ETA</div>
-                            <div className="font-mono text-sm text-amber-400 font-semibold leading-tight">
-                              {userEta ? `${Math.round(userEta)}m` : '--'}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Status */}
-                        <div className={`flex items-center px-3 py-2 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'} rounded-r-lg`}>
-                          <div className={`font-heading text-sm font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                            {isDangerous ? 'DELAY' : 'CLEAR'}
-                          </div>
-                          {isDangerous && (
-                            <AlertTriangle className="w-3.5 h-3.5 text-red-400 ml-1.5 animate-pulse" />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Floating Position Editor - Shows when editing from map click */}
                   {showPositionEditor && (
                     <div className="absolute top-3 left-3 z-50 glass-panel border border-cyan-500/50 rounded-lg shadow-xl w-64" data-testid="map-position-editor">

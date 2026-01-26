@@ -52,6 +52,60 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# Helper function to persist vessel sighting with USACE data
+async def persist_vessel_sighting(vessel_data: dict):
+    """
+    Persist vessel sighting to database for historical analysis.
+    Only saves vessels with meaningful data (position or USACE info).
+    """
+    if not vessel_data or not vessel_data.get('mmsi'):
+        return
+    
+    mmsi = vessel_data['mmsi']
+    
+    # Build the sighting record
+    sighting = {
+        "mmsi": mmsi,
+        "timestamp": datetime.now(timezone.utc),
+        "name": vessel_data.get('name'),
+        "lat": vessel_data.get('lat'),
+        "lon": vessel_data.get('lon'),
+        "river_mile": vessel_data.get('river_mile'),
+        "speed": vessel_data.get('speed'),
+        "course": vessel_data.get('course'),
+        "heading_direction": vessel_data.get('heading_direction'),
+        "ship_type": vessel_data.get('ship_type'),
+        # USACE data
+        "usace_source": vessel_data.get('usace_source', False),
+        "barge_count": vessel_data.get('barge_count'),
+        "is_tow": vessel_data.get('is_tow', False),
+        "tow_config": vessel_data.get('tow_config'),
+        "usace_lock": vessel_data.get('usace_lock'),
+        "usace_status": vessel_data.get('usace_status'),
+        "estimated_lockage_time": vessel_data.get('estimated_lockage_time'),
+        "is_double_lockage": vessel_data.get('is_double_lockage', False),
+    }
+    
+    # Update or insert the vessel's latest sighting
+    # Use upsert to maintain one "current" record per vessel
+    await db.vessel_sightings.update_one(
+        {"mmsi": mmsi},
+        {
+            "$set": sighting,
+            "$setOnInsert": {"first_seen": datetime.now(timezone.utc)}
+        },
+        upsert=True
+    )
+    
+    # Also append to historical sightings if USACE data present (for analysis)
+    if vessel_data.get('usace_source') and vessel_data.get('barge_count') is not None:
+        historical_record = {
+            **sighting,
+            "recorded_at": datetime.now(timezone.utc)
+        }
+        await db.vessel_history.insert_one(historical_record)
+        logger.debug(f"Persisted USACE sighting for {mmsi}: {vessel_data.get('barge_count')} barges at {vessel_data.get('usace_lock')}")
+
 # Create the main app
 app = FastAPI()
 

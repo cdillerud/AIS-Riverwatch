@@ -19,6 +19,7 @@ const RiverVisualizationComponent = ({
   onVesselClick = () => {},
   onVesselDetails = () => {}, // Callback to open full vessel detail modal
   onLockClick = () => {}, // Callback when lock is clicked for details
+  onUserVesselEdit = () => {}, // Callback when user's vessel is clicked for editing
   showVesselNames = true,
   focusedVessel = null,
   onFocusClear = () => {}

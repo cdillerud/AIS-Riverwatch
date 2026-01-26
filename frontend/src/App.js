@@ -122,6 +122,24 @@ function MainApp() {
     }
   }, [user]);
 
+  // Clear all session data when user logs out
+  useEffect(() => {
+    if (!user) {
+      // User logged out - clear all vessel and session data
+      setVessels([]);
+      setRaceAnalysis(null);
+      setUserMmsi("");
+      setConnectionConfig(null);
+      setIsConnected(false);
+      // Close WebSocket if connected
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      console.log("User logged out - cleared all session data");
+    }
+  }, [user]);
+
   // Full app refresh - clears stale data and reconnects
   const performFullRefresh = useCallback(() => {
     console.log("Performing full refresh...");

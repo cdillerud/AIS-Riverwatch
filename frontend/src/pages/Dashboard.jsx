@@ -324,14 +324,14 @@ export default function Dashboard({
   };
 
   // Open position editor with current values
-  const openPositionEditor = () => {
+  const openPositionEditor = useCallback(() => {
     if (userVessel) {
       setEditRM(userVessel.river_mile?.toFixed(1) || "");
       setEditSpeed((userVessel.speed * 1.15078).toFixed(1) || "");
       setEditCourse(userVessel.course?.toFixed(0) || "180");
     }
     setShowPositionEditor(true);
-  };
+  }, [userVessel]);
 
   // Handle user vessel edit from map click
   const handleUserVesselEdit = (vessel) => {

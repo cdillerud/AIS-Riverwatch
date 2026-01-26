@@ -492,6 +492,59 @@ export default function Dashboard({
         </div>
       </header>
 
+      {/* HUD Bar - Between header and main content (desktop only) */}
+      <div className="hidden md:block bg-slate-900/50 border-b border-white/5">
+        <div className="container mx-auto px-4 py-2">
+          <div className="flex items-center justify-center">
+            <div className="flex items-center bg-slate-950/80 border border-white/10 rounded-lg overflow-hidden">
+              {/* Position */}
+              {userVessel && (
+                <div className="flex items-center gap-2 px-3 py-1.5 border-r border-white/10">
+                  <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.5)]" />
+                  <div>
+                    <div className="text-[7px] font-heading uppercase tracking-widest text-slate-500">Pos</div>
+                    <div className="font-mono text-xs text-cyan-400 font-semibold leading-tight">
+                      RM {userVessel.river_mile?.toFixed(1)}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Speedometer */}
+              <div className="px-2 py-0.5">
+                <Speedometer
+                  currentSpeed={userVessel ? userVessel.speed * 1.15078 : 0}
+                  requiredSpeed={requiredSpeed}
+                  maxSpeed={40}
+                  size={60}
+                  isDanger={isDangerous}
+                />
+              </div>
+
+              {/* ETA */}
+              <div className="flex items-center px-3 py-1.5 border-l border-white/10">
+                <div>
+                  <div className="text-[7px] font-heading uppercase tracking-widest text-slate-500">ETA</div>
+                  <div className="font-mono text-xs text-amber-400 font-semibold leading-tight">
+                    {userEta ? `${Math.round(userEta)}m` : '--'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className={`flex items-center px-3 py-1.5 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
+                <div className={`font-heading text-xs font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                  {isDangerous ? 'DELAY' : 'CLEAR'}
+                </div>
+                {isDangerous && (
+                  <AlertTriangle className="w-3 h-3 text-red-400 ml-1 animate-pulse" />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Main Content */}
       <main className="container mx-auto px-2 md:px-4 py-3 md:py-6">
         

@@ -75,7 +75,7 @@ export default function Dashboard({
   };
 
   // Handle manual refresh with visual feedback
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     toast.info("Refreshing data...");
     
@@ -87,7 +87,7 @@ export default function Dashboard({
       setIsRefreshing(false);
       toast.success("Data refreshed");
     }, 1000);
-  };
+  }, [onRefresh]);
 
   // Handle full page refresh
   const handleFullRefresh = () => {

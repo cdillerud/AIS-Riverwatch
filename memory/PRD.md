@@ -24,6 +24,17 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
     - USACE status and closure info
     - Lock master phone number (click to call)
     - Prediction confidence indicators
+13. **User Authentication (NEW - Jan 2026)** ✅
+    - Email/password registration and login
+    - Google OAuth via Emergent-managed auth
+    - Session-based authentication with httpOnly cookies
+    - Protected routes (redirect to login if not authenticated)
+    - Logout functionality (desktop and mobile)
+14. **Multi-Vessel Fleet Management (NEW - Jan 2026)** ✅
+    - Associate multiple MMSIs with a single user account
+    - Set primary vessel for lock timing calculations
+    - Add/remove vessels from fleet in Settings page
+    - MMSI uniqueness enforced (one user per MMSI)
 
 ### Upcoming (P1)
 - Sound/Vibration Alerts for "Traffic Delay" warnings
@@ -43,6 +54,7 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 - **Frontend**: React, Tailwind CSS, Shadcn/UI
 - **Database**: MongoDB
 - **Deployment**: Docker, docker-compose
+- **Authentication**: Session tokens (httpOnly cookies), Google OAuth
 
 ### Key Files
 - `/app/backend/server.py` - Monolithic FastAPI server (3000+ lines, needs refactoring)
@@ -50,100 +62,94 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 - `/app/frontend/src/components/RiverVisualization.jsx` - River map component
 - `/app/frontend/src/components/LockDetailModal.jsx` - Lock details with wait predictions
 - `/app/frontend/src/components/VesselList.jsx` - Vessel list with search
+- `/app/frontend/src/components/VesselManagement.jsx` - Fleet management component (NEW)
+- `/app/frontend/src/context/AuthContext.jsx` - Authentication context and hooks
+- `/app/frontend/src/pages/LoginPage.jsx` - Login page
+- `/app/frontend/src/pages/RegisterPage.jsx` - Registration page
 
 ### Key API Endpoints
+
+#### Authentication
+- `POST /api/auth/register` - Register new user with email/password
+- `POST /api/auth/login` - Login with email/password
+- `POST /api/auth/google/session` - Exchange Google OAuth session for user session
+- `GET /api/auth/me` - Get current authenticated user
+- `POST /api/auth/logout` - Logout and clear session
+
+#### User/Fleet Management
+- `GET /api/user/vessels` - Get all vessels for current user
+- `POST /api/user/vessels` - Add a vessel to user's fleet
+- `DELETE /api/user/vessels/{mmsi}` - Remove a vessel from fleet
+- `PUT /api/user/vessels/{mmsi}/primary` - Set vessel as primary
+- `PUT /api/user/profile` - Update user profile
+- `PUT /api/user/settings` - Update user settings
+
+#### Session Data (legacy, still functional)
+- `GET /api/session/{mmsi}/vessels` - Get vessels with correct is_user_vessel flag
+- `POST /api/session/{mmsi}/position` - Update position for this session's vessel
+- `GET /api/session/{mmsi}/race-analysis/{lock_id}` - Race analysis for this session
+
+#### Other
 - `POST /api/connection/start` - Start AIS connection
 - `GET /api/vessels` - Get active vessels in river mile range
 - `GET /api/usace/lock-queue` - Get USACE vessel cache
 - `GET /api/locks/{lock_id}/details` - Get comprehensive lock details with wait prediction
 - `GET /api/connection/status` - Get AIS connection status
 
-## Recent Changes
+## Database Schema
 
-### Lock Detail Modal Feature (Jan 2025)
-**New Feature**: Click any lock on the map or in the locks list to see comprehensive details including:
-- Wait time predictions based on queue analysis
-- Current vessels locking and waiting (with barge counts)
-- Average lockage times for commercial tows vs recreational boats
-- USACE closure/restriction alerts
-- One-tap calling to Lock Master
-- Prediction confidence indicators (baseline vs observed data)
-
-**Files Added/Modified**:
-- NEW: `/app/frontend/src/components/LockDetailModal.jsx`
-- NEW: `/app/backend/server.py` - Added `GET /api/locks/{lock_id}/details` endpoint
-- MODIFIED: `RiverVisualization.jsx` - Lock markers are now clickable
-- MODIFIED: `LockStatusPanel.jsx` - Added "View Details" buttons
-- MODIFIED: `Dashboard.jsx` - Integrated LockDetailModal
-
-### Critical Fix: Docker + WebSocket Connection (Jan 2025)
-**Problem**: Frontend couldn't connect to backend on production VM - mixed content errors and WebSocket reconnection loops.
-
-**Solution**:
-1. Fixed `docker-compose.yml` to use `build.args` (React needs env vars at build time)
-2. Set `REACT_APP_BACKEND_URL=https://riverwatchais.com` for HTTPS compatibility
-3. Rewrote WebSocket connection logic to prevent reconnect loops
-
-### Multi-User Session Isolation (Jan 2025)
-**CRITICAL: All user data is strictly isolated by MMSI (session ID)**
-
-**Architecture:**
-```
-Session A (MMSI: 338414076)         Session B (MMSI: 367555123)
-         │                                   │
-         ▼                                   ▼
-┌─────────────────────────────────────────────────────────┐
-│                    BACKEND SERVER                        │
-│  SessionManager: tracks active sessions per MMSI         │
-│  VesselDataStore: all vessels, is_user_vessel per-session│
-│  user_settings collection: settings stored BY MMSI       │
-└─────────────────────────────────────────────────────────┘
+### users Collection
+```javascript
+{
+  user_id: "user_xxx",
+  email: "user@example.com",
+  name: "User Name",
+  password_hash: "salt$hash", // For email/password auth
+  google_id: "google_id", // For Google OAuth
+  picture: "url",
+  fleet_name: "optional",
+  vessels: [
+    { mmsi: "123456789", boat_name: "My Boat", is_primary: true, added_at: "ISO" }
+  ],
+  settings: {},
+  created_at: "ISO",
+  auth_provider: "email" | "google"
+}
 ```
 
-**Session-Scoped API Endpoints:**
-- `GET /api/session/{mmsi}/vessels` - Get vessels with correct is_user_vessel flag
-- `POST /api/session/{mmsi}/position` - Update position for this session's vessel
-- `GET /api/session/{mmsi}/race-analysis/{lock_id}` - Race analysis for this session
-- `GET /api/user/{mmsi}/settings` - Get settings for this session
-- `POST /api/user/{mmsi}/settings` - Save settings for this session
-- `GET /api/sessions` - Debug: list active sessions
+### user_sessions Collection
+```javascript
+{
+  user_id: "user_xxx",
+  session_token: "session_xxx",
+  expires_at: "ISO",
+  created_at: "ISO"
+}
+```
 
-**What's Isolated Per Session:**
-- "Your Vessel" highlighting (is_user_vessel flag)
-- Position updates
-- Race analysis calculations
-- All settings (speed, alerts, preferences)
-- Boat name
+## Recent Changes (Jan 2026)
 
-**What's Shared (by design):**
-- AIS feed data (all vessels on the river)
-- Lock status (same for everyone)
-- USACE lock queue data
+### User Authentication Implementation
+- Added email/password registration and login
+- Integrated Google OAuth via Emergent-managed auth
+- Session-based authentication with secure cookies
+- Protected routes that redirect to login
+- Logout buttons on desktop and mobile
 
-**Key Implementation Details:**
-- Removed global `user_mmsi` variable (was causing session bleed)
-- Added SessionManager class for explicit session tracking
-- All API endpoints now explicitly require session MMSI
-- WebSocket connections track their MMSI for per-user vessel highlighting
-- MongoDB `user_settings` collection keyed by MMSI
-
-## Multi-User Support (Jan 2025)
-**Feature**: Multiple users can use the app simultaneously with their own MMSI and settings.
-
-**How it works:**
-- MMSI stored in browser localStorage (persists across sessions)
-- Settings stored per-MMSI in MongoDB (`user_settings` collection)
-- One shared AIS feed connection (saves resources)
-- Each WebSocket tracks its user's MMSI for personalized vessel highlighting
-
-**New API Endpoints:**
-- `GET /api/user/{mmsi}/settings` - Get user-specific settings
-- `POST /api/user/{mmsi}/settings` - Save user-specific settings
-
-### Lock Panel Redesign (Jan 2025)
+### Multi-Vessel Fleet Management
+- Users can now have multiple vessels in their "fleet"
+- One vessel designated as primary for lock timing
+- VesselManagement component in Settings page
+- MMSI uniqueness enforced across all users
 
 ## Known Issues
 - WebSocket dev server errors in console (harmless - hot reload trying to connect)
+- Backend server.py is monolithic (3000+ lines) - needs refactoring
 
 ## Refactoring Needed
-- Break down `backend/server.py` into smaller modules
+- Break down `backend/server.py` into smaller modules (routes, services, models)
+- Extract frontend logic into custom hooks (useWebSocket, useAuth, useApiData)
+
+## Test Reports
+- `/app/test_reports/iteration_3.json` - Latest test results (100% pass rate)
+- `/app/backend/tests/test_auth.py` - Authentication test suite

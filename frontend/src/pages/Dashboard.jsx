@@ -670,164 +670,39 @@ export default function Dashboard({
         </div>
       </header>
 
-      {/* Your Vessel Status Bar - Desktop */}
+      {/* Your Vessel Status Bar - Desktop - Simplified */}
       <div className="hidden md:block border-b border-white/10 bg-slate-900/50">
-        <div className="container mx-auto px-4 py-3">
+        <div className="container mx-auto px-4 py-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${userVessel ? 'bg-cyan-400 user-vessel-pulse' : 'bg-slate-600'}`} />
-                <span className="text-sm font-semibold text-white">Your Vessel</span>
-                {/* MMSI Badge - Always visible in orange/amber */}
-                {userMmsi && (
-                  <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 font-mono">
-                    MMSI: {userMmsi}
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${userVessel ? 'bg-cyan-400 user-vessel-pulse' : 'bg-slate-600'}`} />
+              <span className="text-sm font-semibold text-white">Your Vessel</span>
+              {/* MMSI Badge - Always visible in orange/amber */}
+              {userMmsi && (
+                <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 font-mono">
+                  MMSI: {userMmsi}
+                </Badge>
+              )}
+              {userVessel ? (
+                <>
+                  <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
+                    {getVesselDisplayName(userVessel, userSettings.show_vessel_names !== false)}
                   </Badge>
-                )}
-                {userVessel ? (
-                  <>
-                    <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
-                      {getVesselDisplayName(userVessel, userSettings.show_vessel_names !== false)}
+                  {userVessel.source && (
+                    <Badge className={`text-xs ${userVessel.source === 'GPS' ? 'bg-green-900/30 text-green-400 border-green-500/30' : 'bg-blue-900/30 text-blue-400 border-blue-500/30'}`}>
+                      {userVessel.source}
                     </Badge>
-                    {userVessel.source && (
-                      <Badge className={`text-xs ${userVessel.source === 'GPS' ? 'bg-green-900/30 text-green-400 border-green-500/30' : 'bg-blue-900/30 text-blue-400 border-blue-500/30'}`}>
-                        {userVessel.source}
-                      </Badge>
-                    )}
-                  </>
-                ) : userMmsi ? (
+                  )}
+                  <span className="text-xs text-slate-500 ml-2">
+                    Click your vessel on map to edit position
+                  </span>
+                </>
+              ) : userMmsi ? (
+                <>
                   <Badge className="bg-slate-700 text-slate-400 border-slate-600 text-xs">
-                    (awaiting position data)
+                    (awaiting position)
                   </Badge>
-                ) : (
-                  <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30">
-                    No MMSI configured
-                  </Badge>
-                )}
-              </div>
-            </div>
-            
-            {userVessel ? (
-              <div className="flex items-center gap-4 md:gap-6">
-                <div className="text-center">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">River Mile</div>
-                  <div className="text-lg font-mono text-white">
-                    {userVessel.river_mile?.toFixed(1) || '--'}
-                  </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Speed</div>
-                  <div className="text-lg font-mono text-white">
-                    {(userVessel.speed * 1.15078).toFixed(1)} <span className="text-xs text-slate-400">MPH</span>
-                  </div>
-                </div>
-                <div className="text-center hidden sm:block">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Course</div>
-                  <div className="text-lg font-mono text-white">
-                    {userVessel.course?.toFixed(0)}°
-                  </div>
-                </div>
-                <div className="text-center hidden md:block">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Direction</div>
-                  <div className="text-lg font-semibold text-white capitalize">
-                    {userVessel.heading || '--'}
-                  </div>
-                </div>
-                
-                {/* Quick Position Edit Button */}
-                <Popover open={showPositionEditor} onOpenChange={setShowPositionEditor}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={openPositionEditor}
-                      className="text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10"
-                      data-testid="quick-position-edit-btn"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-72 bg-slate-900 border-slate-700" align="end">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-medium text-white">Quick Position Edit</h4>
-                        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">
-                          Testing
-                        </Badge>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div>
-                          <Label className="text-xs text-slate-400">River Mile</Label>
-                          <Input
-                            type="number"
-                            placeholder="830"
-                            value={editRM}
-                            onChange={(e) => setEditRM(e.target.value)}
-                            className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                            data-testid="quick-edit-rm"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label className="text-xs text-slate-400">Speed (MPH)</Label>
-                            <Input
-                              type="number"
-                              placeholder="15"
-                              value={editSpeed}
-                              onChange={(e) => setEditSpeed(e.target.value)}
-                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                              data-testid="quick-edit-speed"
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs text-slate-400">Course (°)</Label>
-                            <Input
-                              type="number"
-                              placeholder="180"
-                              value={editCourse}
-                              onChange={(e) => setEditCourse(e.target.value)}
-                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                              data-testid="quick-edit-course"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowPositionEditor(false)}
-                          className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={updateQuickPosition}
-                          className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
-                          data-testid="quick-edit-save-btn"
-                        >
-                          <Check className="w-4 h-4 mr-1" />
-                          Update
-                        </Button>
-                      </div>
-                      
-                      <p className="text-[10px] text-slate-500">
-                        0°=North, 180°=South (downriver)
-                      </p>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div className="text-sm text-slate-500">
-                  {isConnected ? 'Waiting for your vessel position from AIS feed...' : 'Not connected to AIS'}
-                </div>
-                {/* Allow setting position even without existing vessel data */}
-                {userMmsi && (
+                  {/* Set Position button when no vessel data */}
                   <Popover open={showPositionEditor} onOpenChange={setShowPositionEditor}>
                     <PopoverTrigger asChild>
                       <Button
@@ -839,15 +714,94 @@ export default function Dashboard({
                           setEditCourse("180");
                           setShowPositionEditor(true);
                         }}
-                        className="text-cyan-400 border-cyan-500/50 hover:bg-cyan-500/10"
+                        className="ml-2 text-cyan-400 border-cyan-500/50 hover:bg-cyan-500/10 h-7 text-xs"
                         data-testid="set-position-btn"
                       >
-                        <MapPin className="w-4 h-4 mr-1" />
+                        <MapPin className="w-3 h-3 mr-1" />
                         Set Position
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-72 bg-slate-900 border-slate-700" align="end">
+                    <PopoverContent className="w-72 bg-slate-900 border-slate-700" align="start">
                       <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-medium text-white">Set Your Position</h4>
+                          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">
+                            Manual
+                          </Badge>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <div>
+                            <Label className="text-xs text-slate-400">River Mile</Label>
+                            <Input
+                              type="number"
+                              placeholder="e.g., 830"
+                              value={editRM}
+                              onChange={(e) => setEditRM(e.target.value)}
+                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              data-testid="quick-edit-rm"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-xs text-slate-400">Speed (MPH)</Label>
+                              <Input
+                                type="number"
+                                placeholder="15"
+                                value={editSpeed}
+                                onChange={(e) => setEditSpeed(e.target.value)}
+                                className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-slate-400">Course (°)</Label>
+                              <Input
+                                type="number"
+                                placeholder="180"
+                                value={editCourse}
+                                onChange={(e) => setEditCourse(e.target.value)}
+                                className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowPositionEditor(false)}
+                            className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={updateQuickPosition}
+                            className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
+                            data-testid="quick-edit-save-btn"
+                          >
+                            <Check className="w-4 h-4 mr-1" />
+                            Set
+                          </Button>
+                        </div>
+                        
+                        <p className="text-[10px] text-slate-500">
+                          0°=North, 180°=South (downriver)
+                        </p>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </>
+              ) : (
+                <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30">
+                  No MMSI configured
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
                         <div className="flex items-center justify-between">
                           <h4 className="text-sm font-medium text-white">Set Your Position</h4>
                           <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">

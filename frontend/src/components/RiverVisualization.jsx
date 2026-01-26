@@ -25,7 +25,7 @@ const getShipTypeDescription = (code) => {
 };
 
 // Expandable Vessel Info Panel Component
-const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVesselEdit }) => {
+const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVesselEdit, onVesselDetails }) => {
   const [expanded, setExpanded] = useState(false);
   const isUser = userMmsi && vessel.mmsi === userMmsi;
   const isTow = vessel.is_tow || vessel.barge_count > 0;
@@ -49,6 +49,18 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
           <span className={`font-semibold text-sm truncate max-w-[180px] ${isUser ? 'text-cyan-400' : 'text-white'}`}>
             {getVesselDisplayName(vessel, showVesselNames)}
           </span>
+          {/* Edit Name/Type button */}
+          <button 
+            onClick={() => {
+              onVesselDetails(vessel);
+              onClose();
+            }}
+            className="text-slate-500 hover:text-cyan-400 p-1"
+            title="Edit vessel info"
+            data-testid="edit-vessel-info-btn"
+          >
+            <Edit3 className="w-3 h-3" />
+          </button>
         </div>
         <button onClick={onClose} className="text-slate-400 hover:text-white p-1">
           <X className="w-4 h-4" />

@@ -98,13 +98,29 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
   const [editedType, setEditedType] = useState("");
   const [lockageHistory, setLockageHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [vesselData, setVesselData] = useState(null);  // Persisted vessel data from DB
 
-  // Fetch lockage history when modal opens
+  // Fetch lockage history and persisted vessel data when modal opens
   useEffect(() => {
-    if (isOpen && vessel?.name) {
+    if (isOpen && vessel) {
       fetchLockageHistory();
+      fetchVesselData();
     }
-  }, [isOpen, vessel?.name]);
+  }, [isOpen, vessel?.mmsi, vessel?.name]);
+
+  const fetchVesselData = async () => {
+    if (!vessel?.mmsi) return;
+    
+    try {
+      const response = await fetch(`${API}/vessels/history/${vessel.mmsi}`);
+      if (response.ok) {
+        const data = await response.json();
+        setVesselData(data);
+      }
+    } catch (error) {
+      console.error("Error fetching vessel data:", error);
+    }
+  };
 
   const fetchLockageHistory = async () => {
     if (!vessel?.name) return;

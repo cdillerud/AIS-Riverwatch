@@ -102,6 +102,93 @@ export default function RawDataPanel({ isConnected, compact = false }) {
     ? lines 
     : lines.filter(l => l.info.type.toLowerCase() === filter);
 
+  // Compact mode removes header/card wrapper
+  if (compact) {
+    return (
+      <div className="h-full flex flex-col">
+        {/* Compact header with filter badges and controls */}
+        <div className="flex items-center justify-between p-2 border-b border-white/10 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-wrap">
+            <Badge 
+              className={`cursor-pointer text-[9px] px-1.5 py-0 ${filter === 'all' ? 'bg-white/20 text-white' : 'bg-slate-800/50 text-slate-500'}`}
+              onClick={() => setFilter('all')}
+            >
+              All
+            </Badge>
+            <Badge 
+              className={`cursor-pointer text-[9px] px-1.5 py-0 ${filter === 'gps' ? 'bg-green-500/30 text-green-400' : 'bg-slate-800/50 text-slate-500'}`}
+              onClick={() => setFilter('gps')}
+            >
+              GPS
+            </Badge>
+            <Badge 
+              className={`cursor-pointer text-[9px] px-1.5 py-0 ${filter === 'ais' ? 'bg-amber-500/30 text-amber-400' : 'bg-slate-800/50 text-slate-500'}`}
+              onClick={() => setFilter('ais')}
+            >
+              AIS
+            </Badge>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsPaused(!isPaused)}
+              className={`h-6 w-6 p-0 ${isPaused ? 'text-amber-400' : 'text-slate-500'}`}
+            >
+              {isPaused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearLines}
+              className="h-6 w-6 p-0 text-slate-500"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+        
+        {/* Scrollable content */}
+        <ScrollArea className="flex-1" ref={scrollRef}>
+          <div className="font-mono text-[9px] p-1.5 space-y-0.5">
+            {!isConnected ? (
+              <div className="text-center py-4 text-slate-500">
+                <Radio className="w-6 h-6 mx-auto mb-1 opacity-30" />
+                <p className="text-[10px]">Connect to see raw data</p>
+              </div>
+            ) : filteredLines.length === 0 ? (
+              <div className="text-center py-4 text-slate-500">
+                <Terminal className="w-6 h-6 mx-auto mb-1 opacity-30" />
+                <p className="text-[10px]">Waiting for data...</p>
+              </div>
+            ) : (
+              filteredLines.slice(-50).map((item) => {
+                const Icon = item.info.icon;
+                return (
+                  <div 
+                    key={item.id} 
+                    className={`flex items-start gap-1 p-1 rounded ${item.info.bg} border border-white/5`}
+                  >
+                    <Icon className={`w-2.5 h-2.5 mt-0.5 flex-shrink-0 ${item.info.color}`} />
+                    <span className={`${item.info.color} break-all leading-tight`}>{item.line}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </ScrollArea>
+        
+        {isPaused && (
+          <div className="text-center py-1 border-t border-white/10">
+            <Badge className="bg-amber-500/30 text-amber-400 border-amber-500/50 text-[9px]">
+              PAUSED
+            </Badge>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <Card className="glass-panel hud-border h-full">
       <CardHeader className="pb-2">

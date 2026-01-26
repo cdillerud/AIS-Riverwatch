@@ -216,3 +216,7 @@ function VesselManagementComponent() {
     </Card>
   );
 }
+
+// Memoize the component to prevent unnecessary re-renders
+const VesselManagement = memo(VesselManagementComponent);
+export default VesselManagement;

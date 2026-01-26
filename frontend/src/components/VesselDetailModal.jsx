@@ -722,6 +722,66 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
             )}
           </div>
 
+          {/* Historical USACE Sightings */}
+          {vesselData?.history && vesselData.history.length > 0 && (
+            <div className="glass-panel p-4 rounded-lg border border-green-500/30">
+              <h3 className="text-sm font-semibold text-green-400 mb-3 flex items-center gap-2">
+                <History className="w-4 h-4" />
+                USACE Sighting History
+                <Badge className="bg-green-900/30 text-green-400 text-xs">
+                  {vesselData.history.length} records
+                </Badge>
+              </h3>
+              <div className="space-y-2 max-h-[150px] overflow-y-auto">
+                {vesselData.history.slice(0, 10).map((record, idx) => (
+                  <div 
+                    key={idx} 
+                    className="bg-slate-800/50 rounded p-2 text-sm"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        {record.usace_lock && (
+                          <>
+                            <Lock className="w-3 h-3 text-cyan-400" />
+                            <span className="font-medium text-white">
+                              {record.usace_lock.replace('lock_', 'Lock ')}
+                            </span>
+                          </>
+                        )}
+                        {record.barge_count !== null && record.barge_count !== undefined && (
+                          <Badge className="bg-amber-900/30 text-amber-400 text-xs">
+                            {record.barge_count} barges
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-slate-500 text-xs">
+                        {record.recorded_at ? new Date(record.recorded_at).toLocaleString() : ''}
+                      </span>
+                    </div>
+                    <div className="flex gap-4 text-xs text-slate-400">
+                      {record.river_mile && (
+                        <span>RM {record.river_mile.toFixed(1)}</span>
+                      )}
+                      {record.tow_config && (
+                        <span className="font-mono">{record.tow_config}</span>
+                      )}
+                      {record.usace_status && (
+                        <span className="text-cyan-400">{record.usace_status}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* First Seen Info */}
+          {vesselData?.current?.first_seen && (
+            <div className="text-xs text-slate-500 text-center">
+              First seen: {new Date(vesselData.current.first_seen).toLocaleString()}
+            </div>
+          )}
+
           {/* Data Source */}
           <div className="text-xs text-slate-500 text-center pt-2 border-t border-slate-700">
             {vessel.source && (

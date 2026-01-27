@@ -811,8 +811,8 @@ function MainApp() {
           onRefresh={performSoftRefresh}
           onFullRefresh={performFullRefresh}
           lastRefresh={lastRefresh}
-          accountType={connectionConfig.account_type || "vessel_owner"}
-          watchPoint={connectionConfig.watch_point}
+          accountType={user?.account_type || "vessel_owner"}
+          watchPoint={user?.watch_point || connectionConfig?.watch_point}
         />
       ) : (
         <SetupPage onConnect={handleConnect} />

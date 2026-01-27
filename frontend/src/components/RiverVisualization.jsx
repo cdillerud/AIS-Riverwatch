@@ -57,7 +57,7 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
 
   return (
     <div 
-      className="absolute top-2 right-2 z-50 glass-panel border border-slate-600 rounded-lg shadow-xl w-80 max-h-[90%] overflow-hidden"
+      className="absolute top-2 right-2 z-50 glass-panel border border-slate-600 rounded-lg shadow-xl w-96 max-h-[95vh] overflow-y-auto"
       data-testid="vessel-info-overlay"
     >
       {/* HEADER */}

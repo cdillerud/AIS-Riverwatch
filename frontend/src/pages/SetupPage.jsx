@@ -141,7 +141,23 @@ export default function SetupPage({ onConnect }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4 relative">
+      {/* Logout button - always visible in top-right */}
+      {user && (
+        <div className="absolute top-4 right-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            className="text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+            data-testid="logout-btn"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out ({user.email?.split('@')[0]})
+          </Button>
+        </div>
+      )}
+      
       <Card className="w-full max-w-md glass-panel border-cyan-500/20">
         <CardHeader className="text-center pb-2">
           <div className="mx-auto w-16 h-16 rounded-full bg-cyan-500/10 flex items-center justify-center mb-4">

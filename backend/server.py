@@ -5144,6 +5144,25 @@ async def broadcast_raw_line(line: str):
 # Include the router in the main app
 app.include_router(api_router)
 
+# Include new modular routes (refactored endpoints)
+# These are imported at module level and registered here
+# Note: Some routes may be duplicated in api_router until full migration is complete
+try:
+    from routes.admin import router as admin_router
+    from routes.locks import router as locks_router
+    from routes.traffic import router as traffic_router
+    from routes.water import router as water_router
+    
+    # Add /api prefix to match existing structure
+    # Only include new routes that don't conflict with existing ones
+    # app.include_router(admin_router, prefix="/api")  # Disabled - using existing admin routes
+    # app.include_router(locks_router, prefix="/api")  # Disabled - using existing lock routes
+    # app.include_router(traffic_router, prefix="/api")  # Disabled - using existing traffic routes
+    # app.include_router(water_router, prefix="/api")  # Disabled - using existing water routes
+    logger.info("Modular route modules loaded (not active - using inline routes)")
+except ImportError as e:
+    logger.warning(f"Could not import modular routes: {e}")
+
 # CORS: When credentials are used, specific origins must be listed (not '*')
 cors_origins = get_cors_origins()
 

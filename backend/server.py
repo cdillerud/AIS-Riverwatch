@@ -3703,12 +3703,24 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         if mmsi == session_mmsi:
             continue
         
-        vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
+        # Handle both Pydantic models and dicts (demo vessels are dicts)
+        if hasattr(vessel, 'river_mile'):
+            # Pydantic model
+            vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
+            vessel_speed = vessel.speed
+            vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course)
+            vessel_course = vessel.course
+        else:
+            # Dict (demo vessels)
+            vessel_rm = vessel.get('river_mile') or estimate_river_mile(vessel.get('lat'), vessel.get('lon'))
+            vessel_speed = vessel.get('speed', 0)
+            vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0))
+            vessel_course = vessel.get('course', 0)
         
         eta = calculate_eta_to_lock(
             vessel_rm,
-            vessel.speed,
-            vessel.heading or determine_heading(vessel.speed, vessel.course),
+            vessel_speed,
+            vessel_heading,
             lock_rm
         )
         

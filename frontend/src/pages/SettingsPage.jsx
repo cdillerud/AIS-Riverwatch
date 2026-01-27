@@ -742,92 +742,95 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
         </div>
 
         <div className="space-y-6">
-          {/* Vessel Information */}
-          <Card className="glass-panel border-white/10">
-            <CardHeader>
-              <CardTitle className="text-lg text-white flex items-center gap-2">
-                <Ship className="w-5 h-5 text-cyan-400" />
-                Your Vessel
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Information about your boat for tracking and identification
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Vessel Information - Only show for Vessel Owners */}
+          {accountType !== "traffic_watch" && (
+            <Card className="glass-panel border-white/10">
+              <CardHeader>
+                <CardTitle className="text-lg text-white flex items-center gap-2">
+                  <Ship className="w-5 h-5 text-cyan-400" />
+                  Your Vessel
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  Information about your boat for tracking and identification
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="mmsi" className="text-slate-300">
+                      MMSI Number <span className="text-red-400">*</span>
+                    </Label>
+                    <Input
+                      id="mmsi"
+                      data-testid="settings-mmsi"
+                      placeholder="123456789"
+                      value={settings.user_mmsi}
+                      onChange={(e) => updateSetting("user_mmsi", e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white font-mono"
+                    />
+                    <p className="text-xs text-slate-500">9-digit Maritime Mobile Service Identity</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="boatname" className="text-slate-300">Boat Name</Label>
+                    <Input
+                      id="boatname"
+                      data-testid="settings-boatname"
+                      placeholder="My Boat"
+                      value={settings.boat_name}
+                      onChange={(e) => updateSetting("boat_name", e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="mmsi" className="text-slate-300">
-                    MMSI Number <span className="text-red-400">*</span>
+                  <Label className="text-slate-300">
+                    Maximum Speed: <span className="text-cyan-400 font-mono">{settings.max_speed_mph} MPH</span>
                   </Label>
-                  <Input
-                    id="mmsi"
-                    data-testid="settings-mmsi"
-                    placeholder="123456789"
-                    value={settings.user_mmsi}
-                    onChange={(e) => updateSetting("user_mmsi", e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white font-mono"
+                  <Slider
+                    value={[settings.max_speed_mph]}
+                    onValueChange={([value]) => updateSetting("max_speed_mph", value)}
+                    min={5}
+                    max={50}
+                    step={1}
+                    className="w-full"
+                    data-testid="settings-maxspeed"
                   />
-                  <p className="text-xs text-slate-500">9-digit Maritime Mobile Service Identity</p>
+                  <p className="text-xs text-slate-500">
+                    Used to calculate if you can beat commercial vessels to the lock
+                  </p>
                 </div>
-                
+
                 <div className="space-y-2">
-                  <Label htmlFor="boatname" className="text-slate-300">Boat Name</Label>
-                  <Input
-                    id="boatname"
-                    data-testid="settings-boatname"
-                    placeholder="My Boat"
-                    value={settings.boat_name}
-                    onChange={(e) => updateSetting("boat_name", e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white"
+                  <Label className="text-slate-300">
+                    Lock Priority Buffer: <span className="text-cyan-400 font-mono">{settings.lock_buffer_minutes} min</span>
+                  </Label>
+                  <Slider
+                    value={[settings.lock_buffer_minutes]}
+                    onValueChange={([value]) => updateSetting("lock_buffer_minutes", value)}
+                    min={10}
+                    max={45}
+                    step={5}
+                    className="w-full"
+                    data-testid="settings-lockbuffer"
                   />
+                  <p className="text-xs text-slate-500">
+                    Minutes you need to arrive BEFORE a commercial tow to get through first. 
+                    Tows always have priority - you need time to complete your lockage before they arrive.
+                  </p>
                 </div>
-              </div>
+              </CardContent>
+            </Card>
+          )}
 
-              <div className="space-y-2">
-                <Label className="text-slate-300">
-                  Maximum Speed: <span className="text-cyan-400 font-mono">{settings.max_speed_mph} MPH</span>
-                </Label>
-                <Slider
-                  value={[settings.max_speed_mph]}
-                  onValueChange={([value]) => updateSetting("max_speed_mph", value)}
-                  min={5}
-                  max={50}
-                  step={1}
-                  className="w-full"
-                  data-testid="settings-maxspeed"
-                />
-                <p className="text-xs text-slate-500">
-                  Used to calculate if you can beat commercial vessels to the lock
-                </p>
-              </div>
+          {/* Fleet Management - Only show for Vessel Owners */}
+          {accountType !== "traffic_watch" && <VesselManagement />}
 
-              <div className="space-y-2">
-                <Label className="text-slate-300">
-                  Lock Priority Buffer: <span className="text-cyan-400 font-mono">{settings.lock_buffer_minutes} min</span>
-                </Label>
-                <Slider
-                  value={[settings.lock_buffer_minutes]}
-                  onValueChange={([value]) => updateSetting("lock_buffer_minutes", value)}
-                  min={10}
-                  max={45}
-                  step={5}
-                  className="w-full"
-                  data-testid="settings-lockbuffer"
-                />
-                <p className="text-xs text-slate-500">
-                  Minutes you need to arrive BEFORE a commercial tow to get through first. 
-                  Tows always have priority - you need time to complete your lockage before they arrive.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Fleet Management - Multiple Vessels */}
-          <VesselManagement />
-
-          {/* Self Position - Bypasses AIS self-suppression */}
-          <Card className="glass-panel border-white/10 border-l-4 border-l-green-500">
-            <CardHeader>
+          {/* Self Position - Only show for Vessel Owners */}
+          {accountType !== "traffic_watch" && (
+            <Card className="glass-panel border-white/10 border-l-4 border-l-green-500">
+              <CardHeader>
               <CardTitle className="text-lg text-white flex items-center gap-2">
                 <Crosshair className="w-5 h-5 text-green-400" />
                 Self Position

@@ -15,8 +15,10 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
-// WebSocket path - use /ws/ais for proper nginx routing (not /api/ws/ais)
-const WS_PATH = '/ws/ais';
+// WebSocket path - Emergent preview uses /api/ws/ais, production nginx uses /ws/ais
+// Check if we're on the Emergent preview domain
+const isEmergentPreview = BACKEND_URL.includes('preview.emergentagent.com');
+const WS_PATH = isEmergentPreview ? '/api/ws/ais' : '/ws/ais';
 
 // Protected Route wrapper
 function ProtectedRoute({ children }) {

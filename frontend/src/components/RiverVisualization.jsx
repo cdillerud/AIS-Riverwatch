@@ -133,6 +133,21 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
             </div>
           )}
 
+          {/* Next Lock ETA - Always show if available */}
+          {vessel.next_lock && (
+            <div className="bg-cyan-900/20 rounded p-2 border border-cyan-500/30">
+              <div className="flex items-center gap-1 text-cyan-400 text-[10px] mb-1">
+                <Navigation className="w-3 h-3" />
+                Next Lock
+              </div>
+              <div className="text-white font-medium text-sm">{vessel.next_lock.next_lock_name}</div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-400">{vessel.next_lock.distance_miles} mi</span>
+                <span className="text-cyan-400 font-mono font-bold">{vessel.next_lock.eta_display}</span>
+              </div>
+            </div>
+          )}
+
           {/* Expanded Details Section */}
           {expanded && (
             <div className="pt-2 mt-2 border-t border-slate-700 space-y-3">

@@ -184,6 +184,31 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 ## Known Issues
 - WebSocket dev server errors in console (harmless - hot reload trying to connect)
 
+## Recent Bug Fixes (Jan 27, 2026) ✅
+
+### Session Isolation Fix - CRITICAL
+**Issue:** When switching between user accounts (logout User A, login User B), the previous user's data persisted in the frontend. This caused session bleed between users.
+
+**Root Cause:** 
+1. localStorage was not being cleared on logout (stored `riverwatch_mmsi` and `riverwatch_connection`)
+2. Frontend `App.js` was reading stale MMSI from localStorage before the user data from the account was loaded
+
+**Fix Applied:**
+1. `AuthContext.jsx` logout function now clears `localStorage.riverwatch_mmsi` and `localStorage.riverwatch_connection`
+2. `App.js` useEffect for logout cleanup also clears localStorage
+3. `App.js` settings load now depends on `userMmsi` state (set from user account) instead of localStorage
+4. `SetupPage.jsx` now has a proper logout button in the top-right corner that calls the AuthContext logout
+
+**Files Modified:**
+- `/app/frontend/src/context/AuthContext.jsx` - Added localStorage cleanup to logout()
+- `/app/frontend/src/App.js` - Fixed useEffect dependencies and localStorage handling
+- `/app/frontend/src/pages/SetupPage.jsx` - Added logout button with proper auth context integration
+
+**Verification:** 
+- Backend correctly clears user vessels from active_vessels on logout ✅
+- Frontend correctly clears localStorage on logout ✅
+- Session switch from User1 to User2 shows correct MMSI data ✅
+
 ## Refactoring Status
 ### Completed ✅
 - Configuration extraction to `/backend/config.py`

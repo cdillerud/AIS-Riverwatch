@@ -1119,13 +1119,18 @@ export default function Dashboard({
                             </div>
                             <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
                               <span>{(vessel.speed * 1.15078).toFixed(1)} mph</span>
-                              <span className={vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : ''}>
-                                {vessel.heading === 'northbound' ? '↑N' : vessel.heading === 'southbound' ? '↓S' : '—'}
+                              <span className={vessel.direction === 'upriver' || vessel.heading === 'northbound' ? 'text-green-400' : vessel.direction === 'downriver' || vessel.heading === 'southbound' ? 'text-red-400' : ''}>
+                                {vessel.direction === 'upriver' || vessel.heading === 'northbound' ? '↑N' : vessel.direction === 'downriver' || vessel.heading === 'southbound' ? '↓S' : '—'}
                               </span>
                               {vessel.barge_count > 0 && (
                                 <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
                                   {vessel.barge_count}B
                                 </Badge>
+                              )}
+                              {vessel.next_lock && (
+                                <span className="text-cyan-400">
+                                  → {vessel.next_lock.eta_display}
+                                </span>
                               )}
                             </div>
                           </div>

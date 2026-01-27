@@ -302,8 +302,10 @@ export default function Dashboard({
 
   // Sort nearby vessels by descending RM distance from their next lock
   // Also calculate RM distance from user's vessel
+  // Filter to only show vessels within 100 miles of user's vessel
   const sortedNearbyVessels = useMemo(() => {
     const userRM = userVessel?.river_mile;
+    const MAX_DISTANCE_MI = 100;
     
     return vessels.map(vessel => {
       // Find this vessel's next lock
@@ -323,11 +325,19 @@ export default function Dashboard({
         rmToNextLock,
         rmFromUser
       };
-    }).sort((a, b) => {
+    })
+    .filter(vessel => {
+      // Always show user's vessel
+      if (userMmsi && vessel.mmsi === userMmsi) return true;
+      // Filter out vessels more than 100 miles away from user
+      if (vessel.rmFromUser === null) return true; // Include if no user position
+      return vessel.rmFromUser <= MAX_DISTANCE_MI;
+    })
+    .sort((a, b) => {
       // Sort descending by RM distance from their next lock
       return b.rmToNextLock - a.rmToNextLock;
     });
-  }, [vessels, userVessel, findNearestLock]);
+  }, [vessels, userVessel, userMmsi, findNearestLock]);
 
   // Handle vessel click from map (no longer used - map handles its own overlay)
   const handleVesselClick = (vessel) => {

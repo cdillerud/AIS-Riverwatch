@@ -334,8 +334,10 @@ export default function Dashboard({
       return vessel.rmFromUser <= MAX_DISTANCE_MI;
     })
     .sort((a, b) => {
-      // Sort descending by RM distance from their next lock
-      return b.rmToNextLock - a.rmToNextLock;
+      // Sort by River Mile descending (highest RM first, following the river downstream)
+      const rmA = a.river_mile || 0;
+      const rmB = b.river_mile || 0;
+      return rmB - rmA;
     });
   }, [vessels, userVessel, userMmsi, findNearestLock]);
 

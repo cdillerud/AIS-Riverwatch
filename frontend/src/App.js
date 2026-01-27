@@ -157,9 +157,22 @@ function MainApp() {
           localStorage.removeItem('riverwatch_connection');
           setConnectionConfig(null);
         }
+      } else if (user?.watch_point) {
+        // No localStorage config, but user has a saved watch_point - auto-connect!
+        console.log("[APP] Traffic Watch mode - using saved watch_point from user account");
+        const defaultConfig = {
+          ip_address: "136.116.165.255",
+          port: 7000,
+          user_mmsi: "",
+          boat_name: "",
+          account_type: "traffic_watch",
+          watch_point: user.watch_point
+        };
+        // Save to localStorage for next time
+        localStorage.setItem('riverwatch_connection', JSON.stringify(defaultConfig));
+        setConnectionConfig(defaultConfig);
       } else {
-        // No stored config - make sure React state is also cleared
-        // This forces the user to SetupPage to configure their watch point
+        // No stored config AND no watch_point - go to setup
         setConnectionConfig(null);
         console.log("[APP] Traffic Watch mode - no config, going to setup");
       }

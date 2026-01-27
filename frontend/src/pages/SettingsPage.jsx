@@ -875,6 +875,19 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 />
               </div>
 
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300">Show Demo Vessels</Label>
+                  <p className="text-xs text-slate-500">Display simulated towboats for testing (M/V DELTA QUEEN, M/V RIVER RUNNER)</p>
+                </div>
+                <Switch
+                  checked={demoVesselsEnabled}
+                  onCheckedChange={(checked) => toggleDemoVessels(checked)}
+                  disabled={demoToggleLoading}
+                  data-testid="settings-demovessels"
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label className="text-slate-300">
                   Zoom Range: <span className="text-cyan-400 font-mono">±{settings.map_zoom_miles} miles</span>

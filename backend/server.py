@@ -188,6 +188,10 @@ class User(BaseModel):
     fleet_name: Optional[str] = None
     vessels: List[dict] = []
     settings: dict = {}
+    account_type: str = "vessel_owner"  # "vessel_owner" or "traffic_watch"
+    watch_point: Optional[dict] = None  # {river_mile: float, name: str}
+    favorite_locks: List[str] = []
+    vessel_watch_list: List[dict] = []
     created_at: Optional[str] = None
 
 

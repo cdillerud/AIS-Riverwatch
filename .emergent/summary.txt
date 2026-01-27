@@ -17,52 +17,40 @@ The user wants to build a local application named River Watch to track vessels o
 13. **User Accounts:** Implement user registration and login (Email/Password and Google Social Login) to support multiple users with their own settings and lists of MMSIs.
 14. **Persistent Vessel Position:** A user's vessel position should be stored in their account and restored when they log in.
 15. **Demo Vessels:** The application should include simulated vessels for testing purposes, with a setting to toggle them on/off.
+16. **NOAA/USGS Integration:** Integrate real-time environmental data like water levels, current speed, and water temperature from gauges near the locks.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI/React application with a MongoDB database. Key features include user authentication (JWT & Google), fleet management, and a professional UI with a dashboard, river map, and various info panels.
+A full-stack FastAPI/React application with a MongoDB database. Core functionality includes user authentication (JWT & Google), persistent user-specific vessel settings, and a dashboard with a river map and various info panels.
 
-The backend has undergone a Phase 1 refactoring, with Pydantic models, configuration, and some services moved out of the monolithic  into a more modular structure. A  collection was added to MongoDB to persist USACE data for historical analysis. The application also now includes a background task to simulate two demo towboats for testing purposes.
+The application now correctly handles user sessions, ensuring data is cleared upon logout and is not shared between different users. A major UI/UX overhaul was completed for the on-map vessel info panel, which now displays all relevant data (position, navigation, ETA, tow info, USACE data, lockage history) in a clean, compact, single-view panel that appears with one click.
 
-The frontend features a functional position editor with keyboard shortcuts, a Raw Data panel for debugging, and a detailed vessel information modal. User logout now properly cleans up in-memory vessel data on the backend and resets state on the frontend.
+Recent feature additions include enhanced demo vessels with direction, ETA calculations, and a user-controlled toggle. Critically, it now integrates with the USGS Water Services API to display real-time river conditions (water level, current speed, flood stage) in the lock details modal.
 
 **Last working item**:
--   **Last item agent was working**: The agent was addressing multiple user requests simultaneously. The immediate task was fixing a critical frontend bug in  that caused the application to crash on login. The bug () was introduced while implementing persistent user vessel positions. The agent applied a fix by reordering a  hook.
--   **Status**: IN PROGRESS
--   **Agent Testing Done**: N
--   **Which testing method agent to use?**: both
+-   **Last item agent was working**: Integrating NOAA/USGS water data into the lock details modal. The agent successfully added a new backend endpoint to fetch data from the USGS API and updated the frontend  to display water level, temperature, current speed, and a dynamic flood stage indicator.
+-   **Status**: USER VERIFICATION PENDING
+-   **Agent Testing Done**: Y
+-   **Which testing method agent to use?**: frontend testing agent
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Frontend may crash on login (P0)**
--   **Issue 2: Monolithic Backend File (P1)**
--   **Issue 3: Complex Frontend Component (P2)**
+-   **Issue 1: Monolithic Backend File (P1)**
+-   **Issue 2: Complex Frontend Component (P2)**
 
 Issues Detail:
 -   **Issue 1:**
-    -   **Attempted fixes**: The agent moved the  hook that calls  to after the  function is defined in . This fix has not been tested.
-    -   **Next debug checklist**:
-        1.  Start the application and attempt to log in.
-        2.  Verify the dashboard loads without crashing.
-        3.  Confirm that the user's previously set vessel position is correctly restored and displayed on the map.
-        4.  If it still fails, check the browser console for errors and re-evaluate the dependency injection and state flow in .
-    -   **Why fix this issue and what will be achieved with the fix?**: This is a critical, blocking bug that prevents users from accessing the application. Fixing it will restore core functionality.
-    -   **Status**: IN PROGRESS
-    -   **Is recurring issue?**: N
-    -   **Should Test frontend/backend/both after fix?**: frontend
-    -   **Blocked on other issue**: No.
--   **Issue 2:**
-    -   **Attempted fixes:** Phase 1 of refactoring is complete. , , and  have been created and populated.
-    -   **Next debug checklist:** The file  remains over 3,500 lines. The next logical step is to extract the  (TCP connection, NMEA parsing) and  (data fetching, XML parsing) logic into their own modules under .
+    -   **Attempted fixes**: Phase 1 of refactoring is complete. , , and  have been created and populated.
+    -   **Next debug checklist**: The file  remains over 3,500 lines. The next logical step is to extract the  (TCP connection, NMEA parsing),  (data fetching, XML parsing), and WebSocket logic into their own modules under  and .
     -   **Why fix this issue and what will be achieved with the fix?**: Refactoring will significantly improve code maintainability and scalability, making future development easier and less error-prone.
     -   **Status**: NOT STARTED
     -   **Is recurring issue?**: Y
     -   **Should Test frontend/backend/both after fix?**: backend
     -   **Blocked on other issue**: No.
--   **Issue 3:**
-    -   **Attempted fixes:** Some functions were wrapped in  to fix linting warnings, but the core complexity remains.
-    -   **Next debug checklist:** The file  manages global state, data fetching, and WebSockets. The recent bug demonstrates its fragility. Logic should be extracted into custom hooks (e.g., , , ).
+-   **Issue 2:**
+    -   **Attempted fixes**: Some functions were wrapped in , but the core complexity remains.
+    -   **Next debug checklist**: The file  manages global state, data fetching, and WebSockets. Logic should be extracted into custom hooks (e.g., , , ).
     -   **Why fix this issue and what will be achieved with this?**: Simplifies the main component, improves reusability, and makes the application state easier to manage, preventing future bugs.
     -   **Status**: NOT STARTED
     -   **Is recurring issue?**: N
@@ -70,46 +58,34 @@ Issues Detail:
     -   **Blocked on other issue**: No.
 
 **In progress Task List**:
--   **Task 1: Implement Demo Vessel Enhancements and Settings (P1)**
-
- Task Detail:
--   **Task 1:**
-    -   **Where to resume**: This task was requested by the user but was not started.
-        1.  **ETA Calculation**: In , modify the  function to calculate and include the ETA to the next lock for each vessel based on its direction and speed.
-        2.  **Direction Display**: Update the  to include a clear 'direction' field ('upriver'/'downriver').
-        3.  **Toggle Setting**: Add a new user setting (e.g., ) to the database schema. Create an endpoint in the backend to update this setting. Add a toggle switch in  to control it. Modify the  in  to only start the simulation if no user has it disabled (or based on a global flag).
-    -   **What will be achieved with this?**: Provides more realistic simulation data and gives the user control over the test environment.
-    -   **Status**: NOT STARTED
-    -   **Should Test frontend/backend/both after fix?**: both
-    -   **Blocked on something**: Issue 1 (Frontend crash).
+-   None.
 
 **Upcoming and Future Tasks**
 
 **Upcoming Tasks:**
+-   **Expand NOAA/USGS Integration (P0)**: Incorporate forecast data as requested by the user. (Files: , , ).
 -   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (File: ).
 -   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups.
--   **Quick Position Presets (P2)**: Add a UI element allowing users to quickly set their position to common locations (e.g., Above Lock 5, Lake Pepin).
+-   **Quick Position Presets (P2)**: Add a UI element allowing users to quickly set their position to common locations.
 
 **Future Tasks:**
--   **Lock Wait Time Predictions (ML-powered)**
--   **Mobile App (PWA Conversion)**
--   **Offline Mode with Smart Sync**
--   **Trip Planner**
--   **Community/Social Features**
--   **Premium Data Integrations (River conditions, weather)**
--   **Vessel Watchlist**
--   **Speed Advisor**
+-   Lock Wait Time Predictions (ML-powered)
+-   Mobile App (PWA Conversion)
+-   Offline Mode with Smart Sync
+-   Trip Planner
+-   Community/Social Features
+-   Premium Data Integrations
+-   Vessel Watchlist
+-   Speed Advisor
 
 **Completed work in this session**
--   **Backend Refactoring (Phase 1):** Partially modularized  by creating , , and directories for , , and .
--   **CORS Bug Fix:** Resolved a critical CORS error preventing login from .
--   **Position Editor & Keyboard Shortcuts:** Fixed the position editor workflow and added keyboard shortcuts for common actions.
--   **USACE Data Persistence:** Created a new  collection in MongoDB to persist vessel data, including barge counts, fetched from USACE.
--   **Vessel Detail Modal:** Enhanced the modal to always show all data sections (Tow Info, Lockage History, etc.) with appropriate empty states, and connected it to display persisted historical data.
--   **Demo Vessels:** Implemented a background task to simulate two moving towboats with USACE data, and centered them around Lock 2 as requested.
--   **Logout & Session Cleanup:** Fixed a bug where vessel data was not cleared on logout. Both backend memory and frontend state are now correctly reset.
--   **Raw Data Tab:** Fixed the desktop Raw data tab to show live NMEA data from the  WebSocket, matching the mobile functionality.
--   **Persistent Vessel Position:** Implemented backend logic to save a user's vessel position to their account. A corresponding frontend change introduced a bug which is now the top priority to fix.
+-   **Fixed Critical Session Isolation Bug**: Resolved an issue where user data persisted between sessions. The logout flow now correctly clears  and backend state.
+-   **Implemented Persistent Vessel Setup**: A user's vessel MMSI and name are now saved to their account and automatically loaded on login, bypassing the  for a smoother experience.
+-   **Fixed Google Login Twice UX Issue**: The auto-connect feature resolves the perception of a double login by taking users with saved vessels directly to the dashboard.
+-   **Enhanced Demo Vessels**: Implemented direction, ETA to next lock, and a user-controlled toggle switch in the Settings page.
+-   **Fixed Lock Timing Calculation**: Resolved bugs preventing the race analysis from working correctly with simulated demo vessels.
+-   **Redesigned Vessel Info Panel**: Replaced the multi-click, scrolling vessel detail modal with a comprehensive, single-click, non-scrolling panel on the map that displays all data at once.
+-   **Integrated NOAA/USGS Water Data**: Added a service to fetch real-time water level, temperature, and current from nearby USGS gauges and display it in the lock detail modal.
 
 **Earlier issues found/mentioned but not fixed**
 -   **Issue 1: Monolithic Backend File**
@@ -130,83 +106,85 @@ Issues Detail:
 
 
 **Key Technical Concepts**
--   **Frontend**: React (, , , ), .
--   **Backend**: FastAPI, WebSockets, Pydantic models,  for background tasks.
+-   **Frontend**: React (, , ), , Shadcn UI.
+-   **Backend**: FastAPI, WebSockets, Pydantic models, .
 -   **Authentication**: JWT for email/password and OAuth2 for Google Social Login.
 -   **Database**: MongoDB.
+-   **3rd Party APIs**: USACE (XML), **USGS Water Services (JSON)**.
 -   **Deployment**: Docker, .
 
 **key DB schema**
 -   **user_accounts**: 
--   **vessel_settings**: 
--   **vessel_sightings**:  (NEW)
+-   **vessel_sightings**: 
 -   **lockage_history**: 
 
 **changes in tech stack**
--   None.
+-    library is now used on the backend to make asynchronous requests to the USGS API.
 
 **All files of reference**
--   : Location of the critical bug. Manages global state.
--   : Core monolithic backend logic. Partially refactored, but still contains AIS, USACE, and demo simulation logic.
--   : The main application UI where most features are visible.
--   : Target for the new toggle demo vessels setting.
--   : Was updated to always show all data sections.
--   : Contains new application configurations.
--   : Directory containing all Pydantic data models.
+-   : Contains the new API endpoints for demo vessel settings and USGS water data.
+-   : Contains the new  mapping locks to gauge stations.
+-   : Contains the critical logic for persistent vessel setup and auto-login.
+-   : Contains the fix for clearing session data on logout.
+-   : Contains the redesigned, all-in-one vessel information panel.
+-   : Contains the new River Conditions UI for displaying USGS data.
 
 **Areas that need refactoring**:
 -   ****: Urgently needs to have AIS, USACE, and routing logic extracted into their respective modules.
 -   ****: Data fetching, WebSocket logic, and global state management should be extracted into custom hooks to reduce complexity and prevent bugs.
 
 **key api endpoints**
--   **Authentication**: , , .
--   **Fleet Management**: , .
--   **Position**: ,  (NEW).
--   **Vessel Data**: , ,  (NEW).
--   **Real-time**: , .
+-   **Settings**:  (NEW)
+-   **Water Data**:  (NEW)
+-   **Authentication**: , , 
+-   **User Vessels**:  (now used to add a new vessel to a user's account)
+-   **Race Analysis**: 
 
 **Critical Info for New Agent**
--   **TOP PRIORITY**: The application may be in a broken state. The very first action must be to test the login flow to verify if the last fix in  resolved the crash. Do not proceed with new features until the app is confirmed to be stable.
--   The user wants to add features to the demo vessels (ETA, direction) and a setting to toggle them. This should be the next task after the app is stable.
--   The implementation to persist a user's vessel position is new and was the source of the critical bug. It needs to be thoroughly tested after the crash is fixed.
--   The user has approved continuing the backend refactoring, but feature requests are taking precedence. The next agent should balance delivering features with paying down this technical debt.
+-   The user's next request is to continue the NOAA/USGS integration by adding **forecast data**. The agent should start by investigating APIs for this and then integrating it into the UI, likely within the lock details modal.
+-   The user is very sensitive to UI/UX, preferring information-dense, single-click access without scrolling. This design principle must be maintained for any future UI development.
+-   Multiple critical bugs related to session management and data persistence were fixed. Any changes to authentication, user state, or login flow must be tested thoroughly to avoid regressions.
+-   The long-standing technical debt of refactoring  and  remains. These should be tackled when there is an opportunity between feature requests.
 
 **documents and test reports created in this job**
+-   
+-   
 -    (updated)
--    (created)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: 
-2.  **User**: 
-3.  **User**: 
-4.  **User**: 
-5.  **User**: 
-6.  **User**: 
-7.  **User**: 
-8.  **Agent**: Acknowledges requests and begins fixing the critical bug introduced by the vessel persistence feature.
-9.  **Agent**: Applies an untested fix to .
-10. **(Pending)** The agent needs to verify the fix and then implement the requested demo vessel enhancements and settings toggle.
+1.  **User**: Approved the redesigned vessel info panel and requested the integration of NOAA data. (Status: Addressed)
+2.  **User**: Specified that NOAA data should be integrated as part of lock details, focusing on gauges near the locks. (Status: Addressed)
+3.  **User**: Reported that the lock timing calculation wasn't working with demo vessels. (Status: Fixed)
+4.  **User**: Confirmed the need for session persistence and reiterated the requirements for demo vessel features (direction, ETA, toggle). (Status: Addressed)
+5.  **User**: Complained that viewing all vessel details required multiple clicks. (Status: Addressed)
+6.  **User**: Complained that the first UI fix didn't include USACE data and was incomplete. (Status: Addressed)
+7.  **User**: Complained that the second UI fix had a messy layout. (Status: Addressed)
+8.  **User**: Emphatically confirmed they wanted to see all vessel sections in the info panel without scrolling. (Status: Addressed)
+9.  **User**: Reported two critical bugs: vessel setup not persisting across logins and a perceived double login with Google. (Status: Fixed)
+10. **User**: The initial bug report for the session: sign-in/sign-out was not working correctly, with old user data persisting. (Status: Fixed)
 
 **Project Health Check:**
--   **Broken**: Potentially. The last fix for a critical frontend crash on login is untested.
--   **Mocked**: Yes, two simulated towboats are now running by default in the background.
+-   **Broken**: No. The application is in a stable, tested state. All user-reported bugs have been resolved.
+-   **Mocked**: Yes, two simulated towboats are running by default, and their simulation can be toggled on/off by the user.
 
 **3rd Party Integrations**
 -   **MongoDB**: Primary database.
--   **USACE Web Scraping / XML API**: Provides live lock status and queue data.
+-   **USACE Web Scraping / XML API**: For live lock status and queue data.
+-   **USGS Water Services API**: (NEW) For real-time water level, temperature, and current speed.
 -   **Emergent-managed Google Auth**: For social login.
 -   **JWT (python-jose, passlib)**: For custom email/password authentication.
 
 **Testing status**
--   **Testing agent used after significant changes**: NO
+-   **Testing agent used after significant changes**: YES. Used to validate the session isolation fix and the new demo vessel features.
 -   **Troubleshoot agent used after agent stuck in loop**: NO
 -   **Test files created**: []
--   **Known regressions**: A critical regression was introduced causing the app to crash on login. An untested fix has been applied.
+-   **Known regressions**: None. All regressions identified during the session (e.g., breaking vessel persistence while fixing session isolation) were subsequently fixed.
 
 **Credentials to test flow:**
--   AIS TCP feed can be simulated or connected to a live source if available. The demo vessels provide test data.
--   User accounts can be created via the registration page. Test user: , pass: .
+-   Email/Password User 1: , Password: 
+-   Email/Password User 2: , Password: 
+-   Google Auth User:  (no password, login via Google OAuth flow)
 
 **What agent forgot to execute**
--   The agent did not test the critical bug fix applied to .
--   The agent did not start implementing the user's latest feature requests (demo vessel ETA/direction and toggle setting) because it was sidetracked by the bug fix.</analysis>
+-   The agent initially forgot that clearing  to fix the session isolation bug would break the existing logic for vessel persistence on the . This dependency was missed and had to be addressed in a subsequent fix by moving vessel data management from  to the user's account in the database.
+-   The agent required multiple attempts to satisfy the user's UI requirement for the vessel info panel, initially underestimating the user's desire to see all data at once without any clicks or scrolling.</analysis>

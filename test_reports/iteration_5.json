@@ -1,0 +1,90 @@
+{
+  "summary": "Tested new features for River Watch AIS app: Demo vessel direction, ETA to next lock, Demo vessel toggle, and Session persistence. All features working correctly.",
+  
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "Demo vessel DELTA QUEEN shows 'downriver' direction correctly",
+    "Demo vessel RIVER RUNNER shows 'upriver' direction correctly",
+    "ETA to next lock calculated and displayed (e.g., '→ 2h 50m') in vessel list",
+    "ETA to next lock shows in vessel detail modal with lock name, distance, and time",
+    "'Show Demo Vessels' toggle exists in Settings under Map Display section",
+    "Demo vessel toggle works - can enable/disable demo vessels",
+    "Session persistence works - user stays logged in after page reload",
+    "Backend API /api/demo-vessels/status returns correct structure",
+    "Backend API /api/demo-vessels/toggle requires authentication",
+    "Backend API /api/auth/me returns user data with session cookie",
+    "Backend API /api/auth/logout clears session properly",
+    "Vessel detail modal shows 'Next Lock ETA' section with destination lock, distance, and ETA"
+  ],
+  
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  
+  "action_items": [],
+  
+  "critical_code_review_comments": [
+    "calculate_next_lock_eta function (server.py ~line 1522) correctly calculates ETA based on direction and speed",
+    "prepare_vessel_for_output (server.py ~line 1589) properly enriches vessels with next_lock data",
+    "Demo vessel simulation (server.py ~line 4287) correctly sets direction and heading_direction fields",
+    "VesselDetailModal.jsx (~line 523) properly displays Next Lock ETA section when vessel.next_lock exists",
+    "SettingsPage.jsx (~line 876) has Show Demo Vessels toggle with correct data-testid",
+    "Session cookies set with 7-day expiry (max_age=7*24*60*60) for persistence"
+  ],
+  
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py"
+  ],
+  
+  "success_rate": {
+    "backend": "100% (12/12 tests passed)",
+    "frontend": "100% (all features verified via Playwright)"
+  },
+  
+  "test_credentials": {
+    "email": "chaddillerud@gmail.com",
+    "password": "test123"
+  },
+  
+  "seed_data_creation": "Demo vessels M/V DELTA QUEEN (DEMO001) and M/V RIVER RUNNER (DEMO002) are simulated by backend",
+  
+  "retest_needed": false,
+  
+  "should_main_agent_self_test": false,
+  
+  "context_for_next_testing_agent": "All new features (demo vessel direction, ETA to next lock, demo vessel toggle, session persistence) are working correctly. Demo vessels update every 10 seconds in background task. ETA calculation uses distance_miles / speed_mph formula. Session cookies have 7-day expiry.",
+  
+  "verified_features": {
+    "demo_vessel_direction": {
+      "status": "WORKING",
+      "details": "DELTA QUEEN shows 'downriver/southbound', RIVER RUNNER shows 'upriver/northbound'"
+    },
+    "eta_to_next_lock": {
+      "status": "WORKING",
+      "details": "Shows in vessel list as '→ 2h 50m' format, and in detail modal with lock name, distance, and ETA"
+    },
+    "demo_vessel_toggle": {
+      "status": "WORKING",
+      "details": "Toggle in Settings > Map Display section, enables/disables demo vessels via API"
+    },
+    "session_persistence": {
+      "status": "WORKING",
+      "details": "User stays logged in after page reload, 7-day cookie expiry"
+    },
+    "vessel_detail_modal_next_lock": {
+      "status": "WORKING",
+      "details": "Shows 'Next Lock ETA' section with destination lock, distance, and ETA when vessel has next_lock data"
+    }
+  }
+}

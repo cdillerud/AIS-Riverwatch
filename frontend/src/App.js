@@ -15,6 +15,8 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+// WebSocket path needs /api prefix to be routed through ingress to backend
+const WS_PATH = '/api/ws/ais';
 
 // Protected Route wrapper
 function ProtectedRoute({ children }) {

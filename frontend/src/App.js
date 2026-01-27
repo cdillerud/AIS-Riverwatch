@@ -148,13 +148,20 @@ function MainApp() {
             console.log("[APP] Traffic Watch mode - restoring saved config");
             setConnectionConfig(parsed);
           } else {
-            // Stale vessel owner config, clear it
+            // Stale vessel owner config, clear it AND clear React state
             localStorage.removeItem('riverwatch_connection');
+            setConnectionConfig(null);
             console.log("[APP] Traffic Watch mode - clearing stale vessel owner config");
           }
         } catch (e) {
           localStorage.removeItem('riverwatch_connection');
+          setConnectionConfig(null);
         }
+      } else {
+        // No stored config - make sure React state is also cleared
+        // This forces the user to SetupPage to configure their watch point
+        setConnectionConfig(null);
+        console.log("[APP] Traffic Watch mode - no config, going to setup");
       }
       return;
     }

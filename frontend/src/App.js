@@ -138,21 +138,19 @@ function MainApp() {
       localStorage.removeItem('riverwatch_mmsi');
       setUserMmsi("");
       
-      // Only clear connectionConfig if it has a stale vessel owner config from localStorage
-      // (i.e., user switched from vessel owner to traffic watch)
-      // Don't clear if connectionConfig was just set by SetupPage (has account_type === "traffic_watch")
+      // Check for stored connection config
       const storedConfig = localStorage.getItem('riverwatch_connection');
       if (storedConfig) {
         try {
           const parsed = JSON.parse(storedConfig);
-          // If stored config is for vessel owner, clear it
-          if (parsed.account_type !== "traffic_watch") {
+          // If stored config is for traffic watch, restore it
+          if (parsed.account_type === "traffic_watch") {
+            console.log("[APP] Traffic Watch mode - restoring saved config");
+            setConnectionConfig(parsed);
+          } else {
+            // Stale vessel owner config, clear it
             localStorage.removeItem('riverwatch_connection');
-            // Only clear state connectionConfig if it doesn't match traffic watch
-            if (connectionConfig?.account_type !== "traffic_watch") {
-              setConnectionConfig(null);
-              console.log("[APP] Traffic Watch mode - clearing stale vessel owner config");
-            }
+            console.log("[APP] Traffic Watch mode - clearing stale vessel owner config");
           }
         } catch (e) {
           localStorage.removeItem('riverwatch_connection');

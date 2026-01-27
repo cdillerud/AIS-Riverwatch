@@ -1814,6 +1814,98 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
           )}
         </div>
       </div>
+      
+      {/* Create User Dialog */}
+      <Dialog open={showCreateUserDialog} onOpenChange={setShowCreateUserDialog}>
+        <DialogContent className="bg-slate-900 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">Create New User</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Add a new user to the system
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-slate-300">Email *</Label>
+              <Input
+                type="email"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+                placeholder="user@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-300">Name</Label>
+              <Input
+                value={newUserName}
+                onChange={(e) => setNewUserName(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+                placeholder="John Doe"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-300">Password</Label>
+              <Input
+                type="password"
+                value={newUserPassword}
+                onChange={(e) => setNewUserPassword(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+                placeholder="Leave blank for no password (Google only)"
+              />
+            </div>
+            {user?.is_super_admin && (
+              <div className="flex items-center justify-between">
+                <Label className="text-slate-300">Make Admin</Label>
+                <Switch
+                  checked={newUserIsAdmin}
+                  onCheckedChange={setNewUserIsAdmin}
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateUserDialog(false)} className="border-slate-600">
+              Cancel
+            </Button>
+            <Button onClick={createUser} className="bg-cyan-600 hover:bg-cyan-500">
+              Create User
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Reset Password Dialog */}
+      <Dialog open={showResetPasswordDialog} onOpenChange={setShowResetPasswordDialog}>
+        <DialogContent className="bg-slate-900 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">Reset Password</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Set a new password for {selectedUserForAction?.email}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-slate-300">New Password</Label>
+              <Input
+                type="password"
+                value={resetPasswordValue}
+                onChange={(e) => setResetPasswordValue(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+                placeholder="Enter new password"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResetPasswordDialog(false)} className="border-slate-600">
+              Cancel
+            </Button>
+            <Button onClick={resetUserPassword} className="bg-cyan-600 hover:bg-cyan-500">
+              Reset Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

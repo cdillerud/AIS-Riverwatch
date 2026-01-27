@@ -226,5 +226,6 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
 - Frontend hook extraction (useWebSocket, useApiData)
 
 ## Test Reports
-- `/app/test_reports/iteration_3.json` - Latest test results (100% pass rate)
+- `/app/test_reports/iteration_4.json` - Session isolation testing (90% pass - missing logout button was the only issue, now fixed)
+- `/app/test_reports/iteration_3.json` - Previous test results (100% pass rate)
 - `/app/backend/tests/test_auth.py` - Authentication test suite

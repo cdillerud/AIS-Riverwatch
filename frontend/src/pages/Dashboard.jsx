@@ -330,13 +330,12 @@ export default function Dashboard({
 
   // Sort nearby vessels by descending RM distance from their next lock
   // Also calculate RM distance from user's vessel or watch point
-  // Filter to only show vessels within 100 miles of user's vessel or watch point
+  // Show all vessels (no distance filter - previously limited to 100 miles)
   const sortedNearbyVessels = useMemo(() => {
     // For Traffic Watch users, use watch point as the center; for vessel owners, use their vessel
     const centerRM = isTrafficWatch 
       ? (watchPoint?.river_mile || selectedLockObj?.river_mile)
       : userVessel?.river_mile;
-    const MAX_DISTANCE_MI = 100;
     
     return vessels.map(vessel => {
       // Find this vessel's next lock
@@ -357,12 +356,12 @@ export default function Dashboard({
         rmFromUser
       };
     })
+    // No distance filter - show all vessels
     .filter(vessel => {
-      // For vessel owners, always show user's vessel
+      // For vessel owners, always show user's vessel first
       if (!isTrafficWatch && userMmsi && vessel.mmsi === userMmsi) return true;
-      // Filter out vessels more than 100 miles away from center
-      if (vessel.rmFromUser === null) return true; // Include if no center position
-      return vessel.rmFromUser <= MAX_DISTANCE_MI;
+      // Include all vessels with valid river_mile
+      return vessel.river_mile !== null && vessel.river_mile !== undefined;
     })
     .sort((a, b) => {
       // Sort by River Mile descending (highest RM first, following the river downstream)

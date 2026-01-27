@@ -1,16 +1,25 @@
-# River Watch Backend - Version 2026-01-26
+# River Watch Backend - Version 2026-01-27
 # SESSION ISOLATION: All user data is strictly isolated by MMSI (session ID)
 # USER AUTHENTICATION: Email/password + Google OAuth
 #
 # ARCHITECTURE NOTE:
 # This file is being incrementally refactored. New modular structure:
-#   - /backend/config.py          - Configuration and constants
-#   - /backend/database.py        - Database connection
-#   - /backend/models/            - Pydantic models
-#   - /backend/services/          - Business logic
-#   - /backend/routes/            - API route handlers (future)
-#   - /backend/websocket/         - WebSocket handlers (future)
+#   - /backend/config.py                    - Configuration and constants ✓
+#   - /backend/database.py                  - Database connection ✓
+#   - /backend/models/                      - Pydantic models
+#   - /backend/services/                    - Business logic
+#       - auth_service.py                   - Password hashing, session gen ✓
+#       - navigation_service.py             - River mile, ETA, speed calc ✓
+#       - usace_service.py                  - USACE lock queue/status ✓ (NEW)
+#       - usgs_service.py                   - Water conditions ✓ (NEW)
+#   - /backend/routes/                      - API route handlers
+#       - admin.py                          - Admin endpoints ✓ (NEW)
+#       - locks.py                          - Lock info endpoints ✓ (NEW)
+#       - traffic.py                        - Traffic watch endpoints ✓ (NEW)
+#       - water.py                          - Water conditions endpoints ✓ (NEW)
+#   - /backend/websocket/                   - WebSocket handlers (future)
 #
+# NEW: Service modules imported and available as _function_name
 # For new features, use the modular structure. See /backend/README.md
 
 from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Request, Response, Cookie

@@ -25,27 +25,26 @@ const getShipTypeDescription = (code) => {
 };
 
 // Expandable Vessel Info Panel Component - Shows ALL data with one click
+// Clean, organized layout matching the original modal design
 const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVesselEdit, onVesselDetails }) => {
   const [lockageHistory, setLockageHistory] = useState([]);
-  const [vesselSightings, setVesselSightings] = useState([]);
   const [loading, setLoading] = useState(true);
   
   const isUser = userMmsi && vessel.mmsi === userMmsi;
   const isTow = vessel.is_tow || vessel.barge_count > 0;
   const speedMph = (vessel.speed * 1.15078).toFixed(1);
+  const direction = vessel.direction || vessel.heading_direction || vessel.heading;
   const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
-  // Fetch ALL vessel data on mount
+  // Fetch lockage history on mount
   useEffect(() => {
-    const fetchAllData = async () => {
+    const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch vessel history (includes lockage history and sightings)
         const response = await fetch(`${API}/vessels/history/${vessel.mmsi}`);
         if (response.ok) {
           const data = await response.json();
           setLockageHistory(data.lockage_history || []);
-          setVesselSightings(data.sightings || []);
         }
       } catch (error) {
         console.error("Failed to fetch vessel data:", error);
@@ -53,234 +52,249 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
         setLoading(false);
       }
     };
-    
-    if (vessel?.mmsi) {
-      fetchAllData();
-    }
+    if (vessel?.mmsi) fetchData();
   }, [vessel?.mmsi, API]);
 
   return (
     <div 
-      className="absolute top-2 right-2 z-50 glass-panel border border-slate-600 rounded-lg shadow-xl w-96 max-h-[85%] overflow-hidden"
+      className="absolute top-2 right-2 z-50 glass-panel border border-slate-600 rounded-lg shadow-xl w-80 max-h-[90%] overflow-hidden"
       data-testid="vessel-info-overlay"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 bg-slate-900/80">
+      {/* HEADER */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 bg-slate-900/90">
         <div className="flex items-center gap-2">
           {isUser ? (
             <div className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse" />
           ) : isTow ? (
             <Box className="w-4 h-4 text-amber-400" />
           ) : (
-            <div className="w-2.5 h-2.5 bg-amber-400 rotate-45" />
+            <div className="w-2.5 h-2.5 bg-slate-400 rotate-45" />
           )}
-          <span className={`font-semibold text-sm truncate max-w-[200px] ${isUser ? 'text-cyan-400' : 'text-white'}`}>
+          <span className={`font-semibold text-sm truncate max-w-[180px] ${isUser ? 'text-cyan-400' : 'text-white'}`}>
             {getVesselDisplayName(vessel, showVesselNames)}
           </span>
-          {isUser && <Badge className="bg-cyan-500/20 text-cyan-400 text-[9px] px-1">YOU</Badge>}
-          {isTow && !isUser && <Badge className="bg-amber-900/30 text-amber-400 text-[9px] px-1">TOW</Badge>}
+          {isTow && <Badge className="bg-amber-900/50 text-amber-400 text-[9px] px-1.5">TOW</Badge>}
         </div>
         <button onClick={onClose} className="text-slate-400 hover:text-white p-1">
           <X className="w-4 h-4" />
         </button>
       </div>
       
-      {/* Scrollable Body with ALL Info */}
-      <ScrollArea className="max-h-[calc(85vh-60px)]">
-        <div className="px-3 py-2 space-y-3">
+      <ScrollArea className="max-h-[calc(90vh-50px)]">
+        <div className="p-3 space-y-4">
           
-          {/* === IDENTIFICATION === */}
-          <div className="text-[10px] text-slate-500 flex items-center gap-3">
-            <span>MMSI: <span className="font-mono text-slate-300">{vessel.mmsi}</span></span>
-            <span>Type: <span className="text-slate-300">{getShipTypeDescription(vessel.ship_type)}</span></span>
-          </div>
-          
-          {/* === POSITION / SPEED / DIRECTION === */}
-          <div className="grid grid-cols-3 gap-2">
-            <div className="bg-slate-800/50 rounded px-2 py-1.5 text-center">
-              <Navigation className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
-              <div className="text-white font-mono text-sm font-bold">RM {vessel.river_mile?.toFixed(1) || '--'}</div>
-              <div className="text-[9px] text-slate-500">Position</div>
-            </div>
-            <div className="bg-slate-800/50 rounded px-2 py-1.5 text-center">
-              <Gauge className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
-              <div className="text-white font-mono text-sm font-bold">{speedMph} mph</div>
-              <div className="text-[9px] text-slate-500">{vessel.speed?.toFixed(1)} kn</div>
-            </div>
-            <div className="bg-slate-800/50 rounded px-2 py-1.5 text-center">
-              {vessel.heading === 'northbound' || vessel.direction === 'upriver' ? (
-                <ChevronUp className="w-3 h-3 mx-auto mb-0.5 text-green-400" />
-              ) : vessel.heading === 'southbound' || vessel.direction === 'downriver' ? (
-                <ChevronDown className="w-3 h-3 mx-auto mb-0.5 text-red-400" />
-              ) : (
-                <Minus className="w-3 h-3 mx-auto mb-0.5 text-slate-400" />
-              )}
-              <div className={`text-sm font-bold capitalize ${
-                vessel.heading === 'northbound' || vessel.direction === 'upriver' ? 'text-green-400' :
-                vessel.heading === 'southbound' || vessel.direction === 'downriver' ? 'text-red-400' : 'text-slate-400'
-              }`}>
-                {vessel.direction || vessel.heading || 'Still'}
+          {/* IDENTIFICATION Section */}
+          <div className="glass-panel p-3 rounded-lg border border-slate-700">
+            <h3 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-2">
+              <Hash className="w-3 h-3" />
+              Identification
+            </h3>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">MMSI</span>
+                <span className="font-mono text-white">{vessel.mmsi}</span>
               </div>
-              <div className="text-[9px] text-slate-500">{vessel.course?.toFixed(0)}°</div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Name</span>
+                <span className="text-white">{vessel.name || <span className="text-slate-500 italic">Unknown</span>}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Ship Type</span>
+                <span className="text-white">{getShipTypeDescription(vessel.ship_type)}</span>
+              </div>
             </div>
           </div>
 
-          {/* === TOW / BARGE INFO === */}
+          {/* POSITION Section */}
+          <div className="glass-panel p-3 rounded-lg border border-slate-700">
+            <h3 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-2">
+              <MapPin className="w-3 h-3" />
+              Position
+            </h3>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Latitude</span>
+                <span className="font-mono text-white">{vessel.lat?.toFixed(6)}°</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Longitude</span>
+                <span className="font-mono text-white">{vessel.lon?.toFixed(6)}°</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">River Mile</span>
+                <span className="font-mono text-cyan-400 font-bold">{vessel.river_mile?.toFixed(1)}</span>
+              </div>
+              {vessel.next_lock && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Distance to Lock</span>
+                  <span className="text-white">{vessel.next_lock.distance_miles} mi</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* NAVIGATION Section */}
+          <div className="glass-panel p-3 rounded-lg border border-slate-700">
+            <h3 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-2">
+              <Compass className="w-3 h-3" />
+              Navigation
+            </h3>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Speed</span>
+                <div>
+                  <span className="font-mono text-white font-bold text-lg">{speedMph}</span>
+                  <span className="text-slate-400 ml-1">mph</span>
+                  <span className="text-slate-500 ml-2">({vessel.speed?.toFixed(1)} kn)</span>
+                </div>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Course (COG)</span>
+                <span className="font-mono text-white">{vessel.course?.toFixed(1)}°</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Direction</span>
+                <div className="flex items-center gap-1">
+                  {direction === 'northbound' || direction === 'upriver' ? (
+                    <ChevronUp className="w-4 h-4 text-green-400" />
+                  ) : direction === 'southbound' || direction === 'downriver' ? (
+                    <ChevronDown className="w-4 h-4 text-red-400" />
+                  ) : (
+                    <Minus className="w-4 h-4 text-slate-400" />
+                  )}
+                  <span className={`capitalize ${
+                    direction === 'northbound' || direction === 'upriver' ? 'text-green-400' :
+                    direction === 'southbound' || direction === 'downriver' ? 'text-red-400' : 'text-slate-400'
+                  }`}>
+                    {direction || 'Stationary'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* NEXT LOCK ETA Section */}
+          {vessel.next_lock && (
+            <div className="glass-panel p-3 rounded-lg border border-cyan-500/30 bg-cyan-900/10">
+              <h3 className="text-xs font-semibold text-cyan-400 mb-2 flex items-center gap-2">
+                <Lock className="w-3 h-3" />
+                Next Lock ETA
+              </h3>
+              <div className="space-y-2">
+                <div className="text-white font-medium">{vessel.next_lock.next_lock_name}</div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Distance</span>
+                  <span className="text-white">{vessel.next_lock.distance_miles} miles</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500">ETA</span>
+                  <span className="font-mono text-cyan-400 font-bold text-lg">{vessel.next_lock.eta_display}</span>
+                </div>
+                <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-700">
+                  Based on current speed of {speedMph} mph heading {direction || 'unknown direction'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TOW INFO Section (if applicable) */}
           {isTow && (
-            <div className="bg-amber-900/20 rounded p-2 border border-amber-500/30">
-              <div className="flex items-center gap-1 text-amber-400 text-xs font-semibold mb-1">
+            <div className="glass-panel p-3 rounded-lg border border-amber-500/30 bg-amber-900/10">
+              <h3 className="text-xs font-semibold text-amber-400 mb-2 flex items-center gap-2">
                 <Box className="w-3 h-3" />
                 Tow Information
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-slate-500">Barges:</span>
-                  <span className="text-amber-400 font-mono font-bold ml-1">{vessel.barge_count || '?'}</span>
+              </h3>
+              <div className="space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Barges</span>
+                  <span className="font-mono text-amber-400 font-bold">{vessel.barge_count || '?'}</span>
                 </div>
                 {vessel.tow_config && (
-                  <div>
-                    <span className="text-slate-500">Config:</span>
-                    <span className="text-white ml-1">{vessel.tow_config}</span>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Configuration</span>
+                    <span className="text-white">{vessel.tow_config}</span>
                   </div>
                 )}
                 {vessel.estimated_lockage_time && (
-                  <div>
-                    <span className="text-slate-500">Lock Time:</span>
-                    <span className="text-white ml-1">~{vessel.estimated_lockage_time}min</span>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Est. Lockage Time</span>
+                    <span className="text-white">~{vessel.estimated_lockage_time} min</span>
                   </div>
                 )}
                 {vessel.is_double_lockage && (
-                  <div className="col-span-2">
-                    <Badge className="bg-red-900/30 text-red-400 border-red-500/30 text-[9px]">DOUBLE LOCKAGE</Badge>
+                  <Badge className="bg-red-900/30 text-red-400 border-red-500/30 text-[10px] mt-1">
+                    DOUBLE LOCKAGE REQUIRED
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* USACE DATA Section (if available) */}
+          {(vessel.usace_source || vessel.usace_status) && (
+            <div className="glass-panel p-3 rounded-lg border border-green-500/30 bg-green-900/10">
+              <h3 className="text-xs font-semibold text-green-400 mb-2 flex items-center gap-2">
+                <Radio className="w-3 h-3" />
+                USACE Data
+              </h3>
+              <div className="space-y-1.5 text-sm">
+                {vessel.usace_source && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Source</span>
+                    <span className="text-white">{vessel.usace_source}</span>
+                  </div>
+                )}
+                {vessel.usace_status && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Status</span>
+                    <span className="text-white capitalize">{vessel.usace_status}</span>
+                  </div>
+                )}
+                {vessel.usace_lock && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">At Lock</span>
+                    <span className="text-white">{vessel.usace_lock}</span>
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* === NEXT LOCK ETA === */}
-          {vessel.next_lock && (
-            <div className="bg-cyan-900/20 rounded p-2 border border-cyan-500/30">
-              <div className="flex items-center gap-1 text-cyan-400 text-xs font-semibold mb-1">
-                <Lock className="w-3 h-3" />
-                Next Lock ETA
-              </div>
-              <div className="text-white font-medium">{vessel.next_lock.next_lock_name}</div>
-              <div className="flex items-center gap-3 text-xs mt-1">
-                <span className="text-slate-400">{vessel.next_lock.distance_miles} miles</span>
-                <span className="text-cyan-400 font-mono font-bold text-sm">{vessel.next_lock.eta_display}</span>
-              </div>
-            </div>
-          )}
-
-          {/* === USACE DATA === */}
-          {(vessel.usace_source || vessel.usace_status || vessel.usace_lock) && (
-            <div className="bg-green-900/20 rounded p-2 border border-green-500/30">
-              <div className="flex items-center gap-1 text-green-400 text-xs font-semibold mb-1">
-                <Radio className="w-3 h-3" />
-                USACE Data
-              </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                {vessel.usace_source && (
-                  <div><span className="text-slate-500">Source:</span> <span className="text-white">{vessel.usace_source}</span></div>
-                )}
-                {vessel.usace_status && (
-                  <div><span className="text-slate-500">Status:</span> <span className="text-white capitalize">{vessel.usace_status}</span></div>
-                )}
-                {vessel.usace_lock && (
-                  <div><span className="text-slate-500">At Lock:</span> <span className="text-white">{vessel.usace_lock}</span></div>
-                )}
-                {vessel.usace_position && (
-                  <div><span className="text-slate-500">Position:</span> <span className="text-white">{vessel.usace_position}</span></div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* === LOCKAGE HISTORY === */}
-          <div className="bg-slate-800/30 rounded p-2">
-            <div className="flex items-center gap-1 text-slate-400 text-xs font-semibold mb-2">
+          {/* LOCKAGE HISTORY Section */}
+          <div className="glass-panel p-3 rounded-lg border border-slate-700">
+            <h3 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-2">
               <History className="w-3 h-3" />
               Lockage History
-              {loading && <span className="text-slate-500 ml-1">(loading...)</span>}
-            </div>
+              {loading && <span className="text-slate-600 text-[10px]">(loading...)</span>}
+            </h3>
             {lockageHistory.length > 0 ? (
-              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+              <div className="space-y-2 max-h-28 overflow-y-auto">
                 {lockageHistory.map((l, i) => (
-                  <div key={i} className="flex justify-between items-center text-xs bg-slate-900/50 rounded px-2 py-1">
+                  <div key={i} className="flex justify-between items-center text-sm py-1 border-b border-slate-800 last:border-0">
                     <div>
-                      <span className="text-white font-medium">{l.lock_name || l.lock_id}</span>
+                      <span className="text-white">{l.lock_name || l.lock_id}</span>
                       <span className={`ml-2 text-[10px] ${l.direction === 'upbound' ? 'text-green-400' : 'text-red-400'}`}>
-                        {l.direction === 'upbound' ? '↑' : '↓'} {l.direction}
+                        {l.direction === 'upbound' ? '↑' : '↓'}
                       </span>
                     </div>
-                    <div className="text-slate-400">
-                      {l.wait_time_minutes ? `${l.wait_time_minutes}min wait` : ''}
-                      {l.lockage_time_minutes ? ` • ${l.lockage_time_minutes}min lock` : ''}
-                    </div>
+                    <span className="text-slate-400 text-xs">
+                      {l.wait_time_minutes ? `${l.wait_time_minutes}m wait` : ''}
+                    </span>
                   </div>
                 ))}
               </div>
             ) : !loading ? (
-              <div className="text-slate-500 text-xs italic">No lockage history recorded</div>
+              <p className="text-slate-500 text-xs italic">No lockage history recorded</p>
             ) : null}
           </div>
 
-          {/* === VESSEL SIGHTINGS === */}
-          {vesselSightings.length > 0 && (
-            <div className="bg-slate-800/30 rounded p-2">
-              <div className="flex items-center gap-1 text-slate-400 text-xs font-semibold mb-2">
-                <MapPin className="w-3 h-3" />
-                Recent Sightings ({vesselSightings.length})
-              </div>
-              <div className="space-y-1 max-h-24 overflow-y-auto">
-                {vesselSightings.slice(0, 5).map((s, i) => (
-                  <div key={i} className="flex justify-between text-xs text-slate-400">
-                    <span>RM {s.river_mile?.toFixed(1)} • {s.speed?.toFixed(1)} kn</span>
-                    <span>{new Date(s.timestamp).toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* === COORDINATES & TECHNICAL === */}
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-slate-800/30 rounded p-2">
-              <div className="text-slate-500 text-[10px] mb-1">Coordinates</div>
-              <div className="text-white font-mono text-xs">
-                {vessel.lat?.toFixed(5)}°N<br/>
-                {vessel.lon?.toFixed(5)}°W
-              </div>
-            </div>
-            <div className="bg-slate-800/30 rounded p-2">
-              <div className="text-slate-500 text-[10px] mb-1">Last Update</div>
-              <div className="text-white text-xs">
-                {vessel.timestamp ? new Date(vessel.timestamp).toLocaleTimeString() : 'Unknown'}
-              </div>
-            </div>
-          </div>
-
-          {/* === RAW DATA (collapsible) === */}
-          <details className="text-xs">
-            <summary className="text-slate-500 cursor-pointer hover:text-slate-300">
-              Raw AIS Data
-            </summary>
-            <pre className="mt-2 p-2 bg-slate-950 rounded text-[9px] text-slate-400 overflow-x-auto max-h-32">
-              {JSON.stringify(vessel, null, 2)}
-            </pre>
-          </details>
-
-          {/* === ACTION BUTTONS === */}
-          <div className="pt-2 flex gap-2">
+          {/* ACTION BUTTONS */}
+          <div className="flex gap-2 pt-2">
             {isUser && (
               <Button
                 size="sm"
-                className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white h-7 text-xs"
-                onClick={() => {
-                  onUserVesselEdit(vessel);
-                  onClose();
-                }}
+                className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white h-8 text-xs"
+                onClick={() => { onUserVesselEdit(vessel); onClose(); }}
               >
                 <MapPin className="w-3 h-3 mr-1" />
                 Edit Position
@@ -289,11 +303,8 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
             <Button
               size="sm"
               variant="outline"
-              className="flex-1 border-slate-600 text-slate-300 h-7 text-xs"
-              onClick={() => {
-                onVesselDetails(vessel);
-                onClose();
-              }}
+              className="flex-1 border-slate-600 text-slate-300 h-8 text-xs"
+              onClick={() => { onVesselDetails(vessel); onClose(); }}
             >
               <Edit3 className="w-3 h-3 mr-1" />
               Edit Name
@@ -303,6 +314,7 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
       </ScrollArea>
     </div>
   );
+};
 };
 
 const RiverVisualizationComponent = ({ 

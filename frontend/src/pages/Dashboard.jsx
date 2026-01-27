@@ -300,6 +300,35 @@ export default function Dashboard({
     return closest;
   };
 
+  // Sort nearby vessels by descending RM distance from their next lock
+  // Also calculate RM distance from user's vessel
+  const sortedNearbyVessels = useMemo(() => {
+    const userRM = userVessel?.river_mile;
+    
+    return vessels.map(vessel => {
+      // Find this vessel's next lock
+      const nextLock = findNearestLock(vessel);
+      const rmToNextLock = nextLock && vessel.river_mile 
+        ? Math.abs(vessel.river_mile - nextLock.river_mile) 
+        : 0;
+      
+      // Calculate RM distance from user's vessel
+      const rmFromUser = userRM && vessel.river_mile 
+        ? Math.abs(vessel.river_mile - userRM) 
+        : null;
+      
+      return {
+        ...vessel,
+        nextLockInfo: nextLock,
+        rmToNextLock,
+        rmFromUser
+      };
+    }).sort((a, b) => {
+      // Sort descending by RM distance from their next lock
+      return b.rmToNextLock - a.rmToNextLock;
+    });
+  }, [vessels, userVessel, locks]);
+
   // Handle vessel click from map (no longer used - map handles its own overlay)
   const handleVesselClick = (vessel) => {
     // Map now handles its own info overlay, but we keep this for backwards compatibility

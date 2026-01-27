@@ -30,7 +30,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - REACT_APP_BACKEND_URL=https://riverwatchais.com
+        # For local development, use localhost:8001
+        # For production, change this to your actual domain
+        - REACT_APP_BACKEND_URL=http://localhost:8001
     container_name: riverwatch-frontend
     ports:
       - "3000:3000"

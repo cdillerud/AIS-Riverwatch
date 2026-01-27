@@ -3319,7 +3319,7 @@ async def record_lockage(lock_id: str, vessel_name: str, duration_minutes: float
 async def get_debug_state():
     """Get current application state for debugging."""
     return {
-        "user_mmsi": user_mmsi,
+        "demo_vessels_active": demo_vessels_active,
         "active_vessels_count": len(active_vessels),
         "active_vessel_mmsis": list(active_vessels.keys()),
         "vessel_cache_count": len(vessel_static_cache),

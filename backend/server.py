@@ -192,7 +192,13 @@ class User(BaseModel):
     watch_point: Optional[dict] = None  # {river_mile: float, name: str}
     favorite_locks: List[str] = []
     vessel_watch_list: List[dict] = []
+    is_admin: bool = False
+    is_super_admin: bool = False
+    last_login: Optional[str] = None
     created_at: Optional[str] = None
+
+# Super admin email - this user has full system access
+SUPER_ADMIN_EMAIL = "cdillerud@gmail.com"
 
 
 # =============================================================================

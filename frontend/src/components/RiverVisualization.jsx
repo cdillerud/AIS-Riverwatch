@@ -315,7 +315,6 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
     </div>
   );
 };
-};
 
 const RiverVisualizationComponent = ({ 
   vessels, 

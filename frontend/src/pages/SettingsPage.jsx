@@ -77,6 +77,25 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [lastGeoUpdate, setLastGeoUpdate] = useState(null);
   const [lastPositionResult, setLastPositionResult] = useState(null);
 
+  // Admin state
+  const [adminStats, setAdminStats] = useState(null);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminVessels, setAdminVessels] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [showCreateUserDialog, setShowCreateUserDialog] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserIsAdmin, setNewUserIsAdmin] = useState(false);
+  const [selectedUserForAction, setSelectedUserForAction] = useState(null);
+  const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  
+  // Account type (mode toggle)
+  const [accountType, setAccountType] = useState(user?.account_type || "vessel_owner");
+  const [modeToggleLoading, setModeToggleLoading] = useState(false);
+
   // Load demo vessel status on mount
   const loadDemoVesselsStatus = async () => {
     try {

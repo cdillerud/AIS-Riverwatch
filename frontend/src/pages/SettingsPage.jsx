@@ -1393,49 +1393,51 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
 
-          {/* Alert Settings */}
-          <Card className="glass-panel border-white/10">
-            <CardHeader>
-              <CardTitle className="text-lg text-white flex items-center gap-2">
-                <Bell className="w-5 h-5 text-cyan-400" />
-                Alerts
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Configure warning notifications
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-slate-300">Sound Alerts</Label>
-                  <p className="text-xs text-slate-500">Play audio when "Can't Beat" warning triggers</p>
+          {/* Alert Settings - Only show for Vessel Owners */}
+          {accountType !== "traffic_watch" && (
+            <Card className="glass-panel border-white/10">
+              <CardHeader>
+                <CardTitle className="text-lg text-white flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-cyan-400" />
+                  Alerts
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  Configure warning notifications
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-slate-300">Sound Alerts</Label>
+                    <p className="text-xs text-slate-500">Play audio when "Can't Beat" warning triggers</p>
+                  </div>
+                  <Switch
+                    checked={settings.alert_sound_enabled}
+                    onCheckedChange={(checked) => updateSetting("alert_sound_enabled", checked)}
+                    data-testid="settings-soundalerts"
+                  />
                 </div>
-                <Switch
-                  checked={settings.alert_sound_enabled}
-                  onCheckedChange={(checked) => updateSetting("alert_sound_enabled", checked)}
-                  data-testid="settings-soundalerts"
-                />
-              </div>
 
-              <div className="space-y-2">
-                <Label className="text-slate-300">
-                  Speed Alert Threshold: <span className="text-cyan-400 font-mono">{settings.alert_speed_threshold} MPH</span>
-                </Label>
-                <Slider
-                  value={[settings.alert_speed_threshold]}
-                  onValueChange={([value]) => updateSetting("alert_speed_threshold", value)}
-                  min={10}
-                  max={50}
-                  step={1}
-                  className="w-full"
-                  data-testid="settings-alertthreshold"
-                />
-                <p className="text-xs text-slate-500">
-                  Alert when required speed exceeds this value (usually your max speed)
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="space-y-2">
+                  <Label className="text-slate-300">
+                    Speed Alert Threshold: <span className="text-cyan-400 font-mono">{settings.alert_speed_threshold} MPH</span>
+                  </Label>
+                  <Slider
+                    value={[settings.alert_speed_threshold]}
+                    onValueChange={([value]) => updateSetting("alert_speed_threshold", value)}
+                    min={10}
+                    max={50}
+                    step={1}
+                    className="w-full"
+                    data-testid="settings-alertthreshold"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Alert when required speed exceeds this value (usually your max speed)
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Mode Toggle - Switch between Vessel Owner and Traffic Watch */}
           <Card className="glass-panel border-white/10">

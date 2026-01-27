@@ -576,6 +576,12 @@ function MainApp() {
   const connectWebSocket = useCallback((config) => {
     if (!config) return;
     
+    // Guard against duplicate calls - if we're already connecting/connected, skip
+    if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
+      console.log("WebSocket already connecting, skipping duplicate call");
+      return;
+    }
+    
     // Clear any pending reconnect
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);

@@ -55,14 +55,18 @@ export default function Dashboard({
   userSettings = {},
   onRefresh,
   onFullRefresh,
-  lastRefresh
+  lastRefresh,
+  accountType = "vessel_owner",
+  watchPoint = null
 }) {
   const { user, logout } = useAuth();
+  const isTrafficWatch = accountType === "traffic_watch";
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [desktopPanel, setDesktopPanel] = useState("timing"); // "map" | "timing" | "vessels" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(20); // Zoom range in miles (10-500)
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [trafficSummary, setTrafficSummary] = useState(null);
 
   // Handle logout
   const handleLogout = async () => {

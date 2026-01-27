@@ -739,7 +739,8 @@ function MainApp() {
       }
     }
     
-    connectWebSocket(config);
+    // NOTE: Don't call connectWebSocket here - the useEffect will handle it
+    // when connectionConfig changes. This prevents duplicate WebSocket connections.
   };
 
   const handleDisconnect = () => {

@@ -555,7 +555,7 @@ function MainApp() {
     }
 
     console.log("Connecting to WebSocket with config:", config.ip_address, config.port);
-    const ws = new WebSocket(`${WS_URL}/ws/ais`);
+    const ws = new WebSocket(`${WS_URL}${WS_PATH}`);
     wsRef.current = ws;
 
     ws.onopen = () => {

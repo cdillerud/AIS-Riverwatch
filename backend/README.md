@@ -52,11 +52,18 @@ The application is in a **hybrid state** with active refactoring:
    - Navigation calculations (river mile, ETA, heading)
    - USACE data fetching (lock queues, vessel info)
    - USGS water conditions
+   - AIS/NMEA parsing
 3. **Route modules** (`routes/`) contain modular route handlers
    - Currently disabled in favor of inline routes in server.py
    - Ready for gradual migration
 
-## Services (NEW)
+## Services
+
+### ais_parser.py (NEW)
+- `parse_nmea_gps(line)` - Parse GPS sentences ($GPGGA, $GPRMC, $GPGLL)
+- `parse_nmea_ais(data)` - Parse AIS messages (Types 1-5, 18, 19, 24)
+- `vessel_static_cache` - In-memory cache for vessel names/dimensions
+- `NAV_STATUS` - Navigation status code mapping
 
 ### usace_service.py
 - `fetch_usace_lock_queue_data()` - Fetch vessel queue from USACE XML API

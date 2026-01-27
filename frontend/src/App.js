@@ -131,6 +131,19 @@ function MainApp() {
       }
     };
 
+    // Traffic Watch users: Clear vessel-owner config and let SetupPage handle connection
+    if (user?.account_type === "traffic_watch") {
+      // Don't load vessel owner's connectionConfig for traffic watch users
+      // Let SetupPage handle the watch_point configuration
+      localStorage.removeItem('riverwatch_mmsi');
+      setUserMmsi("");
+      // Clear any stale connectionConfig so SetupPage is shown
+      setConnectionConfig(null);
+      console.log("[APP] Traffic Watch mode - clearing vessel config");
+      return;
+    }
+
+    // Vessel Owner flow
     if (user?.vessels?.length > 0) {
       const primaryVessel = user.vessels.find(v => v.is_primary) || user.vessels[0];
       if (primaryVessel) {

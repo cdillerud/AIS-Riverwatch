@@ -1267,6 +1267,7 @@ export default function Dashboard({
                   )}
                 </div>
               </Card>
+              )}
               
               {/* Nearby Vessels Card - Expands to fill remaining space */}
               <Card className="glass-panel hud-border flex-1 flex flex-col min-h-0" data-testid="vessels-sidebar">

@@ -93,9 +93,35 @@ export default function RegisterPage() {
 
           {/* Error Message */}
           {displayError && (
-            <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center gap-2 text-red-400 text-sm">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              {displayError}
+            <div className={`mb-6 p-3 rounded-lg flex items-start gap-2 text-sm ${
+              userExistsError 
+                ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400' 
+                : 'bg-red-500/10 border border-red-500/30 text-red-400'
+            }`}>
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <div>{displayError}</div>
+                {userExistsError && (
+                  <div className="mt-2 flex gap-2">
+                    <Link 
+                      to="/login" 
+                      className="text-cyan-400 hover:text-cyan-300 underline"
+                    >
+                      Sign in instead
+                    </Link>
+                    <span className="text-slate-500">or</span>
+                    <button 
+                      onClick={() => {
+                        // TODO: Implement password reset flow
+                        alert('Password reset coming soon! Please contact support.');
+                      }}
+                      className="text-cyan-400 hover:text-cyan-300 underline"
+                    >
+                      Reset password
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

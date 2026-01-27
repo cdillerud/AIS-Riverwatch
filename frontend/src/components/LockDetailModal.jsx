@@ -92,6 +92,26 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
     return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
   };
 
+  const getFloodStageColor = (stage) => {
+    switch (stage) {
+      case 'major': return 'bg-purple-500/20 text-purple-400 border-purple-500/50';
+      case 'moderate': return 'bg-red-500/20 text-red-400 border-red-500/50';
+      case 'flood': return 'bg-orange-500/20 text-orange-400 border-orange-500/50';
+      case 'action': return 'bg-amber-500/20 text-amber-400 border-amber-500/50';
+      default: return 'bg-green-500/20 text-green-400 border-green-500/50';
+    }
+  };
+
+  const getFloodStageLabel = (stage) => {
+    switch (stage) {
+      case 'major': return 'MAJOR FLOOD';
+      case 'moderate': return 'MODERATE FLOOD';
+      case 'flood': return 'FLOOD STAGE';
+      case 'action': return 'ACTION STAGE';
+      default: return 'NORMAL';
+    }
+  };
+
   const getDirectionLabel = (dir) => {
     if (dir === 'U') return { label: 'Upbound', icon: <ChevronUp className="w-3 h-3 text-green-400" /> };
     if (dir === 'D') return { label: 'Downbound', icon: <ChevronDown className="w-3 h-3 text-amber-400" /> };

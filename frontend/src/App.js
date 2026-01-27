@@ -532,7 +532,7 @@ function MainApp() {
         navigator.geolocation.clearWatch(geoWatchRef.current);
       }
     };
-  }, [userSettings.use_device_gps]);
+  }, [userSettings.use_device_gps, userMmsi]);
 
   // WebSocket connection
   const connectWebSocket = useCallback((config) => {

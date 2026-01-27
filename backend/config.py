@@ -19,7 +19,7 @@ def get_cors_origins():
     # Default origins for development and production
     return [
         "http://localhost:3000",
-        "https://vessel-monitor-9.preview.emergentagent.com"
+        "https://vesselradar-1.preview.emergentagent.com"
     ]
 
 # AIS Connection defaults

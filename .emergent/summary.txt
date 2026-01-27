@@ -14,22 +14,20 @@ The user wants to build a local application named River Watch to track vessels o
 10. **MMSI/Vessel Name Search:** Implement a search bar to filter the vessel list.
 11. **Click-to-Map Info:** Clicking a vessel on the map or in the list should display a compact information card on the map.
 12. **Lock Wait Time Predictions:** When a lock is clicked, show predicted wait times, USACE delays, and other detailed information.
-13. **User Accounts:** Implement user registration and login (Email/Password and Google Social Login) to support multiple users with their own settings and lists of MMSIs.
+13. **User Accounts:** Implement user registration and login (Email/Password and Google Social Login). This now includes two account types: Vessel Owner and Traffic Watch (observer mode).
 14. **Persistent Vessel Position:** A user's vessel position should be stored in their account and restored when they log in.
 15. **Demo Vessels:** The application should include simulated vessels for testing purposes, with a setting to toggle them on/off.
 16. **NOAA/USGS Integration:** Integrate real-time environmental data like water levels, current speed, and water temperature from gauges near the locks.
+17. **Admin Panel:** An admin interface for a designated super-admin to manage users (add, delete, promote), impersonate users, and view system statistics.
+18. **Observer Mode Search:** In Traffic Watch mode, users should be able to search for vessels by MMSI or name.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI/React application with a MongoDB database. Core functionality includes user authentication (JWT & Google), persistent user-specific vessel settings, and a dashboard with a river map and various info panels.
-
-The application now correctly handles user sessions, ensuring data is cleared upon logout and is not shared between different users. A major UI/UX overhaul was completed for the on-map vessel info panel, which now displays all relevant data (position, navigation, ETA, tow info, USACE data, lockage history) in a clean, compact, single-view panel that appears with one click.
-
-Recent feature additions include enhanced demo vessels with direction, ETA calculations, and a user-controlled toggle. Critically, it now integrates with the USGS Water Services API to display real-time river conditions (water level, current speed, flood stage) in the lock details modal.
+A full-stack FastAPI/React/MongoDB application. The application is now dual-mode: a Vessel Owner mode with lock race analysis, and a Traffic Watch observer mode with a traffic summary and vessel search. A critical bug preventing the live AIS feed from connecting has been resolved by re-routing the WebSocket connection through the  prefix. The app also features a comprehensive admin panel accessible to a super-admin user, allowing for user management and impersonation. The signup flow has been improved to gracefully handle attempts to register an existing email.
 
 **Last working item**:
--   **Last item agent was working**: Integrating NOAA/USGS water data into the lock details modal. The agent successfully added a new backend endpoint to fetch data from the USGS API and updated the frontend  to display water level, temperature, current speed, and a dynamic flood stage indicator.
+-   **Last item agent was working**: Adding a search bar to the Traffic Summary card in Traffic Watch mode. This allows users to filter the Nearby Vessels list by MMSI or name, with UI feedback including a match count and highlighting of the searched vessel.
 -   **Status**: USER VERIFICATION PENDING
 -   **Agent Testing Done**: Y
 -   **Which testing method agent to use?**: frontend testing agent
@@ -37,21 +35,21 @@ Recent feature additions include enhanced demo vessels with direction, ETA calcu
 
 **All Pending/In progress Issue list**:
 -   **Issue 1: Monolithic Backend File (P1)**
--   **Issue 2: Complex Frontend Component (P2)**
+-   **Issue 2: Complex Frontend Components (P2)**
 
 Issues Detail:
 -   **Issue 1:**
-    -   **Attempted fixes**: Phase 1 of refactoring is complete. , , and  have been created and populated.
-    -   **Next debug checklist**: The file  remains over 3,500 lines. The next logical step is to extract the  (TCP connection, NMEA parsing),  (data fetching, XML parsing), and WebSocket logic into their own modules under  and .
-    -   **Why fix this issue and what will be achieved with the fix?**: Refactoring will significantly improve code maintainability and scalability, making future development easier and less error-prone.
+    -   **Attempted fixes**: No progress. The file has grown significantly larger with the addition of admin, traffic watch, and mode-switching endpoints.
+    -   **Next debug checklist**: Refactor . Extract AIS Service, USACE Service, WebSocket logic, Admin routes, and Auth routes into their own modules under , , and .
+    -   **Why fix this issue and what will be achieved with the fix?**: The file is now over 5,000 lines and is extremely difficult to maintain. Refactoring is critical for stability and future development.
     -   **Status**: NOT STARTED
     -   **Is recurring issue?**: Y
     -   **Should Test frontend/backend/both after fix?**: backend
     -   **Blocked on other issue**: No.
 -   **Issue 2:**
-    -   **Attempted fixes**: Some functions were wrapped in , but the core complexity remains.
-    -   **Next debug checklist**: The file  manages global state, data fetching, and WebSockets. Logic should be extracted into custom hooks (e.g., , , ).
-    -   **Why fix this issue and what will be achieved with this?**: Simplifies the main component, improves reusability, and makes the application state easier to manage, preventing future bugs.
+    -   **Attempted fixes**: No progress. The file has grown more complex.
+    -   **Next debug checklist**: Refactor , which now contains complex state management and rendering logic for two different application modes (Vessel Owner and Traffic Watch). Extract logic into custom hooks (e.g., , , ) and smaller, mode-specific components.  has also become very large and could be broken down.
+    -   **Why fix this issue and what will be achieved with this?**: Simplifies main components, improves reusability, and makes application state easier to manage, preventing future bugs.
     -   **Status**: NOT STARTED
     -   **Is recurring issue?**: N
     -   **Should Test frontend/backend/both after fix?**: frontend
@@ -63,9 +61,10 @@ Issues Detail:
 **Upcoming and Future Tasks**
 
 **Upcoming Tasks:**
--   **Expand NOAA/USGS Integration (P0)**: Incorporate forecast data as requested by the user. (Files: , , ).
+-   **Vessel Alerts (P0)**: Implement Phase 4 of the Traffic Watch feature, allowing users to get notified when specific vessels pass a watch point.
+-   **Expand NOAA/USGS Integration (P1)**: Incorporate forecast data as originally requested. (Files: , ).
 -   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (File: ).
--   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups.
+-   **MarineTraffic API Integration (P2)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups.
 -   **Quick Position Presets (P2)**: Add a UI element allowing users to quickly set their position to common locations.
 
 **Future Tasks:**
@@ -75,116 +74,113 @@ Issues Detail:
 -   Trip Planner
 -   Community/Social Features
 -   Premium Data Integrations
--   Vessel Watchlist
+-   Vessel Watchlist (distinct from alerts)
 -   Speed Advisor
 
 **Completed work in this session**
--   **Fixed Critical Session Isolation Bug**: Resolved an issue where user data persisted between sessions. The logout flow now correctly clears  and backend state.
--   **Implemented Persistent Vessel Setup**: A user's vessel MMSI and name are now saved to their account and automatically loaded on login, bypassing the  for a smoother experience.
--   **Fixed Google Login Twice UX Issue**: The auto-connect feature resolves the perception of a double login by taking users with saved vessels directly to the dashboard.
--   **Enhanced Demo Vessels**: Implemented direction, ETA to next lock, and a user-controlled toggle switch in the Settings page.
--   **Fixed Lock Timing Calculation**: Resolved bugs preventing the race analysis from working correctly with simulated demo vessels.
--   **Redesigned Vessel Info Panel**: Replaced the multi-click, scrolling vessel detail modal with a comprehensive, single-click, non-scrolling panel on the map that displays all data at once.
--   **Integrated NOAA/USGS Water Data**: Added a service to fetch real-time water level, temperature, and current from nearby USGS gauges and display it in the lock detail modal.
+-   **Fixed Critical AIS Feed Bug**: Diagnosed and fixed a WebSocket routing issue that prevented any live AIS data from appearing. The app now correctly shows a LIVE feed in both modes.
+-   **Implemented Traffic Watch Mode**: Added a full-featured observer mode for users without a vessel, including a separate setup flow, a Traffic Summary dashboard, and a custom watch point.
+-   **Implemented Admin Panel**: Built a new backend and frontend for an admin panel accessible in the Settings page for super-admins. Features include user stats, a user list, and the ability to add/delete/promote users and impersonate them.
+-   **Implemented Account Mode Toggle**: Added UI for users to switch between Vessel Owner and Traffic Watch modes. The toggle was moved from the Settings page to the user dropdown in the main header for better accessibility.
+-   **Fixed Signup Bug**: Corrected the registration flow to show a user-friendly message when an email already exists, instead of failing with an error.
+-   **Implemented Vessel Search for Traffic Watch**: Added a search bar to the Traffic Watch dashboard to filter the vessel list by name or MMSI.
+-   **Corrected Traffic Ahead Logic**: Fixed a backend bug where vessels behind the user were incorrectly identified as traffic.
+-   **UI/UX Enhancements**:
+    -   Sorted the Nearby Vessels list by descending river mile.
+    -   Filtered the list to show only vessels within 100 miles.
+    -   Refactored the sidebar to remove the Locks tab and make the lock timing header a clickable modal trigger.
+    -   Moved the Raw Data panel to the Settings page.
+    -   Resized the Nearby Vessels card to use available vertical space.
+    -   Hid vessel-specific info from the top HUD bar when in Traffic Watch mode.
 
 **Earlier issues found/mentioned but not fixed**
--   **Issue 1: Monolithic Backend File**
-    -   **Debug checklist**: Refactor  to extract AIS and USACE service logic into .
-    -   **Why to solve this issue and what will be achieved with this?**: To improve code maintainability, readability, and scalability. This is a high-priority technical debt item.
-    -   **Should Test frontend/backend/both after fix?**: backend
-    -   **Is recurring issue?**: Y
--   **Issue 2: Complex Frontend Component**
-    -   **Debug checklist**: Refactor  by extracting state and data-fetching logic into custom hooks.
-    -   **Why to solve this issue and what will be achieved with this?**: To simplify the component, improve reusability, and make the code easier to manage.
-    -   **Should Test frontend/backend/both after fix?**: frontend
-    -   **Is recurring issue?**: N
+-   **Issue 1: Monolithic Backend File ()**
+-   **Issue 2: Complex Frontend Components (, )**
 
 **Known issue recurrence from previous fork**
 -   None.
 
 **Code Architecture**
-
+register
 
 **Key Technical Concepts**
--   **Frontend**: React (, , ), , Shadcn UI.
+-   **Frontend**: React (, , , ), , Shadcn UI.
 -   **Backend**: FastAPI, WebSockets, Pydantic models, .
--   **Authentication**: JWT for email/password and OAuth2 for Google Social Login.
+-   **Authentication**: JWT, OAuth2 (Google), now includes role-based access (, ).
 -   **Database**: MongoDB.
--   **3rd Party APIs**: USACE (XML), **USGS Water Services (JSON)**.
+-   **3rd Party APIs**: USACE (XML), USGS Water Services (JSON).
 -   **Deployment**: Docker, .
 
 **key DB schema**
 -   **user_accounts**: 
--   **vessel_sightings**: 
--   **lockage_history**: 
 
 **changes in tech stack**
--    library is now used on the backend to make asynchronous requests to the USGS API.
+-   None.
 
 **All files of reference**
--   : Contains the new API endpoints for demo vessel settings and USGS water data.
--   : Contains the new  mapping locks to gauge stations.
--   : Contains the critical logic for persistent vessel setup and auto-login.
--   : Contains the fix for clearing session data on logout.
--   : Contains the redesigned, all-in-one vessel information panel.
--   : Contains the new River Conditions UI for displaying USGS data.
+-   : Major updates including new admin endpoints, traffic watch endpoints, user model changes, and the critical WebSocket routing fix.
+-   : Heavily modified to support two distinct UI modes, the mode toggle, AIS feed status, and the new vessel search bar.
+-   : Heavily modified to include a full Admin Panel UI and the account mode toggle.
+-   : Completely rewritten to support the new Vessel Owner vs. Traffic Watch selection flow.
+-   : Updated to handle WebSocket connections for different account types.
+-   : Updated to handle the user already exists scenario during registration.
+-   : UI updated to show a helpful message when a user already exists.
+-   : WebSocket URL fixed.
 
 **Areas that need refactoring**:
--   ****: Urgently needs to have AIS, USACE, and routing logic extracted into their respective modules.
--   ****: Data fetching, WebSocket logic, and global state management should be extracted into custom hooks to reduce complexity and prevent bugs.
+-   ****: URGENT. Now over 5000 lines. It contains core app logic, all API routes (auth, user, settings, admin, traffic), WebSocket handling, and the AIS TCP connection manager. It must be broken into smaller modules.
+-   ****: HIGH PRIORITY. This component has become a monolith, managing state and rendering for two completely different user experiences. Logic should be extracted into custom hooks and child components.
+-   ****: This component has also grown very large with the addition of the admin panel UI and should be broken down.
 
 **key api endpoints**
--   **Settings**:  (NEW)
--   **Water Data**:  (NEW)
--   **Authentication**: , , 
--   **User Vessels**:  (now used to add a new vessel to a user's account)
--   **Race Analysis**: 
+-   **WebSocket**:  (FIXED),  (FIXED)
+-   **Admin**: , , , , , ,  (NEW)
+-   **Traffic Summary**:  (NEW)
+-   **Account Type**:  (NEW)
+-   **Auth**:  (MODIFIED to handle existing users)
 
 **Critical Info for New Agent**
--   The user's next request is to continue the NOAA/USGS integration by adding **forecast data**. The agent should start by investigating APIs for this and then integrating it into the UI, likely within the lock details modal.
--   The user is very sensitive to UI/UX, preferring information-dense, single-click access without scrolling. This design principle must be maintained for any future UI development.
--   Multiple critical bugs related to session management and data persistence were fixed. Any changes to authentication, user state, or login flow must be tested thoroughly to avoid regressions.
--   The long-standing technical debt of refactoring  and  remains. These should be tackled when there is an opportunity between feature requests.
+-   **WebSocket Routing**: The critical AIS feed bug was due to the WebSocket URL () not being prefixed with , causing it to be handled by the frontend router instead of the backend. The fix was to add new backend routes () and update the frontend to use them. This is a crucial detail for any future WebSocket work.
+-   **Dual-Mode Application**: The app now has two distinct modes, Vessel Owner and Traffic Watch, which conditionally render large portions of the UI, especially in . The  field in the user document controls this.
+-   **Super Admin**: The user  is hardcoded in the backend logic as the super-admin, who is the only one who can promote other users to admin status.
+-   **Technical Debt**: Be aware that  and  are now extremely large and complex. Any new feature addition will be difficult without addressing this technical debt first.
 
 **documents and test reports created in this job**
--   
--   
--    (updated)
+-    (updated with Traffic Watch and Admin features)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Approved the redesigned vessel info panel and requested the integration of NOAA data. (Status: Addressed)
-2.  **User**: Specified that NOAA data should be integrated as part of lock details, focusing on gauges near the locks. (Status: Addressed)
-3.  **User**: Reported that the lock timing calculation wasn't working with demo vessels. (Status: Fixed)
-4.  **User**: Confirmed the need for session persistence and reiterated the requirements for demo vessel features (direction, ETA, toggle). (Status: Addressed)
-5.  **User**: Complained that viewing all vessel details required multiple clicks. (Status: Addressed)
-6.  **User**: Complained that the first UI fix didn't include USACE data and was incomplete. (Status: Addressed)
-7.  **User**: Complained that the second UI fix had a messy layout. (Status: Addressed)
-8.  **User**: Emphatically confirmed they wanted to see all vessel sections in the info panel without scrolling. (Status: Addressed)
-9.  **User**: Reported two critical bugs: vessel setup not persisting across logins and a perceived double login with Google. (Status: Fixed)
-10. **User**: The initial bug report for the session: sign-in/sign-out was not working correctly, with old user data persisting. (Status: Fixed)
+1.  **User**: Requested Admin features, specifying  as super-admin, impersonation, and a fix for the signup bug. (Status: Addressed)
+2.  **User**: Reported a critical bug: no AIS feed in Traffic Watch mode. (Status: Investigation Started)
+3.  **Agent**: Investigated the bug.
+4.  **User**: Clarified the bug: No AIS feed in *either* mode. Also requested moving the mode toggle to the header and hiding vessel info in Traffic Watch. (Status: Addressed)
+5.  **Agent**: Diagnosed the bug as a WebSocket routing issue and fixed it. Implemented the UI changes.
+6.  **Agent**: Summarized the fix and the completed UI changes.
+7.  **User**: Requested a new feature: a search bar for MMSI/vessel name in Traffic Watch mode. (Status: Addressed)
+8.  **Agent**: Implemented the search bar feature.
+9.  **Agent**: Confirmed the search feature is working with screenshots.
+10. **Agent**: Provided a final summary of the search feature implementation.
 
 **Project Health Check:**
--   **Broken**: No. The application is in a stable, tested state. All user-reported bugs have been resolved.
--   **Mocked**: Yes, two simulated towboats are running by default, and their simulation can be toggled on/off by the user.
+-   **Broken**: No. The critical AIS feed bug is resolved, and the application is functional in both Vessel Owner and Traffic Watch modes.
+-   **Mocked**: Yes, the two simulated demo towboats are still active by default and can be toggled by the user in settings.
 
 **3rd Party Integrations**
 -   **MongoDB**: Primary database.
 -   **USACE Web Scraping / XML API**: For live lock status and queue data.
--   **USGS Water Services API**: (NEW) For real-time water level, temperature, and current speed.
+-   **USGS Water Services API**: For real-time water level, temperature, and current speed.
 -   **Emergent-managed Google Auth**: For social login.
 -   **JWT (python-jose, passlib)**: For custom email/password authentication.
 
 **Testing status**
--   **Testing agent used after significant changes**: YES. Used to validate the session isolation fix and the new demo vessel features.
+-   **Testing agent used after significant changes**: NO
 -   **Troubleshoot agent used after agent stuck in loop**: NO
 -   **Test files created**: []
--   **Known regressions**: None. All regressions identified during the session (e.g., breaking vessel persistence while fixing session isolation) were subsequently fixed.
+-   **Known regressions**: None.
 
 **Credentials to test flow:**
--   Email/Password User 1: , Password: 
--   Email/Password User 2: , Password: 
--   Google Auth User:  (no password, login via Google OAuth flow)
+-   **Super Admin (Google)**: 
+-   **Vessel Owner (Email)**: , Password: 
+-   **Traffic Watch (Email)**: , Password: 
 
 **What agent forgot to execute**
--   The agent initially forgot that clearing  to fix the session isolation bug would break the existing logic for vessel persistence on the . This dependency was missed and had to be addressed in a subsequent fix by moving vessel data management from  to the user's account in the database.
--   The agent required multiple attempts to satisfy the user's UI requirement for the vessel info panel, initially underestimating the user's desire to see all data at once without any clicks or scrolling.</analysis>
+-   The agent did not address the primary technical debt of refactoring the monolithic backend () and frontend () files, which have both grown significantly more complex during this session. While feature requests were prioritized, the maintainability of the codebase has degraded.</analysis>

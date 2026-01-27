@@ -3259,6 +3259,232 @@ async def get_lock_lockage_times(lock_id: str):
     }
 
 
+# =============================================
+# USGS WATER CONDITIONS API
+# =============================================
+
+import httpx
+
+# Cache for USGS data (refreshes every 15 minutes)
+usgs_cache = {}
+usgs_cache_time = {}
+USGS_CACHE_DURATION = 900  # 15 minutes
+
+async def fetch_usgs_water_data(site_id: str) -> dict:
+    """
+    Fetch real-time water conditions from USGS Water Services API.
+    
+    Parameters fetched:
+    - 00065: Gage height (feet)
+    - 00060: Discharge (cubic feet per second)  
+    - 00010: Water temperature (Celsius)
+    
+    Also fetches forecast data from NOAA AHPS.
+    """
+    cache_key = f"usgs_{site_id}"
+    now = datetime.now(timezone.utc)
+    
+    # Check cache
+    if cache_key in usgs_cache:
+        cache_age = (now - usgs_cache_time.get(cache_key, now)).total_seconds()
+        if cache_age < USGS_CACHE_DURATION:
+            return usgs_cache[cache_key]
+    
+    result = {
+        "site_id": site_id,
+        "timestamp": now.isoformat(),
+        "gage_height_ft": None,
+        "discharge_cfs": None,
+        "water_temp_c": None,
+        "water_temp_f": None,
+        "current_speed_mph": None,
+        "flood_stage": "normal",
+        "forecast": None,
+        "error": None
+    }
+    
+    try:
+        # Fetch current conditions from USGS
+        url = f"https://waterservices.usgs.gov/nwis/iv/?format=json&sites={site_id}&parameterCd=00065,00060,00010&siteStatus=active"
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                time_series = data.get('value', {}).get('timeSeries', [])
+                
+                for ts in time_series:
+                    param_code = ts.get('variable', {}).get('variableCode', [{}])[0].get('value', '')
+                    values = ts.get('values', [{}])[0].get('value', [])
+                    
+                    if values:
+                        latest = values[-1]  # Most recent value
+                        value = float(latest.get('value', 0))
+                        
+                        if param_code == '00065':  # Gage height
+                            result['gage_height_ft'] = round(value, 2)
+                        elif param_code == '00060':  # Discharge
+                            result['discharge_cfs'] = round(value, 0)
+                            # Estimate current speed from discharge (rough approximation)
+                            # Assuming average channel width ~2000ft, depth ~15ft for Upper Miss
+                            # Speed (fps) ≈ discharge / (width * depth)
+                            # This is a rough estimate - actual varies by location
+                            estimated_fps = value / (2000 * 15)
+                            result['current_speed_mph'] = round(estimated_fps * 0.681818, 1)  # fps to mph
+                        elif param_code == '00010':  # Water temp
+                            result['water_temp_c'] = round(value, 1)
+                            result['water_temp_f'] = round(value * 9/5 + 32, 1)
+                
+                # Determine flood stage
+                if result['gage_height_ft'] and site_id in FLOOD_STAGES:
+                    stages = FLOOD_STAGES[site_id]
+                    height = result['gage_height_ft']
+                    if height >= stages['major']:
+                        result['flood_stage'] = 'major'
+                    elif height >= stages['moderate']:
+                        result['flood_stage'] = 'moderate'
+                    elif height >= stages['flood']:
+                        result['flood_stage'] = 'flood'
+                    elif height >= stages['action']:
+                        result['flood_stage'] = 'action'
+                    else:
+                        result['flood_stage'] = 'normal'
+                        
+    except Exception as e:
+        logger.error(f"Error fetching USGS data for {site_id}: {e}")
+        result['error'] = str(e)
+    
+    # Try to fetch forecast data from NOAA AHPS
+    try:
+        # NOAA AHPS forecast endpoint (XML)
+        # Map USGS site to NWS location ID
+        nws_locations = {
+            "05331000": "STPM5",   # St. Paul
+            "05344500": "PREW3",   # Prescott
+            "05378500": "WINM5",   # Winona
+            "05389500": "MCGI4",   # McGregor
+            "05420500": "CLNI4",   # Clinton
+            "05474500": "KEOI4",   # Keokuk
+            "05587450": "GRFI2",   # Grafton
+            "07010000": "EADM7",   # St. Louis
+        }
+        
+        if site_id in nws_locations:
+            nws_id = nws_locations[site_id]
+            forecast_url = f"https://water.weather.gov/ahps2/hydrograph_to_xml.php?gage={nws_id}&output=xml"
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                forecast_resp = await client.get(forecast_url)
+                
+                if forecast_resp.status_code == 200:
+                    # Parse basic forecast info from XML
+                    import re
+                    xml_text = forecast_resp.text
+                    
+                    # Extract forecast values (simplified parsing)
+                    forecasts = []
+                    forecast_matches = re.findall(
+                        r'<forecast>.*?<valid[^>]*>([^<]+)</valid>.*?<primary[^>]*>([^<]+)</primary>.*?</forecast>',
+                        xml_text, re.DOTALL
+                    )
+                    
+                    for valid_time, value in forecast_matches[:6]:  # Next 6 forecasts
+                        try:
+                            forecasts.append({
+                                "time": valid_time.strip(),
+                                "stage_ft": float(value)
+                            })
+                        except:
+                            pass
+                    
+                    if forecasts:
+                        result['forecast'] = forecasts
+                        
+    except Exception as e:
+        logger.debug(f"Could not fetch forecast for {site_id}: {e}")
+    
+    # Cache result
+    usgs_cache[cache_key] = result
+    usgs_cache_time[cache_key] = now
+    
+    return result
+
+
+@api_router.get("/water-conditions/{lock_id}")
+async def get_water_conditions_for_lock(lock_id: str):
+    """
+    Get water conditions (level, temp, current) for a specific lock.
+    Uses data from the nearest USGS gauge station.
+    """
+    if lock_id not in LOCKS:
+        raise HTTPException(status_code=404, detail="Invalid lock ID")
+    
+    if lock_id not in USGS_GAUGES:
+        return {
+            "lock_id": lock_id,
+            "error": "No gauge data available for this lock"
+        }
+    
+    gauge_info = USGS_GAUGES[lock_id]
+    lock_info = LOCKS[lock_id]
+    
+    # Fetch water data
+    water_data = await fetch_usgs_water_data(gauge_info['site_id'])
+    
+    return {
+        "lock_id": lock_id,
+        "lock_name": lock_info['name'],
+        "lock_river_mile": lock_info['river_mile'],
+        "gauge": {
+            "site_id": gauge_info['site_id'],
+            "name": gauge_info['name'],
+            "river_mile": gauge_info['river_mile'],
+            "distance_from_lock": abs(lock_info['river_mile'] - gauge_info['river_mile'])
+        },
+        "conditions": {
+            "timestamp": water_data.get('timestamp'),
+            "gage_height_ft": water_data.get('gage_height_ft'),
+            "water_temp_f": water_data.get('water_temp_f'),
+            "water_temp_c": water_data.get('water_temp_c'),
+            "discharge_cfs": water_data.get('discharge_cfs'),
+            "current_speed_mph": water_data.get('current_speed_mph'),
+            "flood_stage": water_data.get('flood_stage'),
+        },
+        "flood_stages": FLOOD_STAGES.get(gauge_info['site_id'], {}),
+        "forecast": water_data.get('forecast'),
+        "error": water_data.get('error')
+    }
+
+
+@api_router.get("/water-conditions")
+async def get_all_water_conditions():
+    """Get water conditions for all locks with available gauges."""
+    results = {}
+    
+    # Get unique gauge site IDs
+    unique_sites = set(g['site_id'] for g in USGS_GAUGES.values())
+    
+    # Fetch data for each unique site
+    site_data = {}
+    for site_id in unique_sites:
+        site_data[site_id] = await fetch_usgs_water_data(site_id)
+    
+    # Build results for each lock
+    for lock_id, gauge_info in USGS_GAUGES.items():
+        if lock_id in LOCKS:
+            water_data = site_data.get(gauge_info['site_id'], {})
+            results[lock_id] = {
+                "gauge_name": gauge_info['name'],
+                "gage_height_ft": water_data.get('gage_height_ft'),
+                "water_temp_f": water_data.get('water_temp_f'),
+                "current_speed_mph": water_data.get('current_speed_mph'),
+                "flood_stage": water_data.get('flood_stage'),
+            }
+    
+    return results
+
+
 @api_router.get("/usace/lock-queue")
 async def get_usace_lock_queue():
     """Get current USACE lock queue data (vessels with barge counts)."""

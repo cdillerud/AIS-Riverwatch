@@ -21,6 +21,7 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 15. **Demo Vessels:** The application should include simulated vessels for testing purposes, with a setting to toggle them on/off.
 16. **NOAA/USGS Integration:** Integrate real-time environmental data like water levels, current speed, and water temperature from gauges near the locks.
 17. **Traffic Watch Mode:** Allow users without vessels to monitor river traffic (for lock operators, marina operators, shipping companies, etc.)
+18. **Admin Features:** User management, vessel oversight, system statistics, user impersonation for debugging.
 
 ## User Personas
 
@@ -29,10 +30,14 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 - Wants to time arrivals at locks to avoid commercial traffic
 - Needs real-time position tracking and race analysis
 
-### 2. Traffic Watcher (New)
+### 2. Traffic Watcher
 - Lock operators, marina operators, shipping companies, river enthusiasts
 - Monitors traffic flow without owning a vessel
 - Needs traffic summaries, vessel counts by direction, and recent lockage history
+
+### 3. Administrator
+- System admin managing users and monitoring system health
+- Needs user management, password resets, user impersonation for support
 
 ## Architecture
 
@@ -60,8 +65,10 @@ Build a local application named "River Watch" to track vessels on the upper Miss
     │   ├── App.js         # Core component, handles routing
     │   ├── pages/
     │   │   ├── Dashboard.jsx      # Main dashboard with map
-    │   │   ├── SettingsPage.jsx   # User settings, demo toggle, raw data
-    │   │   └── SetupPage.jsx      # Account type selection, vessel/watch point setup
+    │   │   ├── SettingsPage.jsx   # User settings, admin panel, mode toggle
+    │   │   ├── SetupPage.jsx      # Account type selection, vessel/watch point setup
+    │   │   ├── LoginPage.jsx      # Login form
+    │   │   └── RegisterPage.jsx   # Registration with existing user handling
     │   ├── components/
     │   │   ├── RiverVisualization.jsx
     │   │   ├── LockDetailModal.jsx
@@ -72,9 +79,10 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 ```
 
 ### Database Schema
-- **users**: `{ user_id, email, name, account_type, vessels[], watch_point, favorite_locks[], vessel_watch_list[], settings }`
+- **users**: `{ user_id, email, name, account_type, is_admin, is_super_admin, vessels[], watch_point, favorite_locks[], vessel_watch_list[], settings, last_login, created_at }`
 - **vessel_sightings**: `{ mmsi, timestamp, lat, lon, usace_source, ... }`
 - **lockage_history**: `{ lock_id, vessel_name, mmsi, direction, timestamps... }`
+- **user_sessions**: `{ user_id, session_token, expires_at, impersonated_by (optional) }`
 
 ## Implemented Features
 
@@ -106,7 +114,15 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 - [x] Directional vessel counts (Northbound/Southbound)
 - [x] "Near Lock" vessel list
 - [x] Recent lockages history
-- [x] Backend APIs for account type, watch point, favorite locks, vessel watch
+
+### Phase 5: Admin Features ✅ (January 27, 2026)
+- [x] Admin role system (admin + super_admin)
+- [x] Admin Panel in Settings page with tabs (Stats, Users, Vessels)
+- [x] User management (create, delete, promote/demote, reset password)
+- [x] User impersonation for debugging
+- [x] System statistics dashboard
+- [x] Mode toggle (vessel owner ↔ traffic watch)
+- [x] Graceful handling of existing users in signup
 
 ### UI/UX Improvements ✅
 - [x] Nearby Vessels sorted by River Mile (descending)
@@ -114,21 +130,24 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 - [x] Removed Locks/Raw tabs, moved Raw Data to Settings
 - [x] Extended Nearby Vessels card to fill sidebar height
 - [x] Swapped Traffic Ahead and Queue positions
+- [x] Filter vessels within 100 miles of user
 
 ## Pending Features
 
 ### P0 - High Priority
 - [ ] Expand NOAA/USGS integration with forecast data
 - [ ] Vessel Alert notifications (when watched vessels pass a point)
+- [ ] Password reset email flow
 
 ### P1 - Medium Priority
 - [ ] Sound/Vibration alerts for "Can't Beat" warnings
 - [ ] MarineTraffic API integration for vessel name lookups
 - [ ] Favorite Locks quick-switch UI
+- [ ] Exit Impersonation banner/button
 
 ### P2 - Lower Priority
 - [ ] Quick Position Presets
-- [ ] Switch Mode button (vessel owner ↔ traffic watch)
+- [ ] System announcements/banner messages
 
 ### Future/Backlog
 - [ ] Lock Wait Time Predictions (ML-powered)
@@ -144,6 +163,10 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 1. **Backend Refactoring**: Extract AIS service, USACE service, and WebSocket logic from server.py into separate modules
 2. **Frontend Refactoring**: Extract state management and data fetching into custom hooks in App.js
 
+## Admin Accounts
+- **Super Admin**: `cdillerud@gmail.com` (Google OAuth) - Full access
+- **Admin**: `chaddillerud@gmail.com` / `test123` - Standard admin
+
 ## Test Accounts
 - **Vessel Owner**: `chaddillerud@gmail.com` / `test123`
 - **Vessel Owner 2**: `test@example.com` / `password123`
@@ -153,22 +176,34 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 ## API Endpoints
 
 ### Authentication
-- `POST /api/auth/register` - Register new user
+- `POST /api/auth/register` - Register new user (handles existing users gracefully)
 - `POST /api/auth/login` - Login with email/password
 - `POST /api/auth/logout` - Logout and clear session
 - `GET /api/auth/me` - Get current user info
 
 ### User Settings
 - `GET/PUT /api/user/settings` - User settings
-- `POST/GET /api/user/account-type` - Account type (NEW)
-- `POST/GET /api/user/watch-point` - Watch point (NEW)
-- `POST/GET /api/user/favorite-locks` - Favorite locks (NEW)
-- `POST/GET/DELETE /api/user/vessel-watch` - Vessel watch list (NEW)
+- `POST/GET /api/user/account-type` - Account type (mode toggle)
+- `POST/GET /api/user/watch-point` - Watch point
+- `POST/GET /api/user/favorite-locks` - Favorite locks
+- `POST/GET/DELETE /api/user/vessel-watch` - Vessel watch list
+
+### Admin (requires admin role)
+- `GET /api/admin/stats` - System statistics
+- `GET /api/admin/users` - List users (with search)
+- `POST /api/admin/users` - Create user
+- `PUT /api/admin/users/{id}` - Update user
+- `DELETE /api/admin/users/{id}` - Delete user
+- `POST /api/admin/users/{id}/promote` - Promote to admin
+- `POST /api/admin/users/{id}/demote` - Demote from admin
+- `POST /api/admin/users/{id}/reset-password` - Reset password
+- `POST /api/admin/impersonate/{id}` - Impersonate user
+- `GET /api/admin/vessels` - List all tracked vessels
 
 ### Data
 - `GET /api/vessels` - Get all vessels
 - `GET /api/locks` - Get all locks with status
-- `GET /api/traffic-summary/{lock_id}` - Traffic summary (NEW)
+- `GET /api/traffic-summary/{lock_id}` - Traffic summary
 - `GET /api/locks/{lock_id}/water-conditions` - USGS water data
 - `GET /api/session/{mmsi}/race-analysis/{lock_id}` - Race analysis
 

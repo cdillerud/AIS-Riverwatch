@@ -16,10 +16,12 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [userExistsError, setUserExistsError] = useState(false);
 
   const handleRegister = async (e) => {
     e.preventDefault();
     setLocalError("");
+    setUserExistsError(false);
 
     if (password !== confirmPassword) {
       setLocalError("Passwords do not match");
@@ -37,6 +39,9 @@ export default function RegisterPage() {
       await register(email, password, name);
       navigate("/dashboard");
     } catch (err) {
+      if (err.userExists) {
+        setUserExistsError(true);
+      }
       setLocalError(err.message);
     } finally {
       setLoading(false);

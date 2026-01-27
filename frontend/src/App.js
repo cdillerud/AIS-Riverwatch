@@ -199,7 +199,29 @@ function MainApp() {
             setConnectionConfig(config);
           } catch (e) {
             console.error("Failed to parse stored connection config:", e);
+            // Create default config on parse error
+            const defaultConfig = {
+              ip_address: "136.116.165.255",
+              port: 7000,
+              user_mmsi: primaryVessel.mmsi,
+              boat_name: primaryVessel.boat_name,
+              account_type: "vessel_owner"
+            };
+            localStorage.setItem('riverwatch_connection', JSON.stringify(defaultConfig));
+            setConnectionConfig(defaultConfig);
           }
+        } else {
+          // No localStorage config - create default and connect!
+          console.log("[APP] Vessel Owner mode - creating default config for auto-connect");
+          const defaultConfig = {
+            ip_address: "136.116.165.255",
+            port: 7000,
+            user_mmsi: primaryVessel.mmsi,
+            boat_name: primaryVessel.boat_name,
+            account_type: "vessel_owner"
+          };
+          localStorage.setItem('riverwatch_connection', JSON.stringify(defaultConfig));
+          setConnectionConfig(defaultConfig);
         }
         
         // Restore vessel positions from user account

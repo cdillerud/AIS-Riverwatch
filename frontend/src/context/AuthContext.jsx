@@ -70,6 +70,13 @@ export function AuthProvider({ children }) {
 
       const data = await response.json();
       
+      // Handle existing user case (not an HTTP error, but a logical error)
+      if (data.user_exists) {
+        const error = new Error(data.message || 'An account with this email already exists');
+        error.userExists = true;
+        throw error;
+      }
+      
       if (!response.ok) {
         throw new Error(data.detail || 'Registration failed');
       }

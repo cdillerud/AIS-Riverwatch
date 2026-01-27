@@ -1480,6 +1480,73 @@ active_vessels: Dict[str, VesselPosition] = {}
 # Each session now explicitly passes its MMSI for all operations
 
 
+def calculate_next_lock_eta(river_mile: float, heading_direction: str, speed_knots: float) -> dict:
+    """
+    Calculate the next lock and ETA based on vessel position, direction, and speed.
+    
+    Args:
+        river_mile: Current river mile position
+        heading_direction: 'northbound'/'upriver' or 'southbound'/'downriver'
+        speed_knots: Current speed in knots
+    
+    Returns:
+        dict with next_lock_id, next_lock_name, next_lock_rm, distance_miles, eta_minutes
+    """
+    if not river_mile or not speed_knots or speed_knots < 0.1:
+        return None
+    
+    # Normalize direction
+    going_upriver = heading_direction in ['northbound', 'upriver', 'upstream']
+    
+    # Find the next lock in the direction of travel
+    next_lock = None
+    next_lock_id = None
+    min_distance = float('inf')
+    
+    for lock_id, lock_info in LOCKS.items():
+        lock_rm = lock_info["river_mile"]
+        
+        if going_upriver:
+            # Looking for locks with HIGHER river mile (upriver/north)
+            if lock_rm > river_mile:
+                distance = lock_rm - river_mile
+                if distance < min_distance:
+                    min_distance = distance
+                    next_lock = lock_info
+                    next_lock_id = lock_id
+        else:
+            # Looking for locks with LOWER river mile (downriver/south)
+            if lock_rm < river_mile:
+                distance = river_mile - lock_rm
+                if distance < min_distance:
+                    min_distance = distance
+                    next_lock = lock_info
+                    next_lock_id = lock_id
+    
+    if not next_lock:
+        return None
+    
+    # Calculate ETA
+    # Speed is in knots, distance is in river miles (statute miles)
+    # Convert knots to mph: 1 knot = 1.15078 mph
+    speed_mph = speed_knots * 1.15078
+    
+    if speed_mph < 0.1:
+        return None
+    
+    eta_hours = min_distance / speed_mph
+    eta_minutes = int(eta_hours * 60)
+    
+    return {
+        "next_lock_id": next_lock_id,
+        "next_lock_name": next_lock["name"],
+        "next_lock_rm": next_lock["river_mile"],
+        "distance_miles": round(min_distance, 1),
+        "eta_minutes": eta_minutes,
+        "eta_display": f"{eta_minutes // 60}h {eta_minutes % 60}m" if eta_minutes >= 60 else f"{eta_minutes}m"
+    }
+
+
 def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
     """
     Prepare a vessel for API output, enriching with USACE data or clearing stale barge info.
@@ -1494,6 +1561,7 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
     - If USACE data exists: use authoritative barge count from USACE
     - If NO USACE data: clear ALL barge-related fields to None
     - Never show estimated/default barge counts
+    - Always calculate ETA to next lock based on direction
     
     Args:
         vessel: Can be a VesselPosition model or a dict (for demo vessels)
@@ -1517,6 +1585,20 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
         v_dict['is_user_vessel'] = (str(vessel_mmsi) == str(session_mmsi))
     else:
         v_dict['is_user_vessel'] = False
+    
+    # Calculate ETA to next lock (for all vessels with position, direction, and speed)
+    river_mile = v_dict.get('river_mile')
+    heading_direction = v_dict.get('heading_direction') or v_dict.get('heading')
+    speed = v_dict.get('speed', 0)
+    
+    if river_mile and heading_direction and speed:
+        eta_info = calculate_next_lock_eta(river_mile, heading_direction, speed)
+        if eta_info:
+            v_dict['next_lock'] = eta_info
+        else:
+            v_dict['next_lock'] = None
+    else:
+        v_dict['next_lock'] = None
     
     # Skip USACE enrichment for demo vessels (they already have the data)
     if v_dict.get('is_demo'):

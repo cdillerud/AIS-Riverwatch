@@ -157,12 +157,22 @@ function MainApp() {
       setUserMmsi("");
       setConnectionConfig(null);
       setIsConnected(false);
+      setLockStatus({});
+      setLockageTimes({});
       // Close WebSocket if connected
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
-      console.log("User logged out - cleared all session data");
+      // Clear any pending reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      // Clear localStorage to prevent session bleed between users
+      localStorage.removeItem('riverwatch_mmsi');
+      localStorage.removeItem('riverwatch_connection');
+      console.log("User logged out - cleared all session data and localStorage");
     }
   }, [user]);
 

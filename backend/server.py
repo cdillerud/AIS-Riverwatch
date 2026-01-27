@@ -35,7 +35,7 @@ import hashlib
 import secrets
 
 # Import from new modular structure (for reusable logic)
-from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins
+from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES
 from services.navigation_service import (
     estimate_river_mile as _estimate_river_mile,
     river_mile_to_coords as _river_mile_to_coords,

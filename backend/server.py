@@ -1385,7 +1385,7 @@ active_vessels: Dict[str, VesselPosition] = {}
 # Each session now explicitly passes its MMSI for all operations
 
 
-def prepare_vessel_for_output(vessel: VesselPosition, session_mmsi: str = None) -> dict:
+def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
     """
     Prepare a vessel for API output, enriching with USACE data or clearing stale barge info.
     
@@ -1399,9 +1399,18 @@ def prepare_vessel_for_output(vessel: VesselPosition, session_mmsi: str = None) 
     - If USACE data exists: use authoritative barge count from USACE
     - If NO USACE data: clear ALL barge-related fields to None
     - Never show estimated/default barge counts
+    
+    Args:
+        vessel: Can be a VesselPosition model or a dict (for demo vessels)
+        session_mmsi: The MMSI of the session user
     """
-    v_dict = vessel.model_dump()
-    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+    # Handle both Pydantic models and dicts
+    if hasattr(vessel, 'model_dump'):
+        v_dict = vessel.model_dump()
+        if v_dict.get('timestamp') and hasattr(v_dict['timestamp'], 'isoformat'):
+            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+    else:
+        v_dict = dict(vessel)  # Copy the dict
     
     # Get vessel MMSI
     vessel_mmsi = v_dict.get('mmsi', '')

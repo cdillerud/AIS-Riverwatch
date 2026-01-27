@@ -15,6 +15,7 @@ const DEFAULT_IP = "136.116.165.255";
 const DEFAULT_PORT = "7000";
 
 export default function SetupPage({ onConnect }) {
+  const { user, logout } = useAuth();
   const [userMmsi, setUserMmsi] = useState("");
   const [boatName, setBoatName] = useState("");
   const [loading, setLoading] = useState(true);
@@ -22,6 +23,12 @@ export default function SetupPage({ onConnect }) {
   const [ipAddress, setIpAddress] = useState(DEFAULT_IP);
   const [port, setPort] = useState(DEFAULT_PORT);
   const [existingSession, setExistingSession] = useState(null); // Existing MMSI session
+
+  // Handle logout - properly clears session
+  const handleLogout = async () => {
+    await logout();
+    toast.info("Logged out successfully");
+  };
 
   // Check for existing session on mount
   useEffect(() => {

@@ -208,6 +208,83 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                   </CardContent>
                 </Card>
 
+                {/* Water Conditions from USGS */}
+                {waterConditions && waterConditions.conditions && (
+                  <Card className="bg-gradient-to-br from-blue-900/30 to-slate-800/50 border-blue-500/30">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-white flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-blue-400" />
+                          River Conditions
+                        </h3>
+                        <Badge className={getFloodStageColor(waterConditions.conditions.flood_stage)}>
+                          {getFloodStageLabel(waterConditions.conditions.flood_stage)}
+                        </Badge>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-3">
+                        {/* Water Level */}
+                        <div className="text-center p-2 bg-slate-800/50 rounded-lg">
+                          <p className="text-2xl font-bold text-blue-400">
+                            {waterConditions.conditions.gage_height_ft?.toFixed(1) || '--'}
+                          </p>
+                          <p className="text-[10px] text-slate-400">Water Level (ft)</p>
+                        </div>
+                        
+                        {/* Water Temp */}
+                        <div className="text-center p-2 bg-slate-800/50 rounded-lg">
+                          <p className="text-2xl font-bold text-cyan-400">
+                            {waterConditions.conditions.water_temp_f?.toFixed(0) || '--'}°
+                          </p>
+                          <p className="text-[10px] text-slate-400">Water Temp (°F)</p>
+                        </div>
+                        
+                        {/* Current Speed */}
+                        <div className="text-center p-2 bg-slate-800/50 rounded-lg">
+                          <p className="text-2xl font-bold text-green-400">
+                            {waterConditions.conditions.current_speed_mph?.toFixed(1) || '--'}
+                          </p>
+                          <p className="text-[10px] text-slate-400">Current (mph)</p>
+                        </div>
+                      </div>
+
+                      {/* Gauge Info */}
+                      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                        <span>Gauge: {waterConditions.gauge?.name}</span>
+                        <span>{waterConditions.gauge?.distance_from_lock?.toFixed(1)} mi from lock</span>
+                      </div>
+
+                      {/* Forecast if available */}
+                      {waterConditions.forecast && waterConditions.forecast.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-slate-700">
+                          <p className="text-xs text-slate-400 mb-2">48-Hour Forecast</p>
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {waterConditions.forecast.slice(0, 6).map((f, i) => (
+                              <div key={i} className="flex-shrink-0 text-center p-1.5 bg-slate-800/30 rounded min-w-[60px]">
+                                <p className="text-sm font-mono text-white">{f.stage_ft?.toFixed(1)}'</p>
+                                <p className="text-[9px] text-slate-500">{new Date(f.time).toLocaleDateString('en-US', { weekday: 'short' })}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Flood Stage Legend */}
+                      {waterConditions.flood_stages && (
+                        <div className="mt-3 pt-3 border-t border-slate-700">
+                          <p className="text-xs text-slate-400 mb-2">Flood Stage Thresholds</p>
+                          <div className="flex gap-2 text-[10px]">
+                            <span className="text-amber-400">Action: {waterConditions.flood_stages.action}'</span>
+                            <span className="text-orange-400">Flood: {waterConditions.flood_stages.flood}'</span>
+                            <span className="text-red-400">Moderate: {waterConditions.flood_stages.moderate}'</span>
+                            <span className="text-purple-400">Major: {waterConditions.flood_stages.major}'</span>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Currently Locking */}
                 {lockDetails.vessels_locking?.length > 0 && (
                   <Card className="bg-amber-900/20 border-amber-500/30">

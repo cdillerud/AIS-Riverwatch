@@ -998,7 +998,116 @@ export default function Dashboard({
             
             {/* Sidebar - Takes 4 columns, matches map height */}
             <div className="col-span-4 flex flex-col gap-4 h-full">
-              {/* Lock Timing Card - Enhanced */}
+              {/* Traffic Summary Card - For Traffic Watch users */}
+              {isTrafficWatch ? (
+                <Card className="glass-panel hud-border flex-shrink-0" data-testid="traffic-summary-sidebar">
+                  <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-purple-400" />
+                      <span className="text-sm font-medium text-white">Traffic Summary</span>
+                    </div>
+                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/50 text-[10px]">
+                      {trafficSummary?.total_vessels || vessels.length} vessels
+                    </Badge>
+                  </div>
+                  <div className="p-3 space-y-3">
+                    {/* Watch Point Info - Clickable to open lock details */}
+                    <div 
+                      className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
+                      onClick={() => setSelectedLockDetail(selectedLock)}
+                      title="Click to view lock details"
+                    >
+                      <div className="text-[10px] text-slate-500 uppercase">Watching</div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-white font-semibold">{selectedLockObj?.name || watchPoint?.name || 'Select Lock'}</div>
+                          <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile || watchPoint?.river_mile}</div>
+                        </div>
+                        <ChevronDown className="w-4 h-4 text-purple-400" />
+                      </div>
+                    </div>
+                    
+                    {/* Traffic Direction Summary */}
+                    <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-700">
+                      <div className="p-2 bg-green-500/10 rounded-lg text-center">
+                        <div className="flex items-center justify-center gap-1 text-green-400 mb-1">
+                          <ArrowUpRight className="w-4 h-4" />
+                          <span className="text-lg font-bold">{trafficSummary?.northbound || 0}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">Northbound</div>
+                      </div>
+                      <div className="p-2 bg-red-500/10 rounded-lg text-center">
+                        <div className="flex items-center justify-center gap-1 text-red-400 mb-1">
+                          <ArrowDownRight className="w-4 h-4" />
+                          <span className="text-lg font-bold">{trafficSummary?.southbound || 0}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">Southbound</div>
+                      </div>
+                    </div>
+                    
+                    {/* Vessels Near Lock */}
+                    {trafficSummary?.vessels_near_lock?.length > 0 && (
+                      <div className="pb-2 border-b border-slate-700">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <Ship className="w-3 h-3 text-cyan-400" />
+                          <span className="text-[10px] text-cyan-400 uppercase font-semibold">
+                            Near Lock ({trafficSummary.vessels_near_lock.length})
+                          </span>
+                        </div>
+                        <div className="space-y-1 max-h-[120px] overflow-y-auto">
+                          {trafficSummary.vessels_near_lock.slice(0, 5).map((vessel) => (
+                            <div 
+                              key={vessel.mmsi}
+                              className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/50 cursor-pointer hover:bg-slate-700/50"
+                              onClick={() => setSelectedVessel(vessel)}
+                            >
+                              <span className="text-slate-300 truncate max-w-[120px]">
+                                {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'}>
+                                  {vessel.heading === 'northbound' ? '↑N' : vessel.heading === 'southbound' ? '↓S' : '—'}
+                                </span>
+                                <span className="text-slate-500 font-mono">
+                                  {vessel.distance_to_lock?.toFixed(1)}mi
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Recent Lockages */}
+                    {trafficSummary?.recent_lockages?.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <History className="w-3 h-3 text-amber-400" />
+                          <span className="text-[10px] text-amber-400 uppercase font-semibold">
+                            Recent Lockages
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          {trafficSummary.recent_lockages.slice(0, 3).map((lockage, idx) => (
+                            <div 
+                              key={idx}
+                              className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/30"
+                            >
+                              <span className="text-slate-300 truncate max-w-[120px]">
+                                {lockage.vessel_name}
+                              </span>
+                              <span className="text-slate-500">
+                                {lockage.direction === 'downbound' ? '↓' : '↑'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              ) : (
+              /* Lock Timing Card - Enhanced (for vessel owners) */
               <Card className="glass-panel hud-border flex-shrink-0" data-testid="timing-sidebar">
                 <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
                   <div className="flex items-center gap-2">

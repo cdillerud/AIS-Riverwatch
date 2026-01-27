@@ -40,6 +40,10 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   
+  // Demo vessel toggle
+  const [demoVesselsEnabled, setDemoVesselsEnabled] = useState(true);
+  const [demoToggleLoading, setDemoToggleLoading] = useState(false);
+  
   // Vessel name cache management
   const [vesselCache, setVesselCache] = useState({});
   const [newVesselMmsi, setNewVesselMmsi] = useState("");
@@ -59,6 +63,45 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [geoStatus, setGeoStatus] = useState("idle"); // "idle", "getting", "active", "error"
   const [lastGeoUpdate, setLastGeoUpdate] = useState(null);
   const [lastPositionResult, setLastPositionResult] = useState(null);
+
+  // Load demo vessel status on mount
+  const loadDemoVesselsStatus = async () => {
+    try {
+      const response = await fetch(`${API}/demo-vessels/status`);
+      if (response.ok) {
+        const data = await response.json();
+        setDemoVesselsEnabled(data.enabled);
+      }
+    } catch (error) {
+      console.error("Failed to load demo vessels status:", error);
+    }
+  };
+
+  // Toggle demo vessels
+  const toggleDemoVessels = async (enabled) => {
+    setDemoToggleLoading(true);
+    try {
+      const response = await fetch(`${API}/demo-vessels/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setDemoVesselsEnabled(data.enabled);
+        toast.success(data.enabled ? "Demo vessels enabled" : "Demo vessels disabled");
+      } else {
+        toast.error("Failed to toggle demo vessels");
+      }
+    } catch (error) {
+      console.error("Failed to toggle demo vessels:", error);
+      toast.error("Failed to toggle demo vessels");
+    } finally {
+      setDemoToggleLoading(false);
+    }
+  };
 
   // Convert River Mile to lat/lon
   const convertRiverMileToCoords = async (rm) => {

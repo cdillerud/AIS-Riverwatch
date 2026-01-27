@@ -20,12 +20,14 @@ const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
 export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap }) {
   const [lockDetails, setLockDetails] = useState(null);
+  const [waterConditions, setWaterConditions] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (isOpen && lockId) {
       fetchLockDetails();
+      fetchWaterConditions();
     }
   }, [isOpen, lockId]);
 
@@ -41,6 +43,18 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchWaterConditions = async () => {
+    try {
+      const response = await fetch(`${API}/water-conditions/${lockId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setWaterConditions(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch water conditions:", err);
     }
   };
 

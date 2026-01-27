@@ -1318,11 +1318,11 @@ export default function Dashboard({
                                 </Badge>
                               )}
                             </div>
-                            {/* Second row: RM from user + RM to next lock */}
+                            {/* Second row: RM from user/watch point + RM to next lock */}
                             <div className="flex items-center justify-between mt-1 text-[10px]">
                               {vessel.rmFromUser !== null && !isUser && (
                                 <span className="text-purple-400">
-                                  {vessel.rmFromUser.toFixed(1)} mi from you
+                                  {vessel.rmFromUser.toFixed(1)} mi {isTrafficWatch ? 'away' : 'from you'}
                                 </span>
                               )}
                               {isUser && <span className="text-cyan-400">Your vessel</span>}

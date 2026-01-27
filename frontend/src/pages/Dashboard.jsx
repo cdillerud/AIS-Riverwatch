@@ -1133,9 +1133,9 @@ export default function Dashboard({
                 </div>
               </Card>
               
-              {/* Nearby Vessels Card - Compact */}
-              <Card className="glass-panel hud-border flex-shrink-0" data-testid="vessels-sidebar">
-                <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+              {/* Nearby Vessels Card - Expands to fill remaining space */}
+              <Card className="glass-panel hud-border flex-1 flex flex-col min-h-0" data-testid="vessels-sidebar">
+                <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between flex-shrink-0">
                   <div className="flex items-center gap-2">
                     <Ship className="w-4 h-4 text-cyan-400" />
                     <span className="text-sm font-medium text-white">Nearby Vessels</span>
@@ -1144,12 +1144,12 @@ export default function Dashboard({
                     {sortedNearbyVessels.length}
                   </Badge>
                 </div>
-                <ScrollArea className="h-[140px]">
+                <ScrollArea className="flex-1">
                   <div className="p-2 space-y-1">
                     {sortedNearbyVessels.length === 0 ? (
                       <div className="text-center py-4 text-slate-500 text-sm">No vessels in range</div>
                     ) : (
-                      sortedNearbyVessels.slice(0, 8).map(vessel => {
+                      sortedNearbyVessels.slice(0, 12).map(vessel => {
                         // ONLY match by MMSI, not is_user_vessel flag
                         const isUser = userMmsi && vessel.mmsi === userMmsi;
                         return (
@@ -1197,9 +1197,9 @@ export default function Dashboard({
                         );
                       })
                     )}
-                    {sortedNearbyVessels.length > 8 && (
+                    {sortedNearbyVessels.length > 12 && (
                       <div className="text-center py-2 text-xs text-slate-500">
-                        +{sortedNearbyVessels.length - 8} more vessels
+                        +{sortedNearbyVessels.length - 12} more vessels
                       </div>
                     )}
                   </div>

@@ -196,6 +196,23 @@ export default function SetupPage({ onConnect }) {
     }
   };
 
+  // Auto-connect if user has a vessel saved in their account
+  useEffect(() => {
+    if (!loading && existingSession?.fromAccount && userMmsi && boatName) {
+      console.log("[SETUP] Auto-connecting with saved vessel:", userMmsi);
+      // Small delay to ensure state is fully set
+      const timer = setTimeout(() => {
+        onConnect({
+          ip_address: ipAddress,
+          port: parseInt(port),
+          user_mmsi: userMmsi,
+          boat_name: boatName
+        });
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, existingSession, userMmsi, boatName, ipAddress, port, onConnect]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">

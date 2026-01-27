@@ -497,9 +497,11 @@ export default function Dashboard({
       
       switch (e.key.toLowerCase()) {
         case 'p':
-          // P = Edit Position
-          e.preventDefault();
-          openPositionEditor();
+          // P = Edit Position (Vessel Owner only)
+          if (!isTrafficWatch) {
+            e.preventDefault();
+            openPositionEditor();
+          }
           break;
         case 'l':
           // L = Switch to Locks tab
@@ -529,7 +531,7 @@ export default function Dashboard({
           break;
         case 'escape':
           // Escape = Close position editor or modals
-          if (showPositionEditor) {
+          if (showPositionEditor && !isTrafficWatch) {
             setShowPositionEditor(false);
           } else if (selectedVessel) {
             setSelectedVessel(null);
@@ -543,7 +545,7 @@ export default function Dashboard({
           toast.info(
             <div className="space-y-1 text-xs">
               <p className="font-bold mb-2">Keyboard Shortcuts</p>
-              <p><kbd className="bg-slate-700 px-1 rounded">P</kbd> Edit Position</p>
+              {!isTrafficWatch && <p><kbd className="bg-slate-700 px-1 rounded">P</kbd> Edit Position</p>}
               <p><kbd className="bg-slate-700 px-1 rounded">M</kbd> Map Tab</p>
               <p><kbd className="bg-slate-700 px-1 rounded">L</kbd> Locks Tab</p>
               <p><kbd className="bg-slate-700 px-1 rounded">V</kbd> Vessels Tab</p>

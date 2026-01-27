@@ -121,6 +121,10 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
+      // Clear all user-specific localStorage data to prevent session bleed
+      localStorage.removeItem('riverwatch_mmsi');
+      localStorage.removeItem('riverwatch_connection');
+      console.log('[AUTH] Cleared localStorage on logout');
       setUser(null);
     }
   };

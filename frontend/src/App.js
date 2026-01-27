@@ -809,6 +809,8 @@ function MainApp() {
           onRefresh={performSoftRefresh}
           onFullRefresh={performFullRefresh}
           lastRefresh={lastRefresh}
+          accountType={connectionConfig.account_type || "vessel_owner"}
+          watchPoint={connectionConfig.watch_point}
         />
       ) : (
         <SetupPage onConnect={handleConnect} />

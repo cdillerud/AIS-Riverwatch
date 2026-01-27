@@ -135,6 +135,233 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     }
   };
 
+  // Toggle account type (vessel owner <-> traffic watch)
+  const toggleAccountType = async () => {
+    setModeToggleLoading(true);
+    const newType = accountType === "vessel_owner" ? "traffic_watch" : "vessel_owner";
+    
+    try {
+      const response = await fetch(`${API}/user/account-type`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ account_type: newType })
+      });
+      
+      if (response.ok) {
+        setAccountType(newType);
+        toast.success(`Switched to ${newType === "vessel_owner" ? "Vessel Owner" : "Traffic Watch"} mode`);
+        // Reload page to apply changes
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast.error("Failed to switch mode");
+      }
+    } catch (error) {
+      console.error("Failed to toggle account type:", error);
+      toast.error("Failed to switch mode");
+    } finally {
+      setModeToggleLoading(false);
+    }
+  };
+
+  // Admin functions
+  const loadAdminStats = async () => {
+    try {
+      const response = await fetch(`${API}/admin/stats`, { credentials: "include" });
+      if (response.ok) {
+        const data = await response.json();
+        setAdminStats(data);
+      }
+    } catch (error) {
+      console.error("Failed to load admin stats:", error);
+    }
+  };
+
+  const loadAdminUsers = async (search = "") => {
+    setAdminLoading(true);
+    try {
+      const url = search ? `${API}/admin/users?search=${encodeURIComponent(search)}` : `${API}/admin/users`;
+      const response = await fetch(url, { credentials: "include" });
+      if (response.ok) {
+        const data = await response.json();
+        setAdminUsers(data.users);
+      }
+    } catch (error) {
+      console.error("Failed to load admin users:", error);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const loadAdminVessels = async () => {
+    try {
+      const response = await fetch(`${API}/admin/vessels`, { credentials: "include" });
+      if (response.ok) {
+        const data = await response.json();
+        setAdminVessels(data.vessels);
+      }
+    } catch (error) {
+      console.error("Failed to load admin vessels:", error);
+    }
+  };
+
+  const createUser = async () => {
+    if (!newUserEmail) {
+      toast.error("Email is required");
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API}/admin/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          email: newUserEmail,
+          name: newUserName,
+          password: newUserPassword,
+          is_admin: newUserIsAdmin
+        })
+      });
+      
+      if (response.ok) {
+        toast.success("User created successfully");
+        setShowCreateUserDialog(false);
+        setNewUserEmail("");
+        setNewUserName("");
+        setNewUserPassword("");
+        setNewUserIsAdmin(false);
+        loadAdminUsers();
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to create user");
+      }
+    } catch (error) {
+      console.error("Failed to create user:", error);
+      toast.error("Failed to create user");
+    }
+  };
+
+  const deleteUser = async (userId) => {
+    if (!window.confirm("Are you sure you want to delete this user?")) return;
+    
+    try {
+      const response = await fetch(`${API}/admin/users/${userId}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+      
+      if (response.ok) {
+        toast.success("User deleted");
+        loadAdminUsers();
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to delete user");
+      }
+    } catch (error) {
+      console.error("Failed to delete user:", error);
+      toast.error("Failed to delete user");
+    }
+  };
+
+  const toggleUserAdmin = async (userId, currentIsAdmin) => {
+    const endpoint = currentIsAdmin ? "demote" : "promote";
+    
+    try {
+      const response = await fetch(`${API}/admin/users/${userId}/${endpoint}`, {
+        method: "POST",
+        credentials: "include"
+      });
+      
+      if (response.ok) {
+        toast.success(currentIsAdmin ? "User demoted from admin" : "User promoted to admin");
+        loadAdminUsers();
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to update user");
+      }
+    } catch (error) {
+      console.error("Failed to toggle admin:", error);
+      toast.error("Failed to update user");
+    }
+  };
+
+  const resetUserPassword = async () => {
+    if (!selectedUserForAction || !resetPasswordValue) {
+      toast.error("Password is required");
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API}/admin/users/${selectedUserForAction.user_id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password: resetPasswordValue })
+      });
+      
+      if (response.ok) {
+        toast.success("Password reset successfully");
+        setShowResetPasswordDialog(false);
+        setResetPasswordValue("");
+        setSelectedUserForAction(null);
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to reset password");
+      }
+    } catch (error) {
+      console.error("Failed to reset password:", error);
+      toast.error("Failed to reset password");
+    }
+  };
+
+  const impersonateUser = async (userId) => {
+    if (!window.confirm("You will be logged in as this user. Continue?")) return;
+    
+    try {
+      const response = await fetch(`${API}/admin/impersonate/${userId}`, {
+        method: "POST",
+        credentials: "include"
+      });
+      
+      if (response.ok) {
+        toast.success("Impersonating user - reloading...");
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to impersonate user");
+      }
+    } catch (error) {
+      console.error("Failed to impersonate:", error);
+      toast.error("Failed to impersonate user");
+    }
+  };
+
+  // Load admin data when admin tab is visible
+  useEffect(() => {
+    if (user?.is_admin || user?.is_super_admin) {
+      loadAdminStats();
+      loadAdminUsers();
+      loadAdminVessels();
+    }
+  }, [user]);
+
+  // Load account type on mount
+  useEffect(() => {
+    const loadAccountType = async () => {
+      try {
+        const response = await fetch(`${API}/user/account-type`, { credentials: "include" });
+        if (response.ok) {
+          const data = await response.json();
+          setAccountType(data.account_type);
+        }
+      } catch (error) {
+        console.error("Failed to load account type:", error);
+      }
+    };
+    loadAccountType();
+  }, []);
+
   // Convert River Mile to lat/lon
   const convertRiverMileToCoords = async (rm) => {
     try {

@@ -64,6 +64,59 @@ UPPER_MISS_LOCKS = [
     "21", "22", "24", "25", "27"  # Note: no 23, 26
 ]
 
+# USGS Gauge stations near locks for water conditions data
+# Maps lock_id to nearest USGS gauge station
+USGS_GAUGES = {
+    # Format: lock_id: { site_id, name, parameters available }
+    "lock_1": {"site_id": "05331000", "name": "Mississippi River at St. Paul, MN", "river_mile": 839.3},
+    "lock_2": {"site_id": "05344500", "name": "Mississippi River at Prescott, WI", "river_mile": 811.0},
+    "lock_3": {"site_id": "05344500", "name": "Mississippi River at Prescott, WI", "river_mile": 811.0},  # Closest
+    "lock_4": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_5": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_5a": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_6": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_7": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_8": {"site_id": "05389500", "name": "Mississippi River at McGregor, IA", "river_mile": 633.4},
+    "lock_9": {"site_id": "05389500", "name": "Mississippi River at McGregor, IA", "river_mile": 633.4},
+    "lock_10": {"site_id": "05389500", "name": "Mississippi River at McGregor, IA", "river_mile": 633.4},
+    "lock_11": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_12": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_13": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_14": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_15": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_16": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_17": {"site_id": "05474500", "name": "Mississippi River at Keokuk, IA", "river_mile": 364.2},
+    "lock_18": {"site_id": "05474500", "name": "Mississippi River at Keokuk, IA", "river_mile": 364.2},
+    "lock_19": {"site_id": "05474500", "name": "Mississippi River at Keokuk, IA", "river_mile": 364.2},
+    "lock_20": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "lock_21": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "lock_22": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "lock_24": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "lock_25": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "melvin_price": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "chain_of_rocks": {"site_id": "07010000", "name": "Mississippi River at St. Louis, MO", "river_mile": 180.0},
+}
+
+# USGS Parameter codes
+USGS_PARAMS = {
+    "00065": "gage_height",      # Gage height (feet)
+    "00060": "discharge",         # Discharge (cubic feet per second)
+    "00010": "water_temp",        # Water temperature (Celsius)
+}
+
+# Flood stage levels for Upper Mississippi gauges (in feet)
+# Source: NOAA/NWS
+FLOOD_STAGES = {
+    "05331000": {"action": 10.0, "flood": 14.0, "moderate": 17.0, "major": 20.0},  # St. Paul
+    "05344500": {"action": 12.0, "flood": 16.0, "moderate": 18.0, "major": 21.0},  # Prescott
+    "05378500": {"action": 9.0, "flood": 13.0, "moderate": 15.0, "major": 18.0},   # Winona
+    "05389500": {"action": 14.0, "flood": 18.0, "moderate": 21.0, "major": 24.0},  # McGregor
+    "05420500": {"action": 16.0, "flood": 20.0, "moderate": 22.0, "major": 25.0},  # Clinton
+    "05474500": {"action": 12.0, "flood": 16.0, "moderate": 18.0, "major": 21.0},  # Keokuk
+    "05587450": {"action": 21.0, "flood": 25.0, "moderate": 28.0, "major": 31.0},  # Grafton
+    "07010000": {"action": 28.0, "flood": 30.0, "moderate": 35.0, "major": 40.0},  # St. Louis
+}
+
 # River mile reference points for estimation
 RIVER_MILE_POINTS = [
     (44.9778, -93.2650, 847.6),   # L1 - Minneapolis

@@ -4008,6 +4008,135 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Demo vessel simulation for testing
+DEMO_VESSELS_ENABLED = True  # Set to False to disable demo vessels
+
+DEMO_VESSELS = {
+    "demo_tow_1": {
+        "mmsi": "DEMO001",
+        "name": "M/V DELTA QUEEN",
+        "ship_type": 70,  # Cargo
+        "is_tow": True,
+        "barge_count": 12,
+        "tow_config": "3x4",
+        "usace_source": True,
+        "start_rm": 847.0,  # Start near Lock 1
+        "direction": "downstream",
+        "speed_knots": 4.5,  # ~5 mph downstream
+        "estimated_lockage_time": 45,
+        "is_double_lockage": True,
+    },
+    "demo_tow_2": {
+        "mmsi": "DEMO002", 
+        "name": "M/V RIVER RUNNER",
+        "ship_type": 70,
+        "is_tow": True,
+        "barge_count": 6,
+        "tow_config": "2x3",
+        "usace_source": True,
+        "start_rm": 580.0,  # Start near Lock 11
+        "direction": "upstream",
+        "speed_knots": 3.0,  # ~3.5 mph upstream (slower against current)
+        "estimated_lockage_time": 30,
+        "is_double_lockage": False,
+    }
+}
+
+demo_vessel_positions = {}  # Track current positions
+
+async def simulate_demo_vessels():
+    """Background task to simulate demo vessel movement."""
+    global demo_vessel_positions
+    
+    if not DEMO_VESSELS_ENABLED:
+        return
+    
+    # Initialize positions
+    for vessel_id, config in DEMO_VESSELS.items():
+        demo_vessel_positions[vessel_id] = config["start_rm"]
+    
+    logger.info(f"Demo vessel simulation started with {len(DEMO_VESSELS)} vessels")
+    
+    while True:
+        try:
+            await asyncio.sleep(10)  # Update every 10 seconds
+            
+            for vessel_id, config in DEMO_VESSELS.items():
+                current_rm = demo_vessel_positions[vessel_id]
+                speed_mph = config["speed_knots"] * 1.15078
+                
+                # Calculate movement (river miles per 10 seconds)
+                # Speed is mph, so movement = speed * (10/3600) hours
+                movement = speed_mph * (10 / 3600)
+                
+                if config["direction"] == "downstream":
+                    new_rm = current_rm - movement
+                    course = 180  # South
+                    heading_dir = "southbound"
+                    # Wrap around if past Lock 27
+                    if new_rm < 185:
+                        new_rm = 847.0
+                else:
+                    new_rm = current_rm + movement
+                    course = 0  # North
+                    heading_dir = "northbound"
+                    # Wrap around if past Lock 1
+                    if new_rm > 847:
+                        new_rm = 185.0
+                
+                demo_vessel_positions[vessel_id] = new_rm
+                
+                # Calculate lat/lon from river mile
+                lat, lon = _river_mile_to_coords(new_rm)
+                
+                # Find nearest lock
+                nearest_lock = None
+                min_dist = float('inf')
+                for lock_id, lock_info in LOCKS.items():
+                    dist = abs(lock_info["river_mile"] - new_rm)
+                    if dist < min_dist:
+                        min_dist = dist
+                        nearest_lock = lock_id
+                
+                # Create vessel entry
+                vessel = {
+                    "mmsi": config["mmsi"],
+                    "name": config["name"],
+                    "lat": lat,
+                    "lon": lon,
+                    "speed": config["speed_knots"],
+                    "course": course,
+                    "heading": course,
+                    "heading_direction": heading_dir,
+                    "ship_type": config["ship_type"],
+                    "nav_status": 0,  # Under way using engine
+                    "river_mile": round(new_rm, 1),
+                    "is_tow": config["is_tow"],
+                    "barge_count": config["barge_count"],
+                    "tow_config": config["tow_config"],
+                    "usace_source": config["usace_source"],
+                    "usace_lock": nearest_lock,
+                    "usace_status": "in_transit",
+                    "estimated_lockage_time": config["estimated_lockage_time"],
+                    "is_double_lockage": config["is_double_lockage"],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "is_demo": True,  # Mark as demo vessel
+                }
+                
+                # Store in active_vessels
+                active_vessels[config["mmsi"]] = vessel
+                
+                # Persist to database
+                asyncio.create_task(persist_vessel_sighting(vessel))
+            
+        except asyncio.CancelledError:
+            logger.info("Demo vessel simulation stopped")
+            break
+        except Exception as e:
+            logger.error(f"Error in demo vessel simulation: {e}")
+            await asyncio.sleep(30)
+
+
 @app.on_event("startup")
 async def startup_event():
     """Load settings, blocked MMSIs, and vessel names from database on startup."""
@@ -4028,6 +4157,10 @@ async def startup_event():
     
     # Start background task to periodically refresh USACE data
     asyncio.create_task(usace_refresh_task())
+    
+    # Start demo vessel simulation
+    if DEMO_VESSELS_ENABLED:
+        asyncio.create_task(simulate_demo_vessels())
 
 
 async def usace_refresh_task():

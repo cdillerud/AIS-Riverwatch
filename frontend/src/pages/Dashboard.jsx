@@ -766,12 +766,20 @@ export default function Dashboard({
               )}
 
               {/* Status */}
-              <div className={`flex items-center gap-1 px-2.5 py-1 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'} rounded-r`}>
-                <span className={`font-heading text-[10px] font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                  {isDangerous ? 'DELAY' : 'CLEAR'}
-                </span>
-                {isDangerous && <AlertTriangle className="w-3 h-3 text-red-400 animate-pulse" />}
-              </div>
+              {isTrafficWatch ? (
+                <div className="flex items-center gap-1 px-2.5 py-1 bg-purple-500/10 rounded-r">
+                  <span className="font-heading text-[10px] font-bold uppercase tracking-wider text-purple-400">
+                    {sortedNearbyVessels.length} VESSELS
+                  </span>
+                </div>
+              ) : (
+                <div className={`flex items-center gap-1 px-2.5 py-1 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'} rounded-r`}>
+                  <span className={`font-heading text-[10px] font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                    {isDangerous ? 'DELAY' : 'CLEAR'}
+                  </span>
+                  {isDangerous && <AlertTriangle className="w-3 h-3 text-red-400 animate-pulse" />}
+                </div>
+              )}
             </div>
           </div>
         </div>

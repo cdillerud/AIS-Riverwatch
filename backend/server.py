@@ -964,6 +964,360 @@ async def get_traffic_summary(lock_id: str):
     }
 
 
+# =============================================================================
+# ADMIN ENDPOINTS
+# =============================================================================
+
+async def require_admin(request: Request) -> dict:
+    """Helper to require admin access."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not user.get("is_admin") and not user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+async def require_super_admin(request: Request) -> dict:
+    """Helper to require super admin access."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    return user
+
+@api_router.get("/admin/users")
+async def admin_get_users(request: Request, search: str = None, limit: int = 50, skip: int = 0):
+    """Get all users (admin only)."""
+    await require_admin(request)
+    
+    query = {}
+    if search:
+        query["$or"] = [
+            {"email": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": search, "$options": "i"}}
+        ]
+    
+    cursor = db.users.find(query, {"_id": 0, "password_hash": 0}).skip(skip).limit(limit).sort("created_at", -1)
+    users = await cursor.to_list(length=limit)
+    
+    total = await db.users.count_documents(query)
+    
+    return {"users": users, "total": total, "limit": limit, "skip": skip}
+
+@api_router.post("/admin/users")
+async def admin_create_user(request: Request):
+    """Create a new user (admin only)."""
+    admin = await require_admin(request)
+    body = await request.json()
+    
+    email = body.get("email")
+    name = body.get("name", "")
+    password = body.get("password")
+    is_admin = body.get("is_admin", False)
+    account_type = body.get("account_type", "vessel_owner")
+    
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
+    # Check if user exists
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+    
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    user_doc = {
+        "user_id": user_id,
+        "email": email,
+        "name": name,
+        "password_hash": hash_password(password) if password else None,
+        "picture": None,
+        "fleet_name": None,
+        "vessels": [],
+        "settings": {},
+        "account_type": account_type,
+        "is_admin": is_admin,
+        "is_super_admin": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "auth_provider": "admin_created"
+    }
+    
+    await db.users.insert_one(user_doc)
+    logger.info(f"[ADMIN] User created by {admin['email']}: {email}")
+    
+    user_doc.pop("password_hash", None)
+    user_doc.pop("_id", None)
+    return {"success": True, "user": user_doc}
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(request: Request, user_id: str):
+    """Delete a user (admin only)."""
+    admin = await require_admin(request)
+    
+    # Find the user first
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent deleting super admin
+    if user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Cannot delete super admin")
+    
+    # Prevent deleting yourself
+    if user_id == admin["user_id"]:
+        raise HTTPException(status_code=403, detail="Cannot delete your own account")
+    
+    # Delete user sessions
+    await db.user_sessions.delete_many({"user_id": user_id})
+    
+    # Delete user
+    await db.users.delete_one({"user_id": user_id})
+    
+    logger.info(f"[ADMIN] User deleted by {admin['email']}: {user['email']}")
+    return {"success": True, "deleted_user_id": user_id}
+
+@api_router.put("/admin/users/{user_id}")
+async def admin_update_user(request: Request, user_id: str):
+    """Update a user (admin only)."""
+    admin = await require_admin(request)
+    body = await request.json()
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Build update fields
+    update_fields = {}
+    
+    if "name" in body:
+        update_fields["name"] = body["name"]
+    if "email" in body:
+        update_fields["email"] = body["email"]
+    if "account_type" in body:
+        update_fields["account_type"] = body["account_type"]
+    if "password" in body and body["password"]:
+        update_fields["password_hash"] = hash_password(body["password"])
+    
+    # Only super admin can change admin status
+    if "is_admin" in body:
+        if admin.get("is_super_admin"):
+            # Can't demote super admin
+            if user.get("is_super_admin") and not body["is_admin"]:
+                raise HTTPException(status_code=403, detail="Cannot demote super admin")
+            update_fields["is_admin"] = body["is_admin"]
+        else:
+            raise HTTPException(status_code=403, detail="Only super admin can change admin status")
+    
+    if update_fields:
+        await db.users.update_one({"user_id": user_id}, {"$set": update_fields})
+        logger.info(f"[ADMIN] User updated by {admin['email']}: {user['email']}")
+    
+    updated_user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    return {"success": True, "user": updated_user}
+
+@api_router.post("/admin/users/{user_id}/promote")
+async def admin_promote_user(request: Request, user_id: str):
+    """Promote a user to admin (super admin only)."""
+    await require_super_admin(request)
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": True}})
+    logger.info(f"[ADMIN] User promoted to admin: {user['email']}")
+    
+    return {"success": True, "message": f"{user['email']} is now an admin"}
+
+@api_router.post("/admin/users/{user_id}/demote")
+async def admin_demote_user(request: Request, user_id: str):
+    """Demote a user from admin (super admin only)."""
+    admin = await require_super_admin(request)
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Cannot demote super admin")
+    
+    await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": False}})
+    logger.info(f"[ADMIN] User demoted from admin: {user['email']}")
+    
+    return {"success": True, "message": f"{user['email']} is no longer an admin"}
+
+@api_router.post("/admin/users/{user_id}/reset-password")
+async def admin_reset_password(request: Request, user_id: str):
+    """Reset a user's password (admin only)."""
+    admin = await require_admin(request)
+    body = await request.json()
+    
+    new_password = body.get("password")
+    if not new_password:
+        raise HTTPException(status_code=400, detail="New password is required")
+    
+    user = await db.users.find_one({"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"password_hash": hash_password(new_password)}}
+    )
+    
+    logger.info(f"[ADMIN] Password reset by {admin['email']} for: {user['email']}")
+    return {"success": True, "message": f"Password reset for {user['email']}"}
+
+@api_router.post("/admin/impersonate/{user_id}")
+async def admin_impersonate_user(request: Request, response: Response, user_id: str):
+    """Impersonate a user (admin only). Creates a session as that user."""
+    admin = await require_admin(request)
+    
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Create impersonation session
+    session_token = generate_session_token()
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=2),  # Shorter session for impersonation
+        "created_at": datetime.now(timezone.utc),
+        "impersonated_by": admin["user_id"],
+        "impersonated_by_email": admin["email"]
+    })
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=2*60*60  # 2 hours
+    )
+    
+    logger.info(f"[ADMIN] {admin['email']} started impersonating {user['email']}")
+    
+    user.pop("password_hash", None)
+    return {"success": True, "user": user, "message": f"Now viewing as {user['email']}"}
+
+@api_router.get("/admin/stats")
+async def admin_get_stats(request: Request):
+    """Get system statistics (admin only)."""
+    await require_admin(request)
+    
+    total_users = await db.users.count_documents({})
+    admin_users = await db.users.count_documents({"is_admin": True})
+    vessel_owners = await db.users.count_documents({"account_type": "vessel_owner"})
+    traffic_watchers = await db.users.count_documents({"account_type": "traffic_watch"})
+    
+    # Active sessions (not expired)
+    active_sessions = await db.user_sessions.count_documents({
+        "expires_at": {"$gt": datetime.now(timezone.utc)}
+    })
+    
+    # Recent signups (last 7 days)
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    recent_signups = await db.users.count_documents({
+        "created_at": {"$gte": week_ago}
+    })
+    
+    # Vessels being tracked
+    total_vessels = len(active_vessels)
+    
+    # Recent lockages
+    recent_lockages = await db.lockage_history.count_documents({})
+    
+    return {
+        "users": {
+            "total": total_users,
+            "admins": admin_users,
+            "vessel_owners": vessel_owners,
+            "traffic_watchers": traffic_watchers,
+            "recent_signups": recent_signups
+        },
+        "sessions": {
+            "active": active_sessions
+        },
+        "vessels": {
+            "currently_tracked": total_vessels,
+            "demo_active": demo_vessels_active
+        },
+        "lockages": {
+            "total_recorded": recent_lockages
+        }
+    }
+
+@api_router.get("/admin/vessels")
+async def admin_get_all_vessels(request: Request):
+    """Get all vessels currently being tracked (admin only)."""
+    await require_admin(request)
+    
+    vessels_list = []
+    for mmsi, vessel in active_vessels.items():
+        v_dict = prepare_vessel_for_output(vessel, mmsi)
+        vessels_list.append(v_dict)
+    
+    # Sort by river mile
+    vessels_list.sort(key=lambda x: x.get('river_mile') or 0, reverse=True)
+    
+    return {"vessels": vessels_list, "total": len(vessels_list)}
+
+@api_router.post("/admin/vessels")
+async def admin_add_vessel(request: Request):
+    """Manually add a vessel to the system (admin only)."""
+    admin = await require_admin(request)
+    body = await request.json()
+    
+    mmsi = body.get("mmsi")
+    name = body.get("name", f"Vessel {mmsi}")
+    river_mile = body.get("river_mile")
+    heading = body.get("heading", "stationary")
+    
+    if not mmsi:
+        raise HTTPException(status_code=400, detail="MMSI is required")
+    
+    # Create vessel in active_vessels
+    from types import SimpleNamespace
+    vessel = SimpleNamespace(
+        mmsi=mmsi,
+        name=name,
+        river_mile=river_mile,
+        lat=body.get("lat"),
+        lon=body.get("lon"),
+        speed=body.get("speed", 0),
+        course=body.get("course", 0),
+        heading=heading,
+        heading_direction=heading,
+        ship_type=body.get("ship_type", 0),
+        is_tow=body.get("is_tow", False),
+        barge_count=body.get("barge_count", 0),
+        last_update=datetime.now(timezone.utc),
+        source="admin_added"
+    )
+    
+    active_vessels[mmsi] = vessel
+    logger.info(f"[ADMIN] Vessel added by {admin['email']}: {mmsi} ({name})")
+    
+    return {"success": True, "vessel": prepare_vessel_for_output(vessel, mmsi)}
+
+@api_router.delete("/admin/vessels/{mmsi}")
+async def admin_delete_vessel(request: Request, mmsi: str):
+    """Remove a vessel from tracking (admin only)."""
+    admin = await require_admin(request)
+    
+    if mmsi not in active_vessels:
+        raise HTTPException(status_code=404, detail="Vessel not found")
+    
+    del active_vessels[mmsi]
+    logger.info(f"[ADMIN] Vessel removed by {admin['email']}: {mmsi}")
+    
+    return {"success": True, "message": f"Vessel {mmsi} removed from tracking"}
+
+
 # Demo vessel toggle state (in-memory, reset on server restart)
 demo_vessels_active = True
 

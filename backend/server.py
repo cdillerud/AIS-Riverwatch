@@ -4033,7 +4033,7 @@ DEMO_VESSELS = {
         "barge_count": 12,
         "tow_config": "3x4",
         "usace_source": True,
-        "start_rm": 847.0,  # Start near Lock 1
+        "start_rm": 830.0,  # Start north of Lock 2 (815.2), heading downstream
         "direction": "downstream",
         "speed_knots": 4.5,  # ~5 mph downstream
         "estimated_lockage_time": 45,
@@ -4047,7 +4047,7 @@ DEMO_VESSELS = {
         "barge_count": 6,
         "tow_config": "2x3",
         "usace_source": True,
-        "start_rm": 580.0,  # Start near Lock 11
+        "start_rm": 800.0,  # Start south of Lock 2 (815.2), heading upstream
         "direction": "upstream",
         "speed_knots": 3.0,  # ~3.5 mph upstream (slower against current)
         "estimated_lockage_time": 30,

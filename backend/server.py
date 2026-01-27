@@ -499,6 +499,58 @@ async def get_user_vessels(request: Request):
     return {"vessels": user.get("vessels", [])}
 
 
+@api_router.post("/user/vessels/restore")
+async def restore_user_vessels(request: Request):
+    """
+    Restore all user's vessels to active_vessels from their saved positions.
+    Called on login/app load to automatically position their vessels.
+    """
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    restored = []
+    for vessel_info in user.get("vessels", []):
+        mmsi = vessel_info.get("mmsi")
+        boat_name = vessel_info.get("boat_name", "Your Vessel")
+        last_pos = vessel_info.get("last_position")
+        
+        if mmsi and last_pos and last_pos.get("lat") and last_pos.get("lon"):
+            # Create vessel and add to active_vessels
+            lat = last_pos["lat"]
+            lon = last_pos["lon"]
+            speed = last_pos.get("speed", 0)
+            course = last_pos.get("course", 0)
+            rm = last_pos.get("river_mile") or estimate_river_mile(lat, lon)
+            heading = last_pos.get("heading_direction") or determine_heading(speed, course)
+            
+            vessel = VesselPosition(
+                mmsi=mmsi,
+                name=boat_name,
+                lat=lat,
+                lon=lon,
+                speed=speed,
+                course=course,
+                river_mile=rm,
+                heading=heading,
+                is_user_vessel=True,
+            )
+            
+            active_vessels[mmsi] = vessel
+            
+            restored.append({
+                "mmsi": mmsi,
+                "name": boat_name,
+                "river_mile": rm,
+                "lat": lat,
+                "lon": lon
+            })
+            
+            logger.info(f"[AUTH] Restored vessel {mmsi} ({boat_name}) at RM {rm:.1f}")
+    
+    return {"success": True, "restored": restored, "count": len(restored)}
+
+
 @api_router.post("/user/vessels")
 async def add_user_vessel(request: Request, vessel: VesselAdd):
     """Add a vessel to user's fleet."""

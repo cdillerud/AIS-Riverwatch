@@ -327,10 +327,13 @@ export default function Dashboard({
   }, [locks]);
 
   // Sort nearby vessels by descending RM distance from their next lock
-  // Also calculate RM distance from user's vessel
-  // Filter to only show vessels within 100 miles of user's vessel
+  // Also calculate RM distance from user's vessel or watch point
+  // Filter to only show vessels within 100 miles of user's vessel or watch point
   const sortedNearbyVessels = useMemo(() => {
-    const userRM = userVessel?.river_mile;
+    // For Traffic Watch users, use watch point as the center; for vessel owners, use their vessel
+    const centerRM = isTrafficWatch 
+      ? (watchPoint?.river_mile || selectedLockObj?.river_mile)
+      : userVessel?.river_mile;
     const MAX_DISTANCE_MI = 100;
     
     return vessels.map(vessel => {
@@ -340,9 +343,9 @@ export default function Dashboard({
         ? Math.abs(vessel.river_mile - nextLock.river_mile) 
         : 0;
       
-      // Calculate RM distance from user's vessel
-      const rmFromUser = userRM && vessel.river_mile 
-        ? Math.abs(vessel.river_mile - userRM) 
+      // Calculate RM distance from center point (user vessel or watch point)
+      const rmFromUser = centerRM && vessel.river_mile 
+        ? Math.abs(vessel.river_mile - centerRM) 
         : null;
       
       return {
@@ -353,10 +356,10 @@ export default function Dashboard({
       };
     })
     .filter(vessel => {
-      // Always show user's vessel
-      if (userMmsi && vessel.mmsi === userMmsi) return true;
-      // Filter out vessels more than 100 miles away from user
-      if (vessel.rmFromUser === null) return true; // Include if no user position
+      // For vessel owners, always show user's vessel
+      if (!isTrafficWatch && userMmsi && vessel.mmsi === userMmsi) return true;
+      // Filter out vessels more than 100 miles away from center
+      if (vessel.rmFromUser === null) return true; // Include if no center position
       return vessel.rmFromUser <= MAX_DISTANCE_MI;
     })
     .sort((a, b) => {
@@ -365,7 +368,7 @@ export default function Dashboard({
       const rmB = b.river_mile || 0;
       return rmB - rmA;
     });
-  }, [vessels, userVessel, userMmsi, findNearestLock]);
+  }, [vessels, userVessel, userMmsi, findNearestLock, isTrafficWatch, watchPoint, selectedLockObj]);
 
   // Handle vessel click from map (no longer used - map handles its own overlay)
   const handleVesselClick = (vessel) => {

@@ -1120,15 +1120,15 @@ export default function Dashboard({
                     <span className="text-sm font-medium text-white">Nearby Vessels</span>
                   </div>
                   <Badge variant="outline" className="border-cyan-500/50 text-cyan-400 text-[10px]">
-                    {vessels.length}
+                    {sortedNearbyVessels.length}
                   </Badge>
                 </div>
                 <ScrollArea className="h-[140px]">
                   <div className="p-2 space-y-1">
-                    {vessels.length === 0 ? (
+                    {sortedNearbyVessels.length === 0 ? (
                       <div className="text-center py-4 text-slate-500 text-sm">No vessels in range</div>
                     ) : (
-                      vessels.slice(0, 8).map(vessel => {
+                      sortedNearbyVessels.slice(0, 8).map(vessel => {
                         // ONLY match by MMSI, not is_user_vessel flag
                         const isUser = userMmsi && vessel.mmsi === userMmsi;
                         return (
@@ -1140,7 +1140,7 @@ export default function Dashboard({
                             onClick={() => handleVesselClickFromList(vessel)}
                           >
                             <div className="flex items-center justify-between">
-                              <span className={`text-xs font-medium truncate ${isUser ? 'text-cyan-400' : 'text-white'}`}>
+                              <span className={`text-xs font-medium truncate max-w-[140px] ${isUser ? 'text-cyan-400' : 'text-white'}`}>
                                 {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
                               </span>
                               <span className="text-[10px] text-slate-400 font-mono">
@@ -1157,9 +1157,18 @@ export default function Dashboard({
                                   {vessel.barge_count}B
                                 </Badge>
                               )}
-                              {vessel.next_lock && (
-                                <span className="text-cyan-400">
-                                  → {vessel.next_lock.eta_display}
+                            </div>
+                            {/* Second row: RM from user + RM to next lock */}
+                            <div className="flex items-center justify-between mt-1 text-[10px]">
+                              {vessel.rmFromUser !== null && !isUser && (
+                                <span className="text-purple-400">
+                                  {vessel.rmFromUser.toFixed(1)} mi from you
+                                </span>
+                              )}
+                              {isUser && <span className="text-cyan-400">Your vessel</span>}
+                              {vessel.nextLockInfo && (
+                                <span className="text-slate-500">
+                                  → L{vessel.nextLockInfo.id.replace('lock_', '')} in {vessel.rmToNextLock.toFixed(1)} mi
                                 </span>
                               )}
                             </div>
@@ -1167,9 +1176,9 @@ export default function Dashboard({
                         );
                       })
                     )}
-                    {vessels.length > 8 && (
+                    {sortedNearbyVessels.length > 8 && (
                       <div className="text-center py-2 text-xs text-slate-500">
-                        +{vessels.length - 8} more vessels
+                        +{sortedNearbyVessels.length - 8} more vessels
                       </div>
                     )}
                   </div>

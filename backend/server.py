@@ -691,6 +691,235 @@ async def update_user_settings(request: Request):
     return {"success": True}
 
 
+# =============================================================================
+# ACCOUNT TYPE & TRAFFIC WATCH MODE
+# =============================================================================
+
+class AccountTypeUpdate(BaseModel):
+    account_type: str  # "vessel_owner" or "traffic_watch"
+
+class WatchPointUpdate(BaseModel):
+    river_mile: float
+    name: Optional[str] = None
+
+class FavoriteLockUpdate(BaseModel):
+    lock_ids: List[str]
+
+class VesselWatchItem(BaseModel):
+    mmsi: str
+    name: Optional[str] = None
+    alert_enabled: bool = True
+    alert_rm: Optional[float] = None  # Alert when vessel passes this RM
+
+@api_router.post("/user/account-type")
+async def update_account_type(request: Request, data: AccountTypeUpdate):
+    """Set user account type (vessel_owner or traffic_watch)."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    if data.account_type not in ["vessel_owner", "traffic_watch"]:
+        raise HTTPException(status_code=400, detail="Invalid account type")
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"account_type": data.account_type}}
+    )
+    
+    logger.info(f"[USER] {user['email']} set account type to: {data.account_type}")
+    return {"success": True, "account_type": data.account_type}
+
+@api_router.get("/user/account-type")
+async def get_account_type(request: Request):
+    """Get user account type."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"account_type": user.get("account_type", "vessel_owner")}
+
+@api_router.post("/user/watch-point")
+async def set_watch_point(request: Request, data: WatchPointUpdate):
+    """Set the watch point (center RM) for Traffic Watch users."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    watch_point = {
+        "river_mile": data.river_mile,
+        "name": data.name or f"RM {data.river_mile}"
+    }
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"watch_point": watch_point}}
+    )
+    
+    return {"success": True, "watch_point": watch_point}
+
+@api_router.get("/user/watch-point")
+async def get_watch_point(request: Request):
+    """Get the user's watch point."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"watch_point": user.get("watch_point")}
+
+@api_router.post("/user/favorite-locks")
+async def set_favorite_locks(request: Request, data: FavoriteLockUpdate):
+    """Set user's favorite locks for quick switching."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Validate lock IDs
+    valid_locks = [lid for lid in data.lock_ids if lid in LOCKS]
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"favorite_locks": valid_locks}}
+    )
+    
+    return {"success": True, "favorite_locks": valid_locks}
+
+@api_router.get("/user/favorite-locks")
+async def get_favorite_locks(request: Request):
+    """Get user's favorite locks."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"favorite_locks": user.get("favorite_locks", [])}
+
+@api_router.post("/user/vessel-watch")
+async def add_vessel_to_watch(request: Request, data: VesselWatchItem):
+    """Add a vessel to the watch list for alerts."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    watch_list = user.get("vessel_watch_list", [])
+    
+    # Check if already watching
+    existing = next((v for v in watch_list if v["mmsi"] == data.mmsi), None)
+    if existing:
+        # Update existing
+        existing["name"] = data.name or existing.get("name")
+        existing["alert_enabled"] = data.alert_enabled
+        existing["alert_rm"] = data.alert_rm
+    else:
+        # Add new
+        watch_list.append({
+            "mmsi": data.mmsi,
+            "name": data.name,
+            "alert_enabled": data.alert_enabled,
+            "alert_rm": data.alert_rm,
+            "added_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"vessel_watch_list": watch_list}}
+    )
+    
+    return {"success": True, "vessel_watch_list": watch_list}
+
+@api_router.delete("/user/vessel-watch/{mmsi}")
+async def remove_vessel_from_watch(request: Request, mmsi: str):
+    """Remove a vessel from the watch list."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    watch_list = user.get("vessel_watch_list", [])
+    watch_list = [v for v in watch_list if v["mmsi"] != mmsi]
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"vessel_watch_list": watch_list}}
+    )
+    
+    return {"success": True, "vessel_watch_list": watch_list}
+
+@api_router.get("/user/vessel-watch")
+async def get_vessel_watch_list(request: Request):
+    """Get user's vessel watch list."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"vessel_watch_list": user.get("vessel_watch_list", [])}
+
+@api_router.get("/traffic-summary/{lock_id}")
+async def get_traffic_summary(lock_id: str):
+    """Get traffic summary for a lock - useful for Traffic Watch users."""
+    if lock_id not in LOCKS:
+        raise HTTPException(status_code=404, detail="Invalid lock ID")
+    
+    lock = LOCKS[lock_id]
+    lock_rm = lock["river_mile"]
+    
+    # Count vessels by direction within range
+    northbound_count = 0
+    southbound_count = 0
+    stationary_count = 0
+    vessels_near_lock = []
+    
+    for mmsi, vessel in active_vessels.items():
+        if hasattr(vessel, 'river_mile'):
+            vessel_rm = vessel.river_mile
+            heading = vessel.heading
+        else:
+            vessel_rm = vessel.get('river_mile')
+            heading = vessel.get('heading') or vessel.get('heading_direction')
+        
+        if vessel_rm is None:
+            continue
+            
+        distance = abs(vessel_rm - lock_rm)
+        
+        # Count by direction
+        if heading == 'northbound':
+            northbound_count += 1
+        elif heading == 'southbound':
+            southbound_count += 1
+        else:
+            stationary_count += 1
+        
+        # Track vessels near the lock (within 20 miles)
+        if distance <= 20:
+            v_dict = prepare_vessel_for_output(vessel, mmsi)
+            v_dict['distance_to_lock'] = round(distance, 1)
+            vessels_near_lock.append(v_dict)
+    
+    # Sort by distance to lock
+    vessels_near_lock.sort(key=lambda x: x.get('distance_to_lock', 999))
+    
+    # Get recent lockage data
+    recent_lockages = []
+    try:
+        cursor = db.lockage_history.find(
+            {"lock_id": lock_id},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(5)
+        recent_lockages = await cursor.to_list(length=5)
+    except Exception as e:
+        logger.error(f"Failed to fetch lockage history: {e}")
+    
+    return {
+        "lock_id": lock_id,
+        "lock_name": lock["name"],
+        "lock_rm": lock_rm,
+        "total_vessels": len(active_vessels),
+        "northbound": northbound_count,
+        "southbound": southbound_count,
+        "stationary": stationary_count,
+        "vessels_near_lock": vessels_near_lock[:10],  # Top 10 nearest
+        "recent_lockages": recent_lockages
+    }
+
+
 # Demo vessel toggle state (in-memory, reset on server restart)
 demo_vessels_active = True
 

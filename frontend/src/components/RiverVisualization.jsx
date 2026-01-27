@@ -26,7 +26,7 @@ const getShipTypeDescription = (code) => {
 
 // Expandable Vessel Info Panel Component
 const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVesselEdit, onVesselDetails }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true); // Start expanded to show all details immediately
   const isUser = userMmsi && vessel.mmsi === userMmsi;
   const isTow = vessel.is_tow || vessel.barge_count > 0;
   const speedMph = (vessel.speed * 1.15078).toFixed(1);

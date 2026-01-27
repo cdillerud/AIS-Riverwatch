@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
-import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gauge, Box, Timer, ExternalLink, ChevronRight, Radio, Compass, Ruler, Clock, History, Edit3 } from "lucide-react";
+import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gauge, Box, Timer, ExternalLink, ChevronRight, Radio, Compass, Ruler, Clock, History, Edit3, Hash } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";

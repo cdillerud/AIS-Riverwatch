@@ -1004,8 +1004,8 @@ export default function Dashboard({
                     </div>
                   )}
                   
-                  {/* Floating Position Editor - Shows when editing from map click */}
-                  {showPositionEditor && (
+                  {/* Floating Position Editor - Shows when editing from map click (Vessel Owner only) */}
+                  {!isTrafficWatch && showPositionEditor && (
                     <div className="absolute top-3 left-3 z-50 glass-panel border border-cyan-500/50 rounded-lg shadow-xl w-64" data-testid="map-position-editor">
                       <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
                         <h4 className="text-sm font-medium text-white flex items-center gap-2">

@@ -278,10 +278,19 @@ async def register_user(data: UserRegistration, response: Response):
     # Check if email already exists
     existing = await db.users.find_one({"email": data.email}, {"_id": 0})
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        # Return a friendly message instead of error
+        return {
+            "success": False, 
+            "user_exists": True,
+            "message": "An account with this email already exists. Would you like to reset your password?"
+        }
     
     # Create user
     user_id = f"user_{uuid.uuid4().hex[:12]}"
+    
+    # Check if this is the super admin
+    is_super = data.email.lower() == SUPER_ADMIN_EMAIL.lower()
+    
     user_doc = {
         "user_id": user_id,
         "email": data.email,
@@ -291,12 +300,15 @@ async def register_user(data: UserRegistration, response: Response):
         "fleet_name": None,
         "vessels": [],
         "settings": {},
+        "is_admin": is_super,
+        "is_super_admin": is_super,
+        "last_login": datetime.now(timezone.utc).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "auth_provider": "email"
     }
     
     await db.users.insert_one(user_doc)
-    logger.info(f"[AUTH] New user registered: {data.email} ({user_id})")
+    logger.info(f"[AUTH] New user registered: {data.email} ({user_id})" + (" [SUPER ADMIN]" if is_super else ""))
     
     # Create session
     session_token = generate_session_token()

@@ -5072,6 +5072,7 @@ raw_data_subscribers: set = set()
 
 # WebSocket for raw NMEA data streaming (debug/diagnostic tool)
 @app.websocket("/ws/raw")
+@app.websocket("/api/ws/raw")
 async def websocket_raw(websocket: WebSocket):
     """
     WebSocket endpoint for streaming raw NMEA data for debugging.

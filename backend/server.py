@@ -4992,7 +4992,10 @@ def is_mmsi_blocked(mmsi: str) -> bool:
     return mmsi in FILTERED_MMSI or mmsi in user_blocked_mmsi
 
 # WebSocket for real-time AIS data
+# Note: We register both paths - /ws/ais for local and /api/ws/ais for production
+# The /api prefix is needed because Kubernetes ingress routes /api/* to backend
 @app.websocket("/ws/ais")
+@app.websocket("/api/ws/ais")
 async def websocket_ais(websocket: WebSocket):
     """
     WebSocket endpoint for real-time AIS data streaming.

@@ -134,18 +134,21 @@ function MainApp() {
     // Traffic Watch users: Don't auto-load vessel owner config from localStorage
     // But DO allow connectionConfig to be set by SetupPage's onConnect
     if (user?.account_type === "traffic_watch") {
+      console.log("[TRAFFIC WATCH] User is in traffic watch mode");
       // Only clear vessel-specific data, let SetupPage handle the connection
       localStorage.removeItem('riverwatch_mmsi');
       setUserMmsi("");
       
       // Check for stored connection config
       const storedConfig = localStorage.getItem('riverwatch_connection');
+      console.log("[TRAFFIC WATCH] Stored config:", storedConfig);
       if (storedConfig) {
         try {
           const parsed = JSON.parse(storedConfig);
+          console.log("[TRAFFIC WATCH] Parsed config:", parsed);
           // If stored config is for traffic watch, restore it
           if (parsed.account_type === "traffic_watch") {
-            console.log("[APP] Traffic Watch mode - restoring saved config");
+            console.log("[APP] Traffic Watch mode - restoring saved config with IP:", parsed.ip_address, "port:", parsed.port);
             setConnectionConfig(parsed);
           } else {
             // Stale vessel owner config, clear it AND clear React state
@@ -154,6 +157,7 @@ function MainApp() {
             console.log("[APP] Traffic Watch mode - clearing stale vessel owner config");
           }
         } catch (e) {
+          console.error("[TRAFFIC WATCH] Error parsing config:", e);
           localStorage.removeItem('riverwatch_connection');
           setConnectionConfig(null);
         }

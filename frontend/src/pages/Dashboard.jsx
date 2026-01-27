@@ -264,8 +264,8 @@ export default function Dashboard({
   const [focusedVessel, setFocusedVessel] = useState(null);
 
   // Helper function to find the nearest lock to a given vessel based on its heading
-  // Defined early so it can be used by sortedNearbyVessels
-  const findNearestLock = (vessel) => {
+  // Wrapped with useCallback to be a stable dependency for sortedNearbyVessels
+  const findNearestLock = useCallback((vessel) => {
     if (!vessel?.river_mile || !locks.length) return null;
     
     const vesselRM = vessel.river_mile;
@@ -298,7 +298,7 @@ export default function Dashboard({
       }
     }
     return closest;
-  };
+  }, [locks]);
 
   // Sort nearby vessels by descending RM distance from their next lock
   // Also calculate RM distance from user's vessel
@@ -327,7 +327,7 @@ export default function Dashboard({
       // Sort descending by RM distance from their next lock
       return b.rmToNextLock - a.rmToNextLock;
     });
-  }, [vessels, userVessel, locks]);
+  }, [vessels, userVessel, findNearestLock]);
 
   // Handle vessel click from map (no longer used - map handles its own overlay)
   const handleVesselClick = (vessel) => {

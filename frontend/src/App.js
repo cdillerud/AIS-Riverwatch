@@ -104,7 +104,7 @@ function MainApp() {
   const autoRefreshRef = useRef(null);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
 
-  // Load primary vessel from user account
+  // Load primary vessel from user account and restore positions
   useEffect(() => {
     if (user?.vessels?.length > 0) {
       const primaryVessel = user.vessels.find(v => v.is_primary) || user.vessels[0];
@@ -118,9 +118,30 @@ function MainApp() {
           config.boat_name = primaryVessel.boat_name;
           setConnectionConfig(config);
         }
+        
+        // Restore vessel positions from user account
+        const restoreVessels = async () => {
+          try {
+            const response = await fetch(`${API}/user/vessels/restore`, {
+              method: 'POST',
+              credentials: 'include'
+            });
+            if (response.ok) {
+              const data = await response.json();
+              if (data.count > 0) {
+                console.log(`Restored ${data.count} vessel(s) from account:`, data.restored);
+                // Trigger a refresh to load the restored vessels
+                performSoftRefresh();
+              }
+            }
+          } catch (error) {
+            console.error("Failed to restore vessels:", error);
+          }
+        };
+        restoreVessels();
       }
     }
-  }, [user]);
+  }, [user, performSoftRefresh]);
 
   // Clear all session data when user logs out
   useEffect(() => {

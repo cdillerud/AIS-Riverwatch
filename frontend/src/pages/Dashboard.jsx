@@ -372,6 +372,20 @@ export default function Dashboard({
     });
   }, [vessels, userVessel, userMmsi, findNearestLock, isTrafficWatch, watchPoint, selectedLockObj]);
 
+  // Filter vessels by search query (for Traffic Watch mode)
+  const filteredNearbyVessels = useMemo(() => {
+    if (!vesselSearchQuery.trim()) {
+      return sortedNearbyVessels;
+    }
+    
+    const query = vesselSearchQuery.toLowerCase().trim();
+    return sortedNearbyVessels.filter(vessel => {
+      const mmsiMatch = vessel.mmsi?.toString().includes(query);
+      const nameMatch = vessel.name?.toLowerCase().includes(query);
+      return mmsiMatch || nameMatch;
+    });
+  }, [sortedNearbyVessels, vesselSearchQuery]);
+
   // Handle vessel click from map (no longer used - map handles its own overlay)
   const handleVesselClick = (vessel) => {
     // Map now handles its own info overlay, but we keep this for backwards compatibility

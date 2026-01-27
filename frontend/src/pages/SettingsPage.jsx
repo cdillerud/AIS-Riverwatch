@@ -1050,6 +1050,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Connection Settings */}
           <Card className="glass-panel border-white/10">

@@ -3710,6 +3710,17 @@ async def update_session_position(session_mmsi: str, data: dict):
     v_dict['source'] = source
     asyncio.create_task(persist_vessel_sighting(v_dict))
     
+    # Also persist position to user's account if they have this vessel
+    asyncio.create_task(persist_vessel_position_to_user(session_mmsi, {
+        "lat": lat,
+        "lon": lon,
+        "speed": speed,
+        "course": course,
+        "river_mile": rm,
+        "heading_direction": heading,
+        "last_position_update": datetime.now(timezone.utc).isoformat()
+    }))
+    
     return {"success": True, "session_mmsi": session_mmsi, "vessel": v_dict}
 
 

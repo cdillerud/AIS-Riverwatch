@@ -1387,67 +1387,91 @@ export default function Dashboard({
                     <span className="text-sm font-medium text-white">Nearby Vessels</span>
                   </div>
                   <Badge variant="outline" className="border-cyan-500/50 text-cyan-400 text-[10px]">
-                    {sortedNearbyVessels.length}
+                    {isTrafficWatch && vesselSearchQuery ? `${filteredNearbyVessels.length}/${sortedNearbyVessels.length}` : sortedNearbyVessels.length}
                   </Badge>
                 </div>
                 <ScrollArea className="flex-1">
                   <div className="p-2 space-y-1">
-                    {sortedNearbyVessels.length === 0 ? (
-                      <div className="text-center py-4 text-slate-500 text-sm">No vessels in range</div>
-                    ) : (
-                      sortedNearbyVessels.slice(0, 12).map(vessel => {
-                        // ONLY match by MMSI, not is_user_vessel flag
-                        const isUser = userMmsi && vessel.mmsi === userMmsi;
+                    {/* Use filtered list in Traffic Watch mode when search is active */}
+                    {(() => {
+                      const displayVessels = isTrafficWatch ? filteredNearbyVessels : sortedNearbyVessels;
+                      
+                      if (displayVessels.length === 0) {
                         return (
-                          <div 
-                            key={vessel.mmsi}
-                            className={`p-2 rounded cursor-pointer transition-colors ${
-                              isUser ? 'bg-cyan-500/10 border-l-2 border-cyan-500' : 'hover:bg-slate-800/50'
-                            }`}
-                            onClick={() => handleVesselClickFromList(vessel)}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className={`text-xs font-medium truncate max-w-[140px] ${isUser ? 'text-cyan-400' : 'text-white'}`}>
-                                {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                RM {vessel.river_mile?.toFixed(1)}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
-                              <span>{(vessel.speed * 1.15078).toFixed(1)} mph</span>
-                              <span className={vessel.direction === 'upriver' || vessel.heading === 'northbound' ? 'text-green-400' : vessel.direction === 'downriver' || vessel.heading === 'southbound' ? 'text-red-400' : ''}>
-                                {vessel.direction === 'upriver' || vessel.heading === 'northbound' ? '↑N' : vessel.direction === 'downriver' || vessel.heading === 'southbound' ? '↓S' : '—'}
-                              </span>
-                              {vessel.barge_count > 0 && (
-                                <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
-                                  {vessel.barge_count}B
-                                </Badge>
-                              )}
-                            </div>
-                            {/* Second row: RM from user/watch point + RM to next lock */}
-                            <div className="flex items-center justify-between mt-1 text-[10px]">
-                              {vessel.rmFromUser !== null && !isUser && (
-                                <span className="text-purple-400">
-                                  {vessel.rmFromUser.toFixed(1)} mi {isTrafficWatch ? 'away' : 'from you'}
-                                </span>
-                              )}
-                              {isUser && <span className="text-cyan-400">Your vessel</span>}
-                              {vessel.nextLockInfo && (
-                                <span className="text-slate-500">
-                                  → L{vessel.nextLockInfo.id.replace('lock_', '')} in {vessel.rmToNextLock.toFixed(1)} mi
-                                </span>
-                              )}
-                            </div>
+                          <div className="text-center py-4 text-slate-500 text-sm">
+                            {vesselSearchQuery ? 'No vessels match your search' : 'No vessels in range'}
                           </div>
                         );
-                      })
-                    )}
-                    {sortedNearbyVessels.length > 12 && (
-                      <div className="text-center py-2 text-xs text-slate-500">
-                        +{sortedNearbyVessels.length - 12} more vessels
-                      </div>
-                    )}
+                      }
+                      
+                      return (
+                        <>
+                          {displayVessels.slice(0, 12).map(vessel => {
+                            // ONLY match by MMSI, not is_user_vessel flag
+                            const isUser = userMmsi && vessel.mmsi === userMmsi;
+                            // Highlight search matches
+                            const isSearchMatch = vesselSearchQuery && (
+                              vessel.mmsi?.toString().includes(vesselSearchQuery.toLowerCase()) ||
+                              vessel.name?.toLowerCase().includes(vesselSearchQuery.toLowerCase())
+                            );
+                            return (
+                              <div 
+                                key={vessel.mmsi}
+                                className={`p-2 rounded cursor-pointer transition-colors ${
+                                  isUser ? 'bg-cyan-500/10 border-l-2 border-cyan-500' : 
+                                  isSearchMatch ? 'bg-purple-500/10 border-l-2 border-purple-500' :
+                                  'hover:bg-slate-800/50'
+                                }`}
+                                onClick={() => handleVesselClickFromList(vessel)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className={`text-xs font-medium truncate max-w-[140px] ${
+                                    isUser ? 'text-cyan-400' : 
+                                    isSearchMatch ? 'text-purple-400' : 
+                                    'text-white'
+                                  }`}>
+                                    {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    RM {vessel.river_mile?.toFixed(1)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
+                                  <span>{(vessel.speed * 1.15078).toFixed(1)} mph</span>
+                                  <span className={vessel.direction === 'upriver' || vessel.heading === 'northbound' ? 'text-green-400' : vessel.direction === 'downriver' || vessel.heading === 'southbound' ? 'text-red-400' : ''}>
+                                    {vessel.direction === 'upriver' || vessel.heading === 'northbound' ? '↑N' : vessel.direction === 'downriver' || vessel.heading === 'southbound' ? '↓S' : '—'}
+                                  </span>
+                                  {vessel.barge_count > 0 && (
+                                    <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
+                                      {vessel.barge_count}B
+                                    </Badge>
+                                  )}
+                                </div>
+                                {/* Second row: RM from user/watch point + RM to next lock */}
+                                <div className="flex items-center justify-between mt-1 text-[10px]">
+                                  {vessel.rmFromUser !== null && !isUser && (
+                                    <span className="text-purple-400">
+                                      {vessel.rmFromUser.toFixed(1)} mi {isTrafficWatch ? 'away' : 'from you'}
+                                    </span>
+                                  )}
+                                  {isUser && <span className="text-cyan-400">Your vessel</span>}
+                                  {vessel.nextLockInfo && (
+                                    <span className="text-slate-500">
+                                      → L{vessel.nextLockInfo.id.replace('lock_', '')} in {vessel.rmToNextLock.toFixed(1)} mi
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {displayVessels.length > 12 && (
+                            <div className="text-center py-2 text-xs text-slate-500">
+                              +{displayVessels.length - 12} more vessels
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </ScrollArea>
               </Card>

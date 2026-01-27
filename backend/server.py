@@ -3984,10 +3984,33 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         for comp in competitors:
             comp_eta = comp.get('eta_minutes')
             distance_from_user = comp.get('distance_from_user')
+            comp_rm = comp.get('river_mile')
             
             # Skip if this competitor is more than 100 miles from USER
             if distance_from_user is not None and distance_from_user > MAX_THREAT_DISTANCE:
                 continue
+            
+            # CRITICAL: Only consider vessels that are BETWEEN user and the lock (i.e., ahead of user)
+            # A vessel behind the user going the same direction is NOT a threat
+            if comp_rm is not None and user_rm is not None:
+                if user_heading == "southbound":
+                    # User heading south (decreasing RM). Lock is at lower RM.
+                    # Threat = vessel with RM LOWER than user (closer to lock) but HIGHER than lock
+                    if comp_rm >= user_rm:
+                        # Competitor is behind user (higher RM), not a threat
+                        continue
+                    if comp_rm <= lock_rm:
+                        # Competitor already past the lock, not a threat
+                        continue
+                elif user_heading == "northbound":
+                    # User heading north (increasing RM). Lock is at higher RM.
+                    # Threat = vessel with RM HIGHER than user (closer to lock) but LOWER than lock
+                    if comp_rm <= user_rm:
+                        # Competitor is behind user (lower RM), not a threat
+                        continue
+                    if comp_rm >= lock_rm:
+                        # Competitor already past the lock, not a threat
+                        continue
                 
             if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
                 # User needs to arrive buffer_minutes BEFORE the tow to get through first

@@ -9,10 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { 
   Settings, Ship, Gauge, Anchor, Save, ArrowLeft, 
   Wifi, Bell, MapPin, AlertTriangle, Plus, Trash2, Users,
-  Navigation, Crosshair, Loader2, Ban
+  Navigation, Crosshair, Loader2, Ban, Terminal
 } from "lucide-react";
 import { toast } from "sonner";
 import VesselManagement from "@/components/VesselManagement";
+import RawDataPanel from "@/components/RawDataPanel";
 import { useAuth } from "@/context/AuthContext";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;

@@ -48,12 +48,13 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
     - `R` - Refresh data
     - `Esc` - Close modal/editor
     - `?` - Show keyboard shortcuts help
-17. **Demo Vessels with Direction & ETA (NEW - Jan 27, 2026)** ✅
+17. **Demo Vessels with Direction & ETA (Jan 27, 2026)** ✅
     - Two simulated towboats for testing (M/V DELTA QUEEN, M/V RIVER RUNNER)
-    - Direction of travel displayed (upriver/downriver)
+    - **Direction of travel** displayed (upriver/downriver, ↑N/↓S)
     - **ETA to next lock** calculated based on direction and speed
     - ETA shown in vessel list (e.g., "→ 2h 50m") and detail modal
     - **Settings toggle** to enable/disable demo vessels
+    - **Race analysis working** - demo vessels appear as competitors
 18. **Session Isolation Fix (Jan 27, 2026)** ✅
     - Fixed session bleed when switching user accounts
     - localStorage properly cleared on logout

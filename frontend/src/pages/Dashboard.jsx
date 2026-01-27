@@ -988,11 +988,20 @@ export default function Dashboard({
                   </Badge>
                 </div>
                 <div className="p-3 space-y-3">
-                  {/* Target Lock Info */}
-                  <div className="pb-2 border-b border-slate-700">
+                  {/* Target Lock Info - Clickable to open details */}
+                  <div 
+                    className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
+                    onClick={() => setSelectedLockDetail(selectedLock)}
+                    title="Click to view lock details"
+                  >
                     <div className="text-[10px] text-slate-500 uppercase">Target Lock</div>
-                    <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
-                    <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
+                        <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-cyan-400" />
+                    </div>
                   </div>
                   
                   {/* Feature #1: Distance & Time Breakdown */}

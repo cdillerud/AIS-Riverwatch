@@ -104,7 +104,7 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
       if (response.ok) {
         toast.success(`Saved name "${editedName.trim()}"`);
         setIsEditingName(false);
-        vessel.name = editedName.trim();
+        // Note: vessel name will update on next data refresh
       }
     } catch (error) {
       toast.error("Failed to save name");

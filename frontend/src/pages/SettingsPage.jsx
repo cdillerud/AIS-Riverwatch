@@ -1173,6 +1173,24 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
 
+          {/* Raw AIS Data - Debug/Developer Section */}
+          <Card className="glass-panel border-white/10">
+            <CardHeader>
+              <CardTitle className="text-lg text-white flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-cyan-400" />
+                Raw AIS Data
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                View raw NMEA sentences and parsed AIS messages for debugging
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px] overflow-hidden rounded-lg border border-slate-700">
+                <RawDataPanel isConnected={true} compact={false} />
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Save Button */}
           <div className="flex gap-4">
             <Button

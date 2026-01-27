@@ -32,6 +32,8 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function SettingsPage({ onBack, initialSettings = {} }) {
+  const { user } = useAuth();
+  
   const [settings, setSettings] = useState({
     user_mmsi: "",
     boat_name: "",

@@ -263,7 +263,8 @@ export default function Dashboard({
   // Focused vessel - when set, map will center on this vessel
   const [focusedVessel, setFocusedVessel] = useState(null);
 
-  // Find the nearest lock to a given vessel based on its heading
+  // Helper function to find the nearest lock to a given vessel based on its heading
+  // Defined early so it can be used by sortedNearbyVessels
   const findNearestLock = (vessel) => {
     if (!vessel?.river_mile || !locks.length) return null;
     

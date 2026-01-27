@@ -1030,6 +1030,42 @@ export default function Dashboard({
                     </div>
                   )}
                   
+                  {/* Threat Info / Clear Status */}
+                  {raceAnalysis?.analysis?.threatening_vessel ? (
+                    <div className="space-y-2 pb-2 border-b border-slate-700">
+                      <div className="flex items-center gap-2 text-amber-400">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span className="text-sm font-semibold">Traffic Ahead</span>
+                      </div>
+                      <div className="bg-slate-800/50 rounded p-2 text-xs">
+                        <div className="font-medium text-white mb-1">
+                          {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)}
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-slate-400">
+                          <span>ETA: {raceAnalysis.analysis.threat_eta_minutes?.toFixed(0)}m</span>
+                          <span>RM: {raceAnalysis.analysis.threatening_vessel.river_mile?.toFixed(1)}</span>
+                        </div>
+                      </div>
+                      <div className="text-center py-2">
+                        <div className="text-[10px] text-slate-500 uppercase">Speed to Beat</div>
+                        <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                          {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
+                        </div>
+                        {isDangerous && (
+                          <div className="text-[10px] text-red-400 mt-1">Exceeds max speed (25 mph)</div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-3 pb-2 border-b border-slate-700">
+                      <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-1">
+                        <Check className="w-4 h-4 text-green-400" />
+                      </div>
+                      <div className="text-green-400 font-semibold text-sm">No Traffic</div>
+                      <div className="text-[10px] text-slate-400">Clear path to lock</div>
+                    </div>
+                  )}
+                  
                   {/* Feature #2: Lock Queue Preview */}
                   {lockQueue.length > 0 && (
                     <div className="pb-2 border-b border-slate-700">
@@ -1071,42 +1107,6 @@ export default function Dashboard({
                           </div>
                         )}
                       </div>
-                    </div>
-                  )}
-                  
-                  {/* Threat Info / Clear Status */}
-                  {raceAnalysis?.analysis?.threatening_vessel ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-amber-400">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span className="text-sm font-semibold">Traffic Ahead</span>
-                      </div>
-                      <div className="bg-slate-800/50 rounded p-2 text-xs">
-                        <div className="font-medium text-white mb-1">
-                          {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)}
-                        </div>
-                        <div className="grid grid-cols-2 gap-1 text-slate-400">
-                          <span>ETA: {raceAnalysis.analysis.threat_eta_minutes?.toFixed(0)}m</span>
-                          <span>RM: {raceAnalysis.analysis.threatening_vessel.river_mile?.toFixed(1)}</span>
-                        </div>
-                      </div>
-                      <div className="text-center py-2">
-                        <div className="text-[10px] text-slate-500 uppercase">Speed to Beat</div>
-                        <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                          {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
-                        </div>
-                        {isDangerous && (
-                          <div className="text-[10px] text-red-400 mt-1">Exceeds max speed (25 mph)</div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-3">
-                      <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-1">
-                        <Check className="w-4 h-4 text-green-400" />
-                      </div>
-                      <div className="text-green-400 font-semibold text-sm">No Traffic</div>
-                      <div className="text-[10px] text-slate-400">Clear path to lock</div>
                     </div>
                   )}
                   

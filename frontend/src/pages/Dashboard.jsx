@@ -694,60 +694,76 @@ export default function Dashboard({
         <div className="container mx-auto px-4 py-1.5">
           <div className="flex items-center">
             <div className="flex items-center bg-slate-950/80 border border-white/10 rounded text-xs">
-              {/* MMSI & Vessel Name */}
-              {userMmsi && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  <span className="font-mono text-slate-400">{userMmsi}</span>
-                  {userVessel?.name && (
-                    <>
-                      <span className="text-slate-600">|</span>
-                      <span className="text-cyan-400 font-medium">{userVessel.name}</span>
-                    </>
+              {/* Traffic Watch mode indicator */}
+              {isTrafficWatch ? (
+                <>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                    <Eye className="w-3 h-3 text-purple-400" />
+                    <span className="text-purple-400 font-medium">Traffic Watch</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                    <span className="text-slate-500 font-heading uppercase text-[10px]">Watching</span>
+                    <span className="font-mono text-white font-semibold">RM {watchPoint?.river_mile?.toFixed(1) || selectedLockObj?.river_mile}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* MMSI & Vessel Name - Vessel Owner only */}
+                  {userMmsi && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                      <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="font-mono text-slate-400">{userMmsi}</span>
+                      {userVessel?.name && (
+                        <>
+                          <span className="text-slate-600">|</span>
+                          <span className="text-cyan-400 font-medium">{userVessel.name}</span>
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
+
+                  {/* Position with Edit Button - Vessel Owner only */}
+                  <button 
+                    onClick={openPositionEditor}
+                    className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10 hover:bg-white/5 transition-colors cursor-pointer group"
+                    data-testid="hud-position-edit-btn"
+                    title="Edit position (P)"
+                  >
+                    {userVessel?.river_mile ? (
+                      <>
+                        <span className="text-slate-500 font-heading uppercase text-[10px]">RM</span>
+                        <span className="font-mono text-white font-semibold">{userVessel.river_mile?.toFixed(1)}</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-500 text-[10px]">Set Position</span>
+                    )}
+                    <Edit3 className="w-3 h-3 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+                  </button>
+                  
+                  {/* Speed - Vessel Owner only */}
+                  {userVessel && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                      <span className="font-mono text-white font-semibold">{(userVessel.speed * 1.15078).toFixed(0)}</span>
+                      <span className="text-slate-500 text-[10px]">mph</span>
+                    </div>
+                  )}
+
+                  {/* Required Speed - Vessel Owner only */}
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                    <span className="text-slate-500 font-heading uppercase text-[10px]">Need</span>
+                    <span className={`font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                      {requiredSpeed?.toFixed(0) || '--'}
+                    </span>
+                    <span className="text-slate-500 text-[10px]">mph</span>
+                  </div>
+
+                  {/* ETA - Vessel Owner only */}
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                    <span className="text-slate-500 font-heading uppercase text-[10px]">ETA</span>
+                    <span className="font-mono text-amber-400 font-semibold">{userEta ? `${Math.round(userEta)}m` : '--'}</span>
+                  </div>
+                </>
               )}
-
-              {/* Position with Edit Button */}
-              <button 
-                onClick={openPositionEditor}
-                className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10 hover:bg-white/5 transition-colors cursor-pointer group"
-                data-testid="hud-position-edit-btn"
-                title="Edit position (P)"
-              >
-                {userVessel?.river_mile ? (
-                  <>
-                    <span className="text-slate-500 font-heading uppercase text-[10px]">RM</span>
-                    <span className="font-mono text-white font-semibold">{userVessel.river_mile?.toFixed(1)}</span>
-                  </>
-                ) : (
-                  <span className="text-slate-500 text-[10px]">Set Position</span>
-                )}
-                <Edit3 className="w-3 h-3 text-slate-500 group-hover:text-cyan-400 transition-colors" />
-              </button>
-              
-              {/* Speed */}
-              {userVessel && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
-                  <span className="font-mono text-white font-semibold">{(userVessel.speed * 1.15078).toFixed(0)}</span>
-                  <span className="text-slate-500 text-[10px]">mph</span>
-                </div>
-              )}
-
-              {/* Required Speed */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
-                <span className="text-slate-500 font-heading uppercase text-[10px]">Need</span>
-                <span className={`font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                  {requiredSpeed?.toFixed(0) || '--'}
-                </span>
-                <span className="text-slate-500 text-[10px]">mph</span>
-              </div>
-
-              {/* ETA */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
-                <span className="text-slate-500 font-heading uppercase text-[10px]">ETA</span>
-                <span className="font-mono text-amber-400 font-semibold">{userEta ? `${Math.round(userEta)}m` : '--'}</span>
-              </div>
 
               {/* Status */}
               <div className={`flex items-center gap-1 px-2.5 py-1 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'} rounded-r`}>

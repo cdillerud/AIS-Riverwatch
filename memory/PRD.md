@@ -168,24 +168,27 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 
 ## Technical Debt
 
-### Backend Refactoring (IN PROGRESS)
+### Backend Refactoring (PHASE 1 COMPLETE)
 **Status**: Services extracted, route modules created
 
 Completed:
-- [x] `services/usace_service.py` - USACE lock queue/status data
-- [x] `services/usgs_service.py` - USGS water conditions  
-- [x] `routes/admin.py` - Admin endpoints module
+- [x] `services/usace_service.py` - USACE lock queue/status data (~230 lines)
+- [x] `services/usgs_service.py` - USGS water conditions (~180 lines)
+- [x] `services/ais_parser.py` - NMEA/AIS parsing (~350 lines) ✓ NEW
+- [x] `routes/admin.py` - Admin endpoints module (~280 lines)
 - [x] `routes/locks.py` - Lock info endpoints module
-- [x] `routes/traffic.py` - Traffic watch endpoints module
+- [x] `routes/traffic.py` - Traffic watch endpoints module  
 - [x] `routes/water.py` - Water conditions endpoints module
 - [x] Updated server.py imports to use new services
 - [x] Updated README.md with new architecture
 
-Remaining:
-- [ ] Extract AIS service (TCP connection, parsing) from server.py
-- [ ] Extract WebSocket handlers into `websocket/` directory
-- [ ] Migrate inline routes to use route modules
-- [ ] Remove duplicate code from server.py
+Remaining (Phase 2 - Higher Risk):
+- [ ] Migrate inline routes to use route modules (remove duplicates from server.py)
+- [ ] Extract AISConnectionManager class (~500 lines)
+- [ ] Extract WebSocket handlers to `websocket/` directory (~200 lines)
+- [ ] Remove duplicate parsing functions from server.py
+
+**Note**: Phase 2 requires careful testing as it removes code rather than adding modules.
 
 ### Frontend Refactoring (NOT STARTED)
 - [ ] Extract state management from Dashboard.jsx into custom hooks

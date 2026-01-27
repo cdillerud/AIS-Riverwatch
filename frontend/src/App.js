@@ -703,6 +703,8 @@ function MainApp() {
     if (config.account_type === "traffic_watch") {
       // For traffic watch users, we don't need MMSI storage
       localStorage.removeItem('riverwatch_mmsi');
+      // Store the traffic watch config to localStorage for session persistence
+      localStorage.setItem('riverwatch_connection', JSON.stringify(config));
       
       // Store watch point if provided
       if (config.watch_point) {
@@ -712,6 +714,8 @@ function MainApp() {
       // Store MMSI in localStorage for session persistence (vessel owners)
       if (config.user_mmsi) {
         localStorage.setItem('riverwatch_mmsi', config.user_mmsi);
+        // Also store the full connection config
+        localStorage.setItem('riverwatch_connection', JSON.stringify(config));
         
         // Save user-specific settings
         try {

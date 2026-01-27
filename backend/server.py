@@ -66,6 +66,14 @@ from services.usgs_service import (
     get_water_conditions_for_lock as _get_water_conditions_for_lock,
     format_water_conditions_for_display as _format_water_conditions
 )
+from services.ais_parser import (
+    parse_nmea_gps as _parse_nmea_gps,
+    parse_nmea_ais as _parse_nmea_ais,
+    NAV_STATUS as _NAV_STATUS,
+    vessel_static_cache as _vessel_static_cache,
+    get_cached_vessel_name,
+    set_cached_vessel_info
+)
 
 
 ROOT_DIR = Path(__file__).parent

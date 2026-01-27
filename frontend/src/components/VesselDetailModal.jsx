@@ -493,7 +493,7 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
                 <span className="text-slate-500">Direction</span>
                 <div className="flex items-center gap-2 text-white capitalize">
                   {getDirectionIcon(vessel.heading)}
-                  {vessel.heading || 'Stationary'}
+                  {vessel.direction || vessel.heading_direction || vessel.heading || 'Stationary'}
                 </div>
               </div>
               {vessel.turn_rate !== null && vessel.turn_rate !== undefined && (
@@ -519,6 +519,39 @@ export default function VesselDetailModal({ vessel, isOpen, onClose, selectedLoc
               )}
             </div>
           </div>
+
+          {/* Next Lock ETA Section - Only show if we have the data */}
+          {vessel.next_lock && (
+            <div className="glass-panel p-4 rounded-lg border border-cyan-500/30 bg-cyan-900/10">
+              <h3 className="text-sm font-semibold text-cyan-400 mb-3 flex items-center gap-2">
+                <Lock className="w-4 h-4" />
+                Next Lock ETA
+              </h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="col-span-2">
+                  <span className="text-slate-500">Destination Lock</span>
+                  <div className="text-white font-medium">{vessel.next_lock.next_lock_name}</div>
+                </div>
+                <div>
+                  <span className="text-slate-500">Distance</span>
+                  <div className="font-mono text-white">
+                    <span className="text-lg">{vessel.next_lock.distance_miles}</span>
+                    <span className="text-slate-400 ml-1">miles</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500">ETA</span>
+                  <div className="font-mono text-cyan-400 text-lg">
+                    {vessel.next_lock.eta_display}
+                  </div>
+                </div>
+                <div className="col-span-2 text-xs text-slate-500">
+                  Based on current speed of {(vessel.speed * 1.15078).toFixed(1)} mph
+                  {vessel.direction && ` heading ${vessel.direction}`}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Voyage Section */}
           {(vessel.destination || vessel.eta) && (

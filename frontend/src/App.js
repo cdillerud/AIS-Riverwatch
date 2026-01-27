@@ -133,18 +133,31 @@ function MainApp() {
       const primaryVessel = user.vessels.find(v => v.is_primary) || user.vessels[0];
       if (primaryVessel) {
         setUserMmsi(primaryVessel.mmsi);
-        // Auto-configure connection if we have a vessel
+        // Store this user's MMSI in localStorage (for this session only)
+        localStorage.setItem('riverwatch_mmsi', primaryVessel.mmsi);
+        
+        // Check if we have a stored connection config
         const storedConfig = localStorage.getItem('riverwatch_connection');
         if (storedConfig) {
-          const config = JSON.parse(storedConfig);
-          config.user_mmsi = primaryVessel.mmsi;
-          config.boat_name = primaryVessel.boat_name;
-          setConnectionConfig(config);
+          try {
+            const config = JSON.parse(storedConfig);
+            // IMPORTANT: Override the MMSI with the current user's MMSI
+            // This prevents using another user's MMSI from stale localStorage
+            config.user_mmsi = primaryVessel.mmsi;
+            config.boat_name = primaryVessel.boat_name;
+            setConnectionConfig(config);
+          } catch (e) {
+            console.error("Failed to parse stored connection config:", e);
+          }
         }
         
         // Restore vessel positions from user account
         restoreVessels();
       }
+    } else if (user && (!user.vessels || user.vessels.length === 0)) {
+      // User is logged in but has no vessels - clear any stale MMSI from localStorage
+      localStorage.removeItem('riverwatch_mmsi');
+      setUserMmsi("");
     }
   }, [user]);
 

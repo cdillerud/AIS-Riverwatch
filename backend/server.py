@@ -10,14 +10,15 @@
 #   - /backend/services/                    - Business logic
 #       - auth_service.py                   - Password hashing, session gen ✓
 #       - navigation_service.py             - River mile, ETA, speed calc ✓
-#       - usace_service.py                  - USACE lock queue/status ✓ (NEW)
-#       - usgs_service.py                   - Water conditions ✓ (NEW)
+#       - usace_service.py                  - USACE lock queue/status ✓
+#       - usgs_service.py                   - Water conditions ✓
+#       - ais_parser.py                     - NMEA/AIS parsing ✓ (NEW)
 #   - /backend/routes/                      - API route handlers
-#       - admin.py                          - Admin endpoints ✓ (NEW)
-#       - locks.py                          - Lock info endpoints ✓ (NEW)
-#       - traffic.py                        - Traffic watch endpoints ✓ (NEW)
-#       - water.py                          - Water conditions endpoints ✓ (NEW)
-#   - /backend/websocket/                   - WebSocket handlers (future)
+#       - admin.py                          - Admin endpoints ✓
+#       - locks.py                          - Lock info endpoints ✓
+#       - traffic.py                        - Traffic watch endpoints ✓
+#       - water.py                          - Water conditions endpoints ✓
+#   - /backend/websocket/                   - WebSocket handlers (TODO)
 #
 # NEW: Service modules imported and available as _function_name
 # For new features, use the modular structure. See /backend/README.md

@@ -4286,7 +4286,7 @@ demo_vessel_positions = {}  # Track current positions
 
 async def simulate_demo_vessels():
     """Background task to simulate demo vessel movement."""
-    global demo_vessel_positions
+    global demo_vessel_positions, demo_vessels_active
     
     if not DEMO_VESSELS_ENABLED:
         return
@@ -4301,6 +4301,15 @@ async def simulate_demo_vessels():
         try:
             await asyncio.sleep(10)  # Update every 10 seconds
             
+            # Skip if demo vessels are disabled
+            if not demo_vessels_active:
+                # Remove demo vessels if present
+                for vessel_id, config in DEMO_VESSELS.items():
+                    mmsi = config["mmsi"]
+                    if mmsi in active_vessels:
+                        del active_vessels[mmsi]
+                continue
+            
             for vessel_id, config in DEMO_VESSELS.items():
                 current_rm = demo_vessel_positions[vessel_id]
                 speed_mph = config["speed_knots"] * 1.15078
@@ -4313,6 +4322,7 @@ async def simulate_demo_vessels():
                     new_rm = current_rm - movement
                     course = 180  # South
                     heading_dir = "southbound"
+                    direction_display = "downriver"
                     # Wrap around if past Lock 27
                     if new_rm < 185:
                         new_rm = 847.0
@@ -4320,6 +4330,7 @@ async def simulate_demo_vessels():
                     new_rm = current_rm + movement
                     course = 0  # North
                     heading_dir = "northbound"
+                    direction_display = "upriver"
                     # Wrap around if past Lock 1
                     if new_rm > 847:
                         new_rm = 185.0

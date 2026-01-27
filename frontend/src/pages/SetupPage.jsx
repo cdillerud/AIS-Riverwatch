@@ -30,11 +30,52 @@ export default function SetupPage({ onConnect }) {
     toast.info("Logged out successfully");
   };
 
-  // Check for existing session on mount
+  // Check for existing session on mount - prioritize user account data
   useEffect(() => {
     const checkExistingSession = async () => {
       try {
-        // Check localStorage for existing MMSI session
+        // PRIORITY 1: Check if user has vessels in their account (from database)
+        if (user?.vessels?.length > 0) {
+          const primaryVessel = user.vessels.find(v => v.is_primary) || user.vessels[0];
+          if (primaryVessel) {
+            console.log("[SETUP] Found vessel in user account:", primaryVessel);
+            
+            setExistingSession({
+              mmsi: primaryVessel.mmsi,
+              boatName: primaryVessel.boat_name || '',
+              fromAccount: true
+            });
+            
+            setUserMmsi(primaryVessel.mmsi);
+            setBoatName(primaryVessel.boat_name || '');
+            
+            // Store in localStorage for this session
+            localStorage.setItem('riverwatch_mmsi', primaryVessel.mmsi);
+            
+            // Try to load additional settings for this MMSI
+            try {
+              const response = await fetch(`${API}/user/${primaryVessel.mmsi}/settings`);
+              if (response.ok) {
+                const data = await response.json();
+                const settings = data.settings || {};
+                if (settings.connection_config) {
+                  const config = typeof settings.connection_config === 'string' 
+                    ? JSON.parse(settings.connection_config) 
+                    : settings.connection_config;
+                  setIpAddress(config.ip_address || DEFAULT_IP);
+                  setPort(config.port?.toString() || DEFAULT_PORT);
+                }
+              }
+            } catch (e) {
+              console.log("[SETUP] No additional settings found for MMSI");
+            }
+            
+            setLoading(false);
+            return;
+          }
+        }
+        
+        // PRIORITY 2: Check localStorage for existing MMSI session (fallback)
         const storedMmsi = localStorage.getItem('riverwatch_mmsi');
         
         if (storedMmsi) {
@@ -71,7 +112,7 @@ export default function SetupPage({ onConnect }) {
     };
     
     checkExistingSession();
-  }, []);
+  }, [user]);
 
   const handleConnect = async () => {
     if (!userMmsi) {

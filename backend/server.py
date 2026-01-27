@@ -35,7 +35,7 @@ import hashlib
 import secrets
 
 # Import from new modular structure (for reusable logic)
-from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES
+from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, UPPER_MISS_LOCKS
 from services.navigation_service import (
     estimate_river_mile as _estimate_river_mile,
     river_mile_to_coords as _river_mile_to_coords,
@@ -43,6 +43,21 @@ from services.navigation_service import (
     calculate_eta_to_lock as _calculate_eta_to_lock,
     calculate_required_speed as _calculate_required_speed
 )
+
+# Import new service modules (refactored code)
+from services.usace_service import (
+    fetch_usace_lock_queue_data as _fetch_usace_lock_queue_data,
+    get_usace_vessel_info as _get_usace_vessel_info,
+    fetch_usace_lock_status as _fetch_usace_lock_status,
+    estimate_tow_info as _estimate_tow_info,
+    usace_lock_queue_data,
+    usace_lock_queue_by_name
+)
+from services.usgs_service import (
+    get_water_conditions_for_lock as _get_water_conditions_for_lock,
+    format_water_conditions_for_display as _format_water_conditions
+)
+
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')

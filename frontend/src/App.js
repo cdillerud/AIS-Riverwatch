@@ -664,24 +664,37 @@ function MainApp() {
 
   const handleConnect = async (config) => {
     setConnectionConfig(config);
-    setUserMmsi(config.user_mmsi);
+    setUserMmsi(config.user_mmsi || "");
     
-    // Store MMSI in localStorage for session persistence
-    localStorage.setItem('riverwatch_mmsi', config.user_mmsi);
-    
-    // Save user-specific settings
-    try {
-      await fetch(`${API}/user/${config.user_mmsi}/settings`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          connection_config: config,
-          boat_name: config.boat_name || userSettings.boat_name || ""
-        })
-      });
-      console.log(`Saved settings for MMSI: ${config.user_mmsi}`);
-    } catch (error) {
-      console.error("Failed to save user settings:", error);
+    // Handle traffic watch mode
+    if (config.account_type === "traffic_watch") {
+      // For traffic watch users, we don't need MMSI storage
+      localStorage.removeItem('riverwatch_mmsi');
+      
+      // Store watch point if provided
+      if (config.watch_point) {
+        console.log(`[TRAFFIC WATCH] Connecting with watch point: RM ${config.watch_point.river_mile}`);
+      }
+    } else {
+      // Store MMSI in localStorage for session persistence (vessel owners)
+      if (config.user_mmsi) {
+        localStorage.setItem('riverwatch_mmsi', config.user_mmsi);
+        
+        // Save user-specific settings
+        try {
+          await fetch(`${API}/user/${config.user_mmsi}/settings`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              connection_config: config,
+              boat_name: config.boat_name || userSettings.boat_name || ""
+            })
+          });
+          console.log(`Saved settings for MMSI: ${config.user_mmsi}`);
+        } catch (error) {
+          console.error("Failed to save user settings:", error);
+        }
+      }
     }
     
     connectWebSocket(config);

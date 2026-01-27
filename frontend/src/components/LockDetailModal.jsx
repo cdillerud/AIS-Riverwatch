@@ -261,7 +261,7 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                           <div className="flex gap-2 overflow-x-auto pb-1">
                             {waterConditions.forecast.slice(0, 6).map((f, i) => (
                               <div key={i} className="flex-shrink-0 text-center p-1.5 bg-slate-800/30 rounded min-w-[60px]">
-                                <p className="text-sm font-mono text-white">{f.stage_ft?.toFixed(1)}'</p>
+                                <p className="text-sm font-mono text-white">{f.stage_ft?.toFixed(1)} ft</p>
                                 <p className="text-[9px] text-slate-500">{new Date(f.time).toLocaleDateString('en-US', { weekday: 'short' })}</p>
                               </div>
                             ))}
@@ -274,10 +274,10 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                         <div className="mt-3 pt-3 border-t border-slate-700">
                           <p className="text-xs text-slate-400 mb-2">Flood Stage Thresholds</p>
                           <div className="flex gap-2 text-[10px]">
-                            <span className="text-amber-400">Action: {waterConditions.flood_stages.action}'</span>
-                            <span className="text-orange-400">Flood: {waterConditions.flood_stages.flood}'</span>
-                            <span className="text-red-400">Moderate: {waterConditions.flood_stages.moderate}'</span>
-                            <span className="text-purple-400">Major: {waterConditions.flood_stages.major}'</span>
+                            <span className="text-amber-400">Action: {waterConditions.flood_stages.action} ft</span>
+                            <span className="text-orange-400">Flood: {waterConditions.flood_stages.flood} ft</span>
+                            <span className="text-red-400">Moderate: {waterConditions.flood_stages.moderate} ft</span>
+                            <span className="text-purple-400">Major: {waterConditions.flood_stages.major} ft</span>
                           </div>
                         </div>
                       )}

@@ -106,6 +106,49 @@ async def persist_vessel_sighting(vessel_data: dict):
         await db.vessel_history.insert_one(historical_record)
         logger.debug(f"Persisted USACE sighting for {mmsi}: {vessel_data.get('barge_count')} barges at {vessel_data.get('usace_lock')}")
 
+
+async def persist_vessel_position_to_user(mmsi: str, position_data: dict):
+    """
+    Persist vessel position to the user's account.
+    This allows the vessel position to be restored on login.
+    """
+    if not mmsi:
+        return
+    
+    # Find user who owns this vessel
+    user = await db.users.find_one({"vessels.mmsi": mmsi}, {"_id": 0, "user_id": 1})
+    if not user:
+        return
+    
+    # Update the vessel's last known position in the user's account
+    await db.users.update_one(
+        {"user_id": user["user_id"], "vessels.mmsi": mmsi},
+        {"$set": {
+            "vessels.$.last_position": position_data
+        }}
+    )
+    logger.debug(f"Persisted position to user account for MMSI {mmsi}: RM {position_data.get('river_mile')}")
+
+
+async def restore_user_vessel_position(user_id: str, mmsi: str) -> dict:
+    """
+    Restore a user's vessel position from their account.
+    Called on login to automatically position their vessel.
+    """
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        return None
+    
+    # Find the vessel in user's fleet
+    for vessel in user.get("vessels", []):
+        if vessel.get("mmsi") == mmsi:
+            last_pos = vessel.get("last_position")
+            if last_pos and last_pos.get("lat") and last_pos.get("lon"):
+                return last_pos
+    
+    return None
+
+
 # Create the main app
 app = FastAPI()
 

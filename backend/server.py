@@ -1423,6 +1423,10 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
     else:
         v_dict['is_user_vessel'] = False
     
+    # Skip USACE enrichment for demo vessels (they already have the data)
+    if v_dict.get('is_demo'):
+        return v_dict
+    
     # Check USACE for authoritative barge data
     usace_info = get_usace_vessel_info(mmsi=vessel_mmsi, vessel_name=vessel_name)
     

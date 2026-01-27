@@ -615,7 +615,53 @@ export default function Dashboard({
                     <div className="px-2 py-1.5 border-b border-slate-700 mb-2">
                       <p className="text-xs text-slate-500 uppercase tracking-wider font-heading">Signed in as</p>
                       <p className="text-sm text-white truncate">{user?.email}</p>
+                      <div className="flex items-center gap-1 mt-1">
+                        {isTrafficWatch ? (
+                          <Badge className="text-[10px] bg-purple-500/20 text-purple-400 border-purple-500/50">
+                            <Eye className="w-3 h-3 mr-1" />
+                            Traffic Watch
+                          </Badge>
+                        ) : (
+                          <Badge className="text-[10px] bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
+                            <Ship className="w-3 h-3 mr-1" />
+                            Vessel Owner
+                          </Badge>
+                        )}
+                      </div>
                     </div>
+                    {/* Mode Toggle */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        const newType = isTrafficWatch ? "vessel_owner" : "traffic_watch";
+                        try {
+                          await fetch(`${API}/user/account-type`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({ account_type: newType })
+                          });
+                          toast.success(`Switching to ${newType === "vessel_owner" ? "Vessel Owner" : "Traffic Watch"} mode...`);
+                          setTimeout(() => window.location.reload(), 1000);
+                        } catch (e) {
+                          toast.error("Failed to switch mode");
+                        }
+                      }}
+                      className={`w-full justify-start ${isTrafficWatch ? 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10' : 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10'}`}
+                    >
+                      {isTrafficWatch ? (
+                        <>
+                          <Ship className="w-4 h-4 mr-2" />
+                          Switch to Vessel Mode
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-4 h-4 mr-2" />
+                          Switch to Traffic Watch
+                        </>
+                      )}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

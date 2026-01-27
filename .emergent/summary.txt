@@ -24,46 +24,63 @@ The user wants to build a local application named River Watch to track vessels o
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack FastAPI/React/MongoDB application. The application is now dual-mode: a Vessel Owner mode with lock race analysis, and a Traffic Watch observer mode with a traffic summary and vessel search. A critical bug preventing the live AIS feed from connecting has been resolved by re-routing the WebSocket connection through the  prefix. The app also features a comprehensive admin panel accessible to a super-admin user, allowing for user management and impersonation. The signup flow has been improved to gracefully handle attempts to register an existing email.
+A full-stack FastAPI/React/MongoDB application that is functional again after fixing several critical bugs related to state management and WebSocket connectivity. The app features two modes: Vessel Owner and Traffic Watch. A series of cascading bugs, starting with the mode toggle and culminating in a persistent OFFLINE status, have been resolved. The fix involved robust state handling in  for , preventing WebSocket connection race conditions, and introducing environment-specific WebSocket URL paths to support both the Emergent preview and the user's local Docker/nginx setup. The backend refactoring has begun, with new service and route modules created, but the main  file has not yet been fully broken down.
 
 **Last working item**:
--   **Last item agent was working**: Adding a search bar to the Traffic Summary card in Traffic Watch mode. This allows users to filter the Nearby Vessels list by MMSI or name, with UI feedback including a match count and highlighting of the searched vessel.
+-   **Last item agent was working**: Cleaning up the UI for Traffic Watch mode. Specifically, hiding vessel-specific sections in the Settings page (Vessel Info, Fleet Setup, Self Position, Alerts) and removing vessel-owner controls from the Dashboard (Auto Lock button, Edit Position button).
 -   **Status**: USER VERIFICATION PENDING
 -   **Agent Testing Done**: Y
 -   **Which testing method agent to use?**: frontend testing agent
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Monolithic Backend File (P1)**
--   **Issue 2: Complex Frontend Components (P2)**
+-   **Issue 1: Monolithic Backend File (P0)**
+-   **Issue 2: Complex Frontend Components (P1)**
 
-Issues Detail:
+**Issues Detail**:
 -   **Issue 1:**
-    -   **Attempted fixes**: No progress. The file has grown significantly larger with the addition of admin, traffic watch, and mode-switching endpoints.
-    -   **Next debug checklist**: Refactor . Extract AIS Service, USACE Service, WebSocket logic, Admin routes, and Auth routes into their own modules under , , and .
-    -   **Why fix this issue and what will be achieved with the fix?**: The file is now over 5,000 lines and is extremely difficult to maintain. Refactoring is critical for stability and future development.
-    -   **Status**: NOT STARTED
+    -   **Attempted fixes**: The refactoring process has started. Several new files have been created:
+        -   
+        -   
+        -   
+        -   
+        -   
+        -   
+        -   
+        These new modules have been imported and included in the main  FastAPI application. However, the original inline code within  has not yet been removed.
+    -   **Next debug checklist**:
+        1.  Systematically replace calls to inline functions in  with calls to the newly created service modules.
+        2.  Move the route endpoint logic from  into the respective route files (, , etc.).
+        3.  Delete the now-redundant code from .
+        4.  Thoroughly test all backend endpoints after each major extraction to ensure no regressions.
+    -   **Why fix this issue and what will be achieved with the fix?**: The file is over 5,000 lines, making maintenance and debugging extremely difficult and error-prone, as demonstrated by the recent critical bugs. Refactoring is essential for stability.
+    -   **Status**: IN PROGRESS
     -   **Is recurring issue?**: Y
     -   **Should Test frontend/backend/both after fix?**: backend
     -   **Blocked on other issue**: No.
 -   **Issue 2:**
-    -   **Attempted fixes**: No progress. The file has grown more complex.
-    -   **Next debug checklist**: Refactor , which now contains complex state management and rendering logic for two different application modes (Vessel Owner and Traffic Watch). Extract logic into custom hooks (e.g., , , ) and smaller, mode-specific components.  has also become very large and could be broken down.
-    -   **Why fix this issue and what will be achieved with this?**: Simplifies main components, improves reusability, and makes application state easier to manage, preventing future bugs.
+    -   **Attempted fixes**: No progress. The files have become more complex due to bug fixes.
+    -   **Next debug checklist**: Refactor  and . Extract state management logic into custom hooks (, , etc.) and break down the large components into smaller, more focused child components based on functionality (e.g., , , , ).
+    -   **Why fix this issue and what will be achieved with this?**: Simplifies components, improves reusability, and makes application state easier to manage, preventing state-related bugs like the ones just fixed.
     -   **Status**: NOT STARTED
     -   **Is recurring issue?**: N
     -   **Should Test frontend/backend/both after fix?**: frontend
     -   **Blocked on other issue**: No.
 
 **In progress Task List**:
--   None.
+-   **Task 1: Backend Refactoring (P0)**
+    -   **Where to resume**: The new module files have been created and included in . The next step is to migrate the actual logic from  into these new modules and remove the duplicated code.
+    -   **What will be achieved with this?**: A more modular, maintainable, and stable backend.
+    -   **Status**: IN PROGRESS
+    -   **Should Test frontend/backend/both after fix?**: backend
+    -   **Blocked on something**: No.
 
 **Upcoming and Future Tasks**
 
 **Upcoming Tasks:**
 -   **Vessel Alerts (P0)**: Implement Phase 4 of the Traffic Watch feature, allowing users to get notified when specific vessels pass a watch point.
--   **Expand NOAA/USGS Integration (P1)**: Incorporate forecast data as originally requested. (Files: , ).
--   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (File: ).
+-   **Expand NOAA/USGS Integration (P1)**: Incorporate forecast data as originally requested.
+-   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings.
 -   **MarineTraffic API Integration (P2)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups.
 -   **Quick Position Presets (P2)**: Add a UI element allowing users to quickly set their position to common locations.
 
@@ -78,38 +95,31 @@ Issues Detail:
 -   Speed Advisor
 
 **Completed work in this session**
--   **Fixed Critical AIS Feed Bug**: Diagnosed and fixed a WebSocket routing issue that prevented any live AIS data from appearing. The app now correctly shows a LIVE feed in both modes.
--   **Implemented Traffic Watch Mode**: Added a full-featured observer mode for users without a vessel, including a separate setup flow, a Traffic Summary dashboard, and a custom watch point.
--   **Implemented Admin Panel**: Built a new backend and frontend for an admin panel accessible in the Settings page for super-admins. Features include user stats, a user list, and the ability to add/delete/promote users and impersonate them.
--   **Implemented Account Mode Toggle**: Added UI for users to switch between Vessel Owner and Traffic Watch modes. The toggle was moved from the Settings page to the user dropdown in the main header for better accessibility.
--   **Fixed Signup Bug**: Corrected the registration flow to show a user-friendly message when an email already exists, instead of failing with an error.
--   **Implemented Vessel Search for Traffic Watch**: Added a search bar to the Traffic Watch dashboard to filter the vessel list by name or MMSI.
--   **Corrected Traffic Ahead Logic**: Fixed a backend bug where vessels behind the user were incorrectly identified as traffic.
--   **UI/UX Enhancements**:
-    -   Sorted the Nearby Vessels list by descending river mile.
-    -   Filtered the list to show only vessels within 100 miles.
-    -   Refactored the sidebar to remove the Locks tab and make the lock timing header a clickable modal trigger.
-    -   Moved the Raw Data panel to the Settings page.
-    -   Resized the Nearby Vessels card to use available vertical space.
-    -   Hid vessel-specific info from the top HUD bar when in Traffic Watch mode.
+-   **Fixed Critical WebSocket Connection Bug**: Diagnosed and fixed a cascade of issues causing an OFFLINE status. This included:
+    -   Fixing a race condition that created multiple WebSocket connections.
+    -   Making connection logic robust by ensuring  is properly restored from  or the user's DB profile for both Vessel Owner and Traffic Watch modes.
+    -   Implementing an environment-specific WebSocket URL path ( vs. ) to support both Emergent's preview environment and the user's local Docker/nginx setup.
+-   **Fixed Account Mode Toggle Bug**: Resolved a state management bug where the UI wouldn't update when switching between Vessel Owner and Traffic Watch modes. The fix involved making  the single source of truth.
+-   **Removed Vessel Distance Filter**: Removed the 100-mile filter in the frontend to display all vessels received from the AIS feed in the Nearby Vessels list.
+-   **Cleaned Up Traffic Watch UI**: Removed vessel-specific settings and controls from the Settings and Dashboard pages when the user is in Traffic Watch mode, as requested.
+-   **Initiated Backend Refactoring**: Created new service and route files to begin breaking down the monolithic .
 
 **Earlier issues found/mentioned but not fixed**
--   **Issue 1: Monolithic Backend File ()**
--   **Issue 2: Complex Frontend Components (, )**
+-   **Issue 1: Monolithic Backend File ()**: Now In Progress.
+-   **Issue 2: Complex Frontend Components (, )**: Not Started.
 
 **Known issue recurrence from previous fork**
 -   None.
 
 **Code Architecture**
-register
+
 
 **Key Technical Concepts**
--   **Frontend**: React (, , , ), , Shadcn UI.
+-   **Frontend**: React (, , , , ), , Shadcn UI.
 -   **Backend**: FastAPI, WebSockets, Pydantic models, .
--   **Authentication**: JWT, OAuth2 (Google), now includes role-based access (, ).
+-   **Authentication**: JWT, OAuth2 (Google), role-based access.
 -   **Database**: MongoDB.
--   **3rd Party APIs**: USACE (XML), USGS Water Services (JSON).
--   **Deployment**: Docker, .
+-   **Deployment**: Docker, , Nginx (user-managed).
 
 **key DB schema**
 -   **user_accounts**: 
@@ -118,51 +128,45 @@ register
 -   None.
 
 **All files of reference**
--   : Major updates including new admin endpoints, traffic watch endpoints, user model changes, and the critical WebSocket routing fix.
--   : Heavily modified to support two distinct UI modes, the mode toggle, AIS feed status, and the new vessel search bar.
--   : Heavily modified to include a full Admin Panel UI and the account mode toggle.
--   : Completely rewritten to support the new Vessel Owner vs. Traffic Watch selection flow.
--   : Updated to handle WebSocket connections for different account types.
--   : Updated to handle the user already exists scenario during registration.
--   : UI updated to show a helpful message when a user already exists.
--   : WebSocket URL fixed.
+-   : Heavily modified to fix multiple state management and WebSocket connection bugs. Contains the critical logic for handling connection state and environment-specific paths.
+-   : Modified to conditionally render sections based on .
+-   : Modified to remove the 100-mile distance filter and conditionally render controls.
+-   : Modified to suggest a fix for local development, but reverted at the user's request.
+-   **New backend files**: , . These files were created to start the backend refactor.
+-   : Modified to import and include the new route modules.
 
 **Areas that need refactoring**:
--   ****: URGENT. Now over 5000 lines. It contains core app logic, all API routes (auth, user, settings, admin, traffic), WebSocket handling, and the AIS TCP connection manager. It must be broken into smaller modules.
--   ****: HIGH PRIORITY. This component has become a monolith, managing state and rendering for two completely different user experiences. Logic should be extracted into custom hooks and child components.
--   ****: This component has also grown very large with the addition of the admin panel UI and should be broken down.
+-   ****: **URGENT (IN PROGRESS)**. The refactoring has begun, but the file is still ~5,300 lines long and contains duplicated logic that needs to be removed.
+-   **** & ****: **HIGH PRIORITY**. These components remain complex and were the source of several bugs. They need to be broken down into smaller components and custom hooks.
+-   ****: While heavily modified to fix bugs, the state restoration and connection logic is now very complex and could benefit from being extracted into custom hooks (e.g., , ).
 
 **key api endpoints**
--   **WebSocket**:  (FIXED),  (FIXED)
--   **Admin**: , , , , , ,  (NEW)
--   **Traffic Summary**:  (NEW)
--   **Account Type**:  (NEW)
--   **Auth**:  (MODIFIED to handle existing users)
+-   **WebSocket**:  (for Emergent preview),  (for user's local Nginx). The frontend now dynamically chooses the path.
 
 **Critical Info for New Agent**
--   **WebSocket Routing**: The critical AIS feed bug was due to the WebSocket URL () not being prefixed with , causing it to be handled by the frontend router instead of the backend. The fix was to add new backend routes () and update the frontend to use them. This is a crucial detail for any future WebSocket work.
--   **Dual-Mode Application**: The app now has two distinct modes, Vessel Owner and Traffic Watch, which conditionally render large portions of the UI, especially in . The  field in the user document controls this.
--   **Super Admin**: The user  is hardcoded in the backend logic as the super-admin, who is the only one who can promote other users to admin status.
--   **Technical Debt**: Be aware that  and  are now extremely large and complex. Any new feature addition will be difficult without addressing this technical debt first.
+-   **Dual-Environment WebSocket Path**: The most critical fix was in , where the WebSocket path is now determined dynamically based on the . This is essential for the app to work in both the Emergent preview environment and the user's custom Nginx production environment.
+-   **Backend Refactoring is Mid-Flight**: The backend refactoring has been started but is not complete. The  file still contains most of the original logic, even though new module files have been created and included. The next agent must proceed with caution to avoid breaking the application while removing the duplicated code.
+-   **State Management Complexity**: The root cause of most recent bugs was complex and fragile state management in . Be very careful when modifying the  hooks related to the  and  state, as they are interdependent and have caused race conditions before.
 
 **documents and test reports created in this job**
--    (updated with Traffic Watch and Admin features)
+-    (updated)
+-    (updated with new architecture)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Requested Admin features, specifying  as super-admin, impersonation, and a fix for the signup bug. (Status: Addressed)
-2.  **User**: Reported a critical bug: no AIS feed in Traffic Watch mode. (Status: Investigation Started)
-3.  **Agent**: Investigated the bug.
-4.  **User**: Clarified the bug: No AIS feed in *either* mode. Also requested moving the mode toggle to the header and hiding vessel info in Traffic Watch. (Status: Addressed)
-5.  **Agent**: Diagnosed the bug as a WebSocket routing issue and fixed it. Implemented the UI changes.
-6.  **Agent**: Summarized the fix and the completed UI changes.
-7.  **User**: Requested a new feature: a search bar for MMSI/vessel name in Traffic Watch mode. (Status: Addressed)
-8.  **Agent**: Implemented the search bar feature.
-9.  **Agent**: Confirmed the search feature is working with screenshots.
-10. **Agent**: Provided a final summary of the search feature implementation.
+1.  **User**: Reported that the app doesn't load at all after a Docker rebuild. (Status: Addressed; user resolved local issue).
+2.  **User**: Requested UI cleanup for Traffic Watch mode: remove vessel-specific settings and dashboard controls. (Status: Addressed).
+3.  **Agent**: Implemented and verified the UI cleanup for Traffic Watch mode.
+4.  **Agent**: Summarized the UI cleanup work.
+5.  **Agent**: Restarted the backend to apply refactoring changes.
+6.  **Agent**: Tested the refactoring changes.
+7.  **Agent**: Updated documentation (README, PRD).
+8.  **Agent**: Summarized the backend refactoring work.
+9.  **User**: Approved continuation of the refactoring.
+10. **Agent**: Started Phase 2 of the refactoring by creating more service modules.
 
 **Project Health Check:**
--   **Broken**: No. The critical AIS feed bug is resolved, and the application is functional in both Vessel Owner and Traffic Watch modes.
--   **Mocked**: Yes, the two simulated demo towboats are still active by default and can be toggled by the user in settings.
+-   **Broken**: No. The application is functional and the critical AIS feed bug has been resolved.
+-   **Mocked**: Yes, the two simulated demo towboats are still active by default.
 
 **3rd Party Integrations**
 -   **MongoDB**: Primary database.
@@ -178,9 +182,10 @@ register
 -   **Known regressions**: None.
 
 **Credentials to test flow:**
--   **Super Admin (Google)**: 
+-   **Super Admin (Email)**: 
 -   **Vessel Owner (Email)**: , Password: 
 -   **Traffic Watch (Email)**: , Password: 
 
 **What agent forgot to execute**
--   The agent did not address the primary technical debt of refactoring the monolithic backend () and frontend () files, which have both grown significantly more complex during this session. While feature requests were prioritized, the maintainability of the codebase has degraded.</analysis>
+-   The agent did not fully complete the backend refactoring. While new files were created and the groundwork was laid, the main task of migrating logic out of  and deleting the old code is still pending.
+-   The frontend refactoring task has not been started.</analysis>

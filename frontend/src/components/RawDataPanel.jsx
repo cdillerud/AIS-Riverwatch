@@ -43,7 +43,7 @@ export default function RawDataPanel({ isConnected, compact = false }) {
     if (!isConnected) return;
 
     const WS_URL = process.env.REACT_APP_BACKEND_URL?.replace('https://', 'wss://').replace('http://', 'ws://');
-    const ws = new WebSocket(`${WS_URL}/ws/raw`);
+    const ws = new WebSocket(`${WS_URL}/api/ws/raw`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {

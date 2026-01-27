@@ -24,22 +24,23 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
     - USACE status and closure info
     - Lock master phone number (click to call)
     - Prediction confidence indicators
-13. **User Authentication (NEW - Jan 2026)** ✅
+13. **User Authentication (Jan 2026)** ✅
     - Email/password registration and login
     - Google OAuth via Emergent-managed auth
-    - Session-based authentication with httpOnly cookies
+    - Session-based authentication with httpOnly cookies (7-day expiry)
     - Protected routes (redirect to login if not authenticated)
     - Logout functionality (desktop and mobile)
-14. **Multi-Vessel Fleet Management (NEW - Jan 2026)** ✅
+    - **Session persistence across browser restarts** ✅ (Jan 27, 2026)
+14. **Multi-Vessel Fleet Management (Jan 2026)** ✅
     - Associate multiple MMSIs with a single user account
     - Set primary vessel for lock timing calculations
     - Add/remove vessels from fleet in Settings page
     - MMSI uniqueness enforced (one user per MMSI)
-15. **Position Editor (NEW - Jan 26, 2026)** ✅
+15. **Position Editor (Jan 26, 2026)** ✅
     - Edit position directly from HUD bar (click "Set Position" or RM display)
     - Set River Mile, Speed (MPH), and Course (°) manually
     - Accessible even when no AIS data is available
-16. **Keyboard Shortcuts (NEW - Jan 26, 2026)** ✅
+16. **Keyboard Shortcuts (Jan 26, 2026)** ✅
     - `P` - Open position editor
     - `M` - Switch to Map tab
     - `L` - Switch to Locks tab
@@ -47,6 +48,16 @@ River Watch is a vessel tracking application for the Upper Mississippi River tha
     - `R` - Refresh data
     - `Esc` - Close modal/editor
     - `?` - Show keyboard shortcuts help
+17. **Demo Vessels with Direction & ETA (NEW - Jan 27, 2026)** ✅
+    - Two simulated towboats for testing (M/V DELTA QUEEN, M/V RIVER RUNNER)
+    - Direction of travel displayed (upriver/downriver)
+    - **ETA to next lock** calculated based on direction and speed
+    - ETA shown in vessel list (e.g., "→ 2h 50m") and detail modal
+    - **Settings toggle** to enable/disable demo vessels
+18. **Session Isolation Fix (Jan 27, 2026)** ✅
+    - Fixed session bleed when switching user accounts
+    - localStorage properly cleared on logout
+    - User data correctly isolated between sessions
 
 ### Upcoming (P1)
 - Sound/Vibration Alerts for "Traffic Delay" warnings

@@ -4349,7 +4349,7 @@ async def simulate_demo_vessels():
                         min_dist = dist
                         nearest_lock = lock_id
                 
-                # Create vessel entry
+                # Create vessel entry with direction info
                 vessel = {
                     "mmsi": config["mmsi"],
                     "name": config["name"],
@@ -4359,6 +4359,7 @@ async def simulate_demo_vessels():
                     "course": course,
                     "heading": course,
                     "heading_direction": heading_dir,
+                    "direction": direction_display,  # 'upriver' or 'downriver'
                     "ship_type": config["ship_type"],
                     "nav_status": 0,  # Under way using engine
                     "river_mile": round(new_rm, 1),

@@ -4357,7 +4357,7 @@ async def simulate_demo_vessels():
                     "lon": lon,
                     "speed": config["speed_knots"],
                     "course": course,
-                    "heading": course,
+                    "heading": heading_dir,  # String: 'northbound' or 'southbound' for race analysis
                     "heading_direction": heading_dir,
                     "direction": direction_display,  # 'upriver' or 'downriver'
                     "ship_type": config["ship_type"],

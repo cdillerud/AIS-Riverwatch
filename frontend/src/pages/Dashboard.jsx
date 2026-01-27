@@ -1086,6 +1086,27 @@ export default function Dashboard({
                     </Badge>
                   </div>
                   <div className="p-3 space-y-3">
+                    {/* Vessel Search Bar */}
+                    <div className="relative">
+                      <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search MMSI or vessel name..."
+                        value={vesselSearchQuery}
+                        onChange={(e) => setVesselSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-800/50 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20"
+                        data-testid="vessel-search-input"
+                      />
+                      {vesselSearchQuery && (
+                        <button
+                          onClick={() => setVesselSearchQuery("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    
                     {/* Watch Point Info - Clickable to open lock details */}
                     <div 
                       className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"

@@ -691,6 +691,45 @@ async def update_user_settings(request: Request):
     return {"success": True}
 
 
+# Demo vessel toggle state (in-memory, reset on server restart)
+demo_vessels_active = True
+
+@api_router.get("/demo-vessels/status")
+async def get_demo_vessels_status():
+    """Get current demo vessel simulation status."""
+    return {
+        "enabled": demo_vessels_active,
+        "vessels": list(DEMO_VESSELS.keys()) if demo_vessels_active else []
+    }
+
+
+@api_router.post("/demo-vessels/toggle")
+async def toggle_demo_vessels(request: Request):
+    """Toggle demo vessel simulation on/off."""
+    global demo_vessels_active
+    
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    body = await request.json()
+    enabled = body.get("enabled", not demo_vessels_active)
+    
+    demo_vessels_active = enabled
+    
+    if not enabled:
+        # Remove demo vessels from active_vessels
+        for vessel_id, config in DEMO_VESSELS.items():
+            mmsi = config["mmsi"]
+            if mmsi in active_vessels:
+                del active_vessels[mmsi]
+        logger.info(f"[DEMO] Demo vessels disabled by user {user['email']}")
+    else:
+        logger.info(f"[DEMO] Demo vessels enabled by user {user['email']}")
+    
+    return {"success": True, "enabled": demo_vessels_active}
+
+
 # =============================================================================
 # SESSION MANAGER - Strict isolation by MMSI
 # =============================================================================

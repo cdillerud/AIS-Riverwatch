@@ -167,8 +167,30 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 - [ ] Speed Advisor
 
 ## Technical Debt
-1. **Backend Refactoring**: Extract AIS service, USACE service, and WebSocket logic from server.py into separate modules
-2. **Frontend Refactoring**: Extract state management and data fetching into custom hooks in App.js
+
+### Backend Refactoring (IN PROGRESS)
+**Status**: Services extracted, route modules created
+
+Completed:
+- [x] `services/usace_service.py` - USACE lock queue/status data
+- [x] `services/usgs_service.py` - USGS water conditions  
+- [x] `routes/admin.py` - Admin endpoints module
+- [x] `routes/locks.py` - Lock info endpoints module
+- [x] `routes/traffic.py` - Traffic watch endpoints module
+- [x] `routes/water.py` - Water conditions endpoints module
+- [x] Updated server.py imports to use new services
+- [x] Updated README.md with new architecture
+
+Remaining:
+- [ ] Extract AIS service (TCP connection, parsing) from server.py
+- [ ] Extract WebSocket handlers into `websocket/` directory
+- [ ] Migrate inline routes to use route modules
+- [ ] Remove duplicate code from server.py
+
+### Frontend Refactoring (NOT STARTED)
+- [ ] Extract state management from Dashboard.jsx into custom hooks
+- [ ] Extract mode-specific UI into separate components
+- [ ] Break down SettingsPage.jsx into smaller components
 
 ## Admin Accounts
 - **Super Admin**: `cdillerud@gmail.com` (Google OAuth) - Full access

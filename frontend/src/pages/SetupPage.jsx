@@ -128,8 +128,31 @@ export default function SetupPage({ onConnect }) {
     // Save MMSI to localStorage for session persistence
     localStorage.setItem('riverwatch_mmsi', userMmsi);
     
-    // Save user settings to backend
+    // Save vessel to USER ACCOUNT (so it persists across sessions and logins)
     try {
+      // First, add vessel to user's account if not already there
+      const vesselExists = user?.vessels?.some(v => v.mmsi === userMmsi);
+      if (!vesselExists) {
+        const addResponse = await fetch(`${API}/user/vessels`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            mmsi: userMmsi,
+            boat_name: boatName,
+            is_primary: true
+          })
+        });
+        
+        if (addResponse.ok) {
+          console.log(`[SETUP] Vessel ${userMmsi} added to user account`);
+        } else {
+          const errorData = await addResponse.json();
+          console.warn(`[SETUP] Could not add vessel to account: ${errorData.detail}`);
+        }
+      }
+      
+      // Also save additional settings
       await fetch(`${API}/user/${userMmsi}/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,7 +165,7 @@ export default function SetupPage({ onConnect }) {
           }
         })
       });
-      console.log(`Session saved for MMSI: ${userMmsi}`);
+      console.log(`[SETUP] Settings saved for MMSI: ${userMmsi}`);
     } catch (error) {
       console.error("Failed to save session:", error);
     }

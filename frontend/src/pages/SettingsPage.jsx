@@ -1431,6 +1431,335 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
 
+          {/* Mode Toggle - Switch between Vessel Owner and Traffic Watch */}
+          <Card className="glass-panel border-white/10">
+            <CardHeader>
+              <CardTitle className="text-lg text-white flex items-center gap-2">
+                <Eye className="w-5 h-5 text-purple-400" />
+                Account Mode
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Switch between Vessel Owner and Traffic Watch modes
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-800/50 border border-slate-700">
+                <div className="flex items-center gap-3">
+                  {accountType === "vessel_owner" ? (
+                    <Ship className="w-6 h-6 text-cyan-400" />
+                  ) : (
+                    <Eye className="w-6 h-6 text-purple-400" />
+                  )}
+                  <div>
+                    <div className="text-white font-medium">
+                      {accountType === "vessel_owner" ? "Vessel Owner" : "Traffic Watch"}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {accountType === "vessel_owner" 
+                        ? "Track your vessel, get lock timing and race analysis" 
+                        : "Monitor traffic without a vessel"}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  onClick={toggleAccountType}
+                  disabled={modeToggleLoading}
+                  variant="outline"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                >
+                  {modeToggleLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : null}
+                  Switch to {accountType === "vessel_owner" ? "Traffic Watch" : "Vessel Owner"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Admin Panel - Only visible to admins */}
+          {(user?.is_admin || user?.is_super_admin) && (
+            <Card className="glass-panel border-amber-500/30">
+              <CardHeader>
+                <CardTitle className="text-lg text-white flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-amber-400" />
+                  Admin Panel
+                  {user?.is_super_admin && (
+                    <Badge className="ml-2 bg-amber-500/20 text-amber-400 border-amber-500/50">
+                      Super Admin
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  Manage users, vessels, and system settings
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="stats" className="w-full">
+                  <TabsList className="w-full bg-slate-800/50 mb-4">
+                    <TabsTrigger value="stats" className="flex-1">
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      Stats
+                    </TabsTrigger>
+                    <TabsTrigger value="users" className="flex-1">
+                      <Users className="w-4 h-4 mr-2" />
+                      Users
+                    </TabsTrigger>
+                    <TabsTrigger value="vessels" className="flex-1">
+                      <Ship className="w-4 h-4 mr-2" />
+                      Vessels
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  {/* Stats Tab */}
+                  <TabsContent value="stats" className="space-y-4">
+                    <div className="flex justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          loadAdminStats();
+                          loadAdminUsers();
+                          loadAdminVessels();
+                        }}
+                        className="border-slate-600"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Refresh
+                      </Button>
+                    </div>
+                    
+                    {adminStats ? (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-cyan-400">{adminStats.users?.total || 0}</div>
+                          <div className="text-xs text-slate-400">Total Users</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-amber-400">{adminStats.users?.admins || 0}</div>
+                          <div className="text-xs text-slate-400">Admins</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-green-400">{adminStats.sessions?.active || 0}</div>
+                          <div className="text-xs text-slate-400">Active Sessions</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-purple-400">{adminStats.vessels?.currently_tracked || 0}</div>
+                          <div className="text-xs text-slate-400">Vessels Tracked</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-cyan-400">{adminStats.users?.vessel_owners || 0}</div>
+                          <div className="text-xs text-slate-400">Vessel Owners</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-purple-400">{adminStats.users?.traffic_watchers || 0}</div>
+                          <div className="text-xs text-slate-400">Traffic Watchers</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-green-400">{adminStats.users?.recent_signups || 0}</div>
+                          <div className="text-xs text-slate-400">New (7 days)</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-slate-400">{adminStats.lockages?.total_recorded || 0}</div>
+                          <div className="text-xs text-slate-400">Lockages Recorded</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-slate-500">
+                        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
+                        Loading stats...
+                      </div>
+                    )}
+                  </TabsContent>
+                  
+                  {/* Users Tab */}
+                  <TabsContent value="users" className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <Input
+                          placeholder="Search users by email or name..."
+                          value={userSearchQuery}
+                          onChange={(e) => {
+                            setUserSearchQuery(e.target.value);
+                            loadAdminUsers(e.target.value);
+                          }}
+                          className="bg-slate-800/50 border-slate-700 text-white pl-10"
+                        />
+                      </div>
+                      <Button
+                        onClick={() => setShowCreateUserDialog(true)}
+                        className="bg-cyan-600 hover:bg-cyan-500"
+                      >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Add User
+                      </Button>
+                    </div>
+                    
+                    <ScrollArea className="h-[300px]">
+                      {adminLoading ? (
+                        <div className="text-center py-8 text-slate-500">
+                          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
+                          Loading users...
+                        </div>
+                      ) : adminUsers.length > 0 ? (
+                        <div className="space-y-2">
+                          {adminUsers.map((u) => (
+                            <div
+                              key={u.user_id}
+                              className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 border border-slate-700"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                  u.is_super_admin ? 'bg-amber-500/20' : u.is_admin ? 'bg-cyan-500/20' : 'bg-slate-700'
+                                }`}>
+                                  {u.is_super_admin ? (
+                                    <Shield className="w-4 h-4 text-amber-400" />
+                                  ) : u.is_admin ? (
+                                    <Shield className="w-4 h-4 text-cyan-400" />
+                                  ) : (
+                                    <Users className="w-4 h-4 text-slate-400" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-white text-sm font-medium">{u.name || "No name"}</div>
+                                  <div className="text-xs text-slate-400">{u.email}</div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Badge className={`text-[10px] ${
+                                      u.account_type === "traffic_watch" 
+                                        ? "bg-purple-500/20 text-purple-400" 
+                                        : "bg-cyan-500/20 text-cyan-400"
+                                    }`}>
+                                      {u.account_type === "traffic_watch" ? "Traffic Watch" : "Vessel Owner"}
+                                    </Badge>
+                                    {u.is_super_admin && (
+                                      <Badge className="text-[10px] bg-amber-500/20 text-amber-400">Super Admin</Badge>
+                                    )}
+                                    {u.is_admin && !u.is_super_admin && (
+                                      <Badge className="text-[10px] bg-cyan-500/20 text-cyan-400">Admin</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => impersonateUser(u.user_id)}
+                                  className="text-slate-400 hover:text-white"
+                                  title="View as this user"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedUserForAction(u);
+                                    setShowResetPasswordDialog(true);
+                                  }}
+                                  className="text-slate-400 hover:text-white"
+                                  title="Reset password"
+                                >
+                                  <Key className="w-4 h-4" />
+                                </Button>
+                                {user?.is_super_admin && !u.is_super_admin && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => toggleUserAdmin(u.user_id, u.is_admin)}
+                                    className={u.is_admin ? "text-amber-400 hover:text-amber-300" : "text-slate-400 hover:text-cyan-400"}
+                                    title={u.is_admin ? "Demote from admin" : "Promote to admin"}
+                                  >
+                                    {u.is_admin ? <UserMinus className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                                  </Button>
+                                )}
+                                {!u.is_super_admin && u.user_id !== user?.user_id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => deleteUser(u.user_id)}
+                                    className="text-slate-400 hover:text-red-400"
+                                    title="Delete user"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-slate-500">No users found</div>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+                  
+                  {/* Vessels Tab */}
+                  <TabsContent value="vessels" className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-slate-400">
+                        {adminVessels.length} vessels currently being tracked
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={loadAdminVessels}
+                        className="border-slate-600"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Refresh
+                      </Button>
+                    </div>
+                    
+                    <ScrollArea className="h-[300px]">
+                      {adminVessels.length > 0 ? (
+                        <div className="space-y-2">
+                          {adminVessels.map((v) => (
+                            <div
+                              key={v.mmsi}
+                              className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 border border-slate-700"
+                            >
+                              <div className="flex items-center gap-3">
+                                <Ship className={`w-5 h-5 ${v.is_tow ? 'text-amber-400' : 'text-cyan-400'}`} />
+                                <div>
+                                  <div className="text-white text-sm font-medium">
+                                    {v.name || `Vessel ${v.mmsi}`}
+                                  </div>
+                                  <div className="text-xs text-slate-400">
+                                    MMSI: {v.mmsi} • RM {v.river_mile?.toFixed(1) || '--'}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className={`text-[10px] ${
+                                      v.heading === 'northbound' ? 'text-green-400' : 
+                                      v.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'
+                                    }`}>
+                                      {v.heading === 'northbound' ? '↑ North' : v.heading === 'southbound' ? '↓ South' : 'Stationary'}
+                                    </span>
+                                    {v.is_tow && (
+                                      <Badge className="text-[10px] bg-amber-500/20 text-amber-400">
+                                        Tow {v.barge_count > 0 ? `(${v.barge_count}B)` : ''}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm text-white">{(v.speed * 1.15078).toFixed(1)} mph</div>
+                                <div className="text-xs text-slate-500">{v.speed?.toFixed(1)} kn</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-slate-500">No vessels currently tracked</div>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Raw AIS Data - Debug/Developer Section */}
           <Card className="glass-panel border-white/10">
             <CardHeader>

@@ -686,14 +686,6 @@ function MainApp() {
   useEffect(() => {
     // Only auto-connect if we have config, aren't connected, AND no socket exists
     // The reconnect logic in onclose handles reconnection, so we only trigger initial connect
-    console.log("[AUTO-CONNECT CHECK]", {
-      hasConfig: !!connectionConfig,
-      isConnected,
-      hasWsRef: !!wsRef.current,
-      hasReconnectTimeout: !!reconnectTimeoutRef.current,
-      configIp: connectionConfig?.ip_address,
-      configPort: connectionConfig?.port
-    });
     if (connectionConfig && !isConnected && !wsRef.current && !reconnectTimeoutRef.current) {
       console.log("Auto-connecting to AIS server:", connectionConfig.ip_address, connectionConfig.port);
       connectWebSocket(connectionConfig);

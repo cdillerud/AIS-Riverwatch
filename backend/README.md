@@ -8,8 +8,8 @@ The River Watch backend is a FastAPI application that provides real-time vessel 
 
 ```
 /app/backend/
-├── server.py           # Main FastAPI app (monolithic, being refactored)
-├── config.py           # Configuration constants (LOCKS, CORS, etc.)
+├── server.py           # Main FastAPI app (~5,300 lines, being refactored)
+├── config.py           # Configuration constants (LOCKS, CORS, USGS gauges, etc.)
 ├── database.py         # MongoDB connection
 ├── requirements.txt    # Python dependencies
 ├── Dockerfile          # Container configuration
@@ -22,13 +22,19 @@ The River Watch backend is a FastAPI application that provides real-time vessel 
 │
 ├── services/           # Business logic (reusable functions)
 │   ├── __init__.py
-│   ├── auth_service.py       # Password hashing, session management
-│   └── navigation_service.py # River mile calculations, ETA, heading
+│   ├── auth_service.py       # Password hashing, session management ✓
+│   ├── navigation_service.py # River mile calculations, ETA, heading ✓
+│   ├── usace_service.py      # USACE lock queue/status data ✓ NEW
+│   └── usgs_service.py       # USGS water conditions ✓ NEW
 │
-├── routes/             # API route handlers (for new features)
+├── routes/             # API route handlers (modular, being migrated)
 │   ├── __init__.py
-│   ├── auth.py         # /api/auth/* routes (template for future migration)
-│   └── user.py         # /api/user/* routes (template for future migration)
+│   ├── auth.py         # /api/auth/* routes (template)
+│   ├── user.py         # /api/user/* routes (template)
+│   ├── admin.py        # /api/admin/* routes ✓ NEW
+│   ├── locks.py        # /api/locks/* routes ✓ NEW
+│   ├── traffic.py      # /api/traffic/* routes ✓ NEW
+│   └── water.py        # /api/water-conditions/* routes ✓ NEW
 │
 ├── websocket/          # WebSocket handlers (for new features)
 │   └── __init__.py
@@ -37,13 +43,29 @@ The River Watch backend is a FastAPI application that provides real-time vessel 
     └── test_auth.py
 ```
 
-## Current State
+## Current State (January 2026)
 
-The application is currently in a **hybrid state**:
+The application is in a **hybrid state** with active refactoring:
 
-1. **`server.py`** contains the main application with all routes and business logic (~3,800 lines)
-2. **New modules** (`config.py`, `models/`, `services/`) contain extracted, reusable code
-3. Routes in `routes/` are templates for future migration
+1. **`server.py`** contains all routes and core logic (~5,300 lines)
+2. **Services** (`services/`) contain extracted, reusable business logic
+   - Navigation calculations (river mile, ETA, heading)
+   - USACE data fetching (lock queues, vessel info)
+   - USGS water conditions
+3. **Route modules** (`routes/`) contain modular route handlers
+   - Currently disabled in favor of inline routes in server.py
+   - Ready for gradual migration
+
+## Services (NEW)
+
+### usace_service.py
+- `fetch_usace_lock_queue_data()` - Fetch vessel queue from USACE XML API
+- `get_usace_vessel_info(mmsi, name)` - Look up vessel by MMSI or name
+- `estimate_tow_info(vessel)` - Estimate barge count and lockage time
+
+### usgs_service.py
+- `get_water_conditions_for_lock(lock_id)` - Fetch water level, temp, current
+- `format_water_conditions_for_display(data)` - Format for frontend
 
 ## Adding New Features
 

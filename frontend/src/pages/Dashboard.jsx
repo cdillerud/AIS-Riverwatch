@@ -126,6 +126,28 @@ export default function Dashboard({
   // Alert dismissal - tracks which threat was dismissed
   const [dismissedThreatMmsi, setDismissedThreatMmsi] = useState(null);
 
+  // Fetch traffic summary for Traffic Watch users
+  useEffect(() => {
+    if (!isTrafficWatch || !selectedLock) return;
+    
+    const fetchTrafficSummary = async () => {
+      try {
+        const response = await fetch(`${API}/traffic-summary/${selectedLock}`);
+        if (response.ok) {
+          const data = await response.json();
+          setTrafficSummary(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch traffic summary:", error);
+      }
+    };
+    
+    fetchTrafficSummary();
+    const interval = setInterval(fetchTrafficSummary, 30000); // Refresh every 30s
+    
+    return () => clearInterval(interval);
+  }, [isTrafficWatch, selectedLock]);
+
   // Find user vessel - ONLY match by MMSI, not is_user_vessel flag
   // (is_user_vessel from server can be stale/wrong if multiple sessions exist)
   const userVessel = useMemo(() => {

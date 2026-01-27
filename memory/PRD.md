@@ -126,8 +126,10 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 
 ### Bug Fix: Mode Toggle Not Switching Views ✅ (January 27, 2026)
 - [x] Fixed: Dashboard was reading `accountType` from stale `connectionConfig` instead of `user.account_type`
-- [x] Fixed: App.js now properly clears connectionConfig for Traffic Watch users
-- [x] Fixed: Mode toggle correctly routes to SetupPage for watch point configuration
+- [x] Fixed: App.js now properly handles localStorage config restoration for both modes
+- [x] Fixed: Traffic Watch config is now stored to localStorage for session persistence
+- [x] Fixed: Mode toggle correctly routes to SetupPage for watch point configuration when needed
+- [x] Fixed: AIS WebSocket connection maintained across mode switches
 
 ### UI/UX Improvements ✅
 - [x] Nearby Vessels sorted by River Mile (descending)

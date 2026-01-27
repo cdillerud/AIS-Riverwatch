@@ -20,7 +20,7 @@ import {
   Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
   Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
   Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info,
-  LogOut, Radio, User
+  LogOut, Radio, User, Eye, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight
 } from "lucide-react";
 import { toast } from "sonner";
 import RiverVisualization from "@/components/RiverVisualization";

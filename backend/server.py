@@ -417,22 +417,29 @@ async def google_auth_session(request: Request, response: Response):
     
     # Find or create user
     email = google_data.get("email")
+    is_super = email.lower() == SUPER_ADMIN_EMAIL.lower()
     existing_user = await db.users.find_one({"email": email}, {"_id": 0})
     
     if existing_user:
         user_id = existing_user["user_id"]
         # Update user info from Google
+        update_fields = {
+            "name": google_data.get("name", existing_user.get("name")),
+            "picture": google_data.get("picture"),
+            "google_id": google_data.get("id"),
+            "last_login": datetime.now(timezone.utc).isoformat()
+        }
+        # Ensure super admin has admin rights
+        if is_super:
+            update_fields["is_admin"] = True
+            update_fields["is_super_admin"] = True
+        
         await db.users.update_one(
             {"user_id": user_id},
-            {"$set": {
-                "name": google_data.get("name", existing_user.get("name")),
-                "picture": google_data.get("picture"),
-                "google_id": google_data.get("id"),
-                "last_login": datetime.now(timezone.utc).isoformat()
-            }}
+            {"$set": update_fields}
         )
         user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-        logger.info(f"[AUTH] Google user logged in: {email}")
+        logger.info(f"[AUTH] Google user logged in: {email}" + (" [SUPER ADMIN]" if is_super else ""))
     else:
         # Create new user
         user_id = f"user_{uuid.uuid4().hex[:12]}"
@@ -445,11 +452,14 @@ async def google_auth_session(request: Request, response: Response):
             "fleet_name": None,
             "vessels": [],
             "settings": {},
+            "is_admin": is_super,
+            "is_super_admin": is_super,
+            "last_login": datetime.now(timezone.utc).isoformat(),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "auth_provider": "google"
         }
         await db.users.insert_one(user_doc)
-        logger.info(f"[AUTH] New Google user created: {email} ({user_id})")
+        logger.info(f"[AUTH] New Google user created: {email} ({user_id})" + (" [SUPER ADMIN]" if is_super else ""))
     
     # Create session
     session_token = generate_session_token()

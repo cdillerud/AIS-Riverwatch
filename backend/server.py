@@ -351,6 +351,18 @@ async def login_user(data: UserLogin, response: Response):
     
     logger.info(f"[AUTH] User logged in: {data.email}")
     
+    # Update last_login and ensure super admin has admin rights
+    update_fields = {"last_login": datetime.now(timezone.utc).isoformat()}
+    if data.email.lower() == SUPER_ADMIN_EMAIL.lower():
+        update_fields["is_admin"] = True
+        update_fields["is_super_admin"] = True
+    
+    await db.users.update_one(
+        {"user_id": user_doc["user_id"]},
+        {"$set": update_fields}
+    )
+    user_doc.update(update_fields)
+    
     # Create session
     session_token = generate_session_token()
     await db.user_sessions.insert_one({

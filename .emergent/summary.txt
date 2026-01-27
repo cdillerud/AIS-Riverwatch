@@ -15,49 +15,80 @@ The user wants to build a local application named River Watch to track vessels o
 11. **Click-to-Map Info:** Clicking a vessel on the map or in the list should display a compact information card on the map.
 12. **Lock Wait Time Predictions:** When a lock is clicked, show predicted wait times, USACE delays, and other detailed information.
 13. **User Accounts:** Implement user registration and login (Email/Password and Google Social Login) to support multiple users with their own settings and lists of MMSIs.
+14. **Persistent Vessel Position:** A user's vessel position should be stored in their account and restored when they log in.
+15. **Demo Vessels:** The application should include simulated vessels for testing purposes, with a setting to toggle them on/off.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A stable, full-stack FastAPI/React application with a MongoDB database. Major features like multi-user authentication (JWT & Google), fleet management (multiple vessels per user), and a redesigned professional UI are now complete and tested. The application features a landing page, a dashboard with a simplified river map, and various informational panels. A significant UI/UX and performance optimization pass has just been completed, resulting in a cleaner, more responsive interface with a consistent design system. The dashboard now features a compact, text-based Heads-Up Display (HUD) bar located between the main header and the content area.
+A full-stack FastAPI/React application with a MongoDB database. Key features include user authentication (JWT & Google), fleet management, and a professional UI with a dashboard, river map, and various info panels.
+
+The backend has undergone a Phase 1 refactoring, with Pydantic models, configuration, and some services moved out of the monolithic  into a more modular structure. A  collection was added to MongoDB to persist USACE data for historical analysis. The application also now includes a background task to simulate two demo towboats for testing purposes.
+
+The frontend features a functional position editor with keyboard shortcuts, a Raw Data panel for debugging, and a detailed vessel information modal. User logout now properly cleans up in-memory vessel data on the backend and resets state on the frontend.
 
 **Last working item**:
--   **Last item agent was working**: Refining the dashboard's Heads-Up Display (HUD) based on a final round of user feedback. The agent removed the experimental speedometer graphic, converted the HUD into a compact text-only bar, and added the user's vessel MMSI and name to it. This info bar is now tightly spaced and left-aligned under the main logo, outside the map area.
--   **Status**: USER VERIFICATION PENDING
--   **Agent Testing Done**: Y
--   **Which testing method agent to use?**: screenshot tool
+-   **Last item agent was working**: The agent was addressing multiple user requests simultaneously. The immediate task was fixing a critical frontend bug in  that caused the application to crash on login. The bug () was introduced while implementing persistent user vessel positions. The agent applied a fix by reordering a  hook.
+-   **Status**: IN PROGRESS
+-   **Agent Testing Done**: N
+-   **Which testing method agent to use?**: both
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Monolithic Backend File (P1)**
--   **Issue 2: Complex Frontend Component (P2)**
+-   **Issue 1: Frontend may crash on login (P0)**
+-   **Issue 2: Monolithic Backend File (P1)**
+-   **Issue 3: Complex Frontend Component (P2)**
 
 Issues Detail:
 -   **Issue 1:**
-    -   **Attempted fixes:** None. This is a technical debt item that has been deferred in favor of feature development.
-    -   **Next debug checklist:** The file  is over 3,800 lines. Plan a refactoring effort to split it into , , , and  handlers.
-    -   **Why fix this issue and what will be achieved with the fix?**: Refactoring will significantly improve code maintainability, readability, and scalability, making future development faster and less error-prone.
+    -   **Attempted fixes**: The agent moved the  hook that calls  to after the  function is defined in . This fix has not been tested.
+    -   **Next debug checklist**:
+        1.  Start the application and attempt to log in.
+        2.  Verify the dashboard loads without crashing.
+        3.  Confirm that the user's previously set vessel position is correctly restored and displayed on the map.
+        4.  If it still fails, check the browser console for errors and re-evaluate the dependency injection and state flow in .
+    -   **Why fix this issue and what will be achieved with the fix?**: This is a critical, blocking bug that prevents users from accessing the application. Fixing it will restore core functionality.
+    -   **Status**: IN PROGRESS
+    -   **Is recurring issue?**: N
+    -   **Should Test frontend/backend/both after fix?**: frontend
+    -   **Blocked on other issue**: No.
+-   **Issue 2:**
+    -   **Attempted fixes:** Phase 1 of refactoring is complete. , , and  have been created and populated.
+    -   **Next debug checklist:** The file  remains over 3,500 lines. The next logical step is to extract the  (TCP connection, NMEA parsing) and  (data fetching, XML parsing) logic into their own modules under .
+    -   **Why fix this issue and what will be achieved with the fix?**: Refactoring will significantly improve code maintainability and scalability, making future development easier and less error-prone.
     -   **Status**: NOT STARTED
     -   **Is recurring issue?**: Y
     -   **Should Test frontend/backend/both after fix?**: backend
     -   **Blocked on other issue**: No.
--   **Issue 2:**
-    -   **Attempted fixes:** Some performance optimizations were made (batching WebSocket updates, reducing fetch intervals), but the core component structure remains complex.
-    -   **Next debug checklist:** The file  is large and handles state, data fetching, and WebSockets. Extract logic into custom hooks (e.g., , ).
-    -   **Why fix this issue and what will be achieved with this?**: Simplifies the main component, improves reusability, and makes the code easier to reason about.
+-   **Issue 3:**
+    -   **Attempted fixes:** Some functions were wrapped in  to fix linting warnings, but the core complexity remains.
+    -   **Next debug checklist:** The file  manages global state, data fetching, and WebSockets. The recent bug demonstrates its fragility. Logic should be extracted into custom hooks (e.g., , , ).
+    -   **Why fix this issue and what will be achieved with this?**: Simplifies the main component, improves reusability, and makes the application state easier to manage, preventing future bugs.
     -   **Status**: NOT STARTED
     -   **Is recurring issue?**: N
     -   **Should Test frontend/backend/both after fix?**: frontend
     -   **Blocked on other issue**: No.
 
 **In progress Task List**:
--   None.
+-   **Task 1: Implement Demo Vessel Enhancements and Settings (P1)**
+
+ Task Detail:
+-   **Task 1:**
+    -   **Where to resume**: This task was requested by the user but was not started.
+        1.  **ETA Calculation**: In , modify the  function to calculate and include the ETA to the next lock for each vessel based on its direction and speed.
+        2.  **Direction Display**: Update the  to include a clear 'direction' field ('upriver'/'downriver').
+        3.  **Toggle Setting**: Add a new user setting (e.g., ) to the database schema. Create an endpoint in the backend to update this setting. Add a toggle switch in  to control it. Modify the  in  to only start the simulation if no user has it disabled (or based on a global flag).
+    -   **What will be achieved with this?**: Provides more realistic simulation data and gives the user control over the test environment.
+    -   **Status**: NOT STARTED
+    -   **Should Test frontend/backend/both after fix?**: both
+    -   **Blocked on something**: Issue 1 (Frontend crash).
 
 **Upcoming and Future Tasks**
 
 **Upcoming Tasks:**
 -   **Sound/Vibration Alerts (P1)**: Implement audio or haptic feedback for Traffic Delay warnings. (File: ).
 -   **MarineTraffic API Integration (P1)**: Integrate an external API to supplement the live AIS feed for faster vessel name lookups.
+-   **Quick Position Presets (P2)**: Add a UI element allowing users to quickly set their position to common locations (e.g., Above Lock 5, Lake Pepin).
 
 **Future Tasks:**
 -   **Lock Wait Time Predictions (ML-powered)**
@@ -70,98 +101,95 @@ Issues Detail:
 -   **Speed Advisor**
 
 **Completed work in this session**
--   **Full User Authentication System**: Completed, debugged, and tested JWT (email/password) and Google Social Login.
--   **Multi-Vessel Fleet Management**: Implemented backend and frontend for users to manage a list of their vessels.
--   **Major UI/UX Redesign**: Executed a comprehensive design overhaul based on  feedback.
-    -   Created a new .
-    -   Redesigned  and .
-    -   Rebranded the app to RiverWatch AIS across all pages.
-    -   Iteratively designed and implemented a Heads-Up Display (HUD), settling on a compact info bar below the header.
--   **Interactive Map Features**:
-    -   Implemented clickable vessels on the map to open a floating position editor.
-    -   Changed vessel detail views from a modal to an inline, expandable panel on the map.
--   **Performance Optimizations**: Improved frontend responsiveness by batching WebSocket updates and reducing the frequency of periodic API calls.
--   **Critical Bug Fixes**:
-    -   Resolved a backend  that was crashing the server.
-    -   Fixed a critical frontend bug () by refactoring  routing structure.
-    -   Fixed a UI bug that showed duplicate position editor popups.
+-   **Backend Refactoring (Phase 1):** Partially modularized  by creating , , and directories for , , and .
+-   **CORS Bug Fix:** Resolved a critical CORS error preventing login from .
+-   **Position Editor & Keyboard Shortcuts:** Fixed the position editor workflow and added keyboard shortcuts for common actions.
+-   **USACE Data Persistence:** Created a new  collection in MongoDB to persist vessel data, including barge counts, fetched from USACE.
+-   **Vessel Detail Modal:** Enhanced the modal to always show all data sections (Tow Info, Lockage History, etc.) with appropriate empty states, and connected it to display persisted historical data.
+-   **Demo Vessels:** Implemented a background task to simulate two moving towboats with USACE data, and centered them around Lock 2 as requested.
+-   **Logout & Session Cleanup:** Fixed a bug where vessel data was not cleared on logout. Both backend memory and frontend state are now correctly reset.
+-   **Raw Data Tab:** Fixed the desktop Raw data tab to show live NMEA data from the  WebSocket, matching the mobile functionality.
+-   **Persistent Vessel Position:** Implemented backend logic to save a user's vessel position to their account. A corresponding frontend change introduced a bug which is now the top priority to fix.
 
 **Earlier issues found/mentioned but not fixed**
 -   **Issue 1: Monolithic Backend File**
-    -   **Debug checklist**: Refactor  into smaller, dedicated modules (e.g., , , ).
+    -   **Debug checklist**: Refactor  to extract AIS and USACE service logic into .
     -   **Why to solve this issue and what will be achieved with this?**: To improve code maintainability, readability, and scalability. This is a high-priority technical debt item.
     -   **Should Test frontend/backend/both after fix?**: backend
     -   **Is recurring issue?**: Y
 -   **Issue 2: Complex Frontend Component**
-    -   **Debug checklist**: Refactor  by extracting logic into custom hooks.
+    -   **Debug checklist**: Refactor  by extracting state and data-fetching logic into custom hooks.
     -   **Why to solve this issue and what will be achieved with this?**: To simplify the component, improve reusability, and make the code easier to manage.
     -   **Should Test frontend/backend/both after fix?**: frontend
     -   **Is recurring issue?**: N
 
 **Known issue recurrence from previous fork**
--   None in this session.
+-   None.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
 -   **Frontend**: React (, , , ), .
--   **Backend**: FastAPI, WebSockets, Pydantic models.
+-   **Backend**: FastAPI, WebSockets, Pydantic models,  for background tasks.
 -   **Authentication**: JWT for email/password and OAuth2 for Google Social Login.
 -   **Database**: MongoDB.
 -   **Deployment**: Docker, .
--   **UI/UX**: Custom design system with specific fonts (Rajdhani, Manrope), color palette, and component styles.
 
 **key DB schema**
 -   **user_accounts**: 
 -   **vessel_settings**: 
+-   **vessel_sightings**:  (NEW)
+-   **lockage_history**: 
 
 **changes in tech stack**
 -   None.
 
 **All files of reference**
--   : The main application UI, heavily modified with new header and HUD bar.
--   : Core monolithic backend logic.
--   : Core frontend component, handles routing and global state.
--   : The map component, updated with interactive features.
--   : New landing page.
--   : The new design system provided by the design agent.
+-   : Location of the critical bug. Manages global state.
+-   : Core monolithic backend logic. Partially refactored, but still contains AIS, USACE, and demo simulation logic.
+-   : The main application UI where most features are visible.
+-   : Target for the new toggle demo vessels setting.
+-   : Was updated to always show all data sections.
+-   : Contains new application configurations.
+-   : Directory containing all Pydantic data models.
 
 **Areas that need refactoring**:
--   ****: Urgently needs to be broken down into smaller modules.
--   ****: Data fetching and WebSocket logic should be extracted into custom hooks.
+-   ****: Urgently needs to have AIS, USACE, and routing logic extracted into their respective modules.
+-   ****: Data fetching, WebSocket logic, and global state management should be extracted into custom hooks to reduce complexity and prevent bugs.
 
 **key api endpoints**
 -   **Authentication**: , , .
--   **Fleet Management**: , , , .
--   **Real-time**: .
+-   **Fleet Management**: , .
+-   **Position**: ,  (NEW).
+-   **Vessel Data**: , ,  (NEW).
+-   **Real-time**: , .
 
 **Critical Info for New Agent**
--   The user is very hands-on with UI/UX feedback. Be prepared for rapid, iterative visual changes.
--   The application has just undergone a major professionalization pass. The next agent should adhere strictly to the new design system in .
--   The highest priority is to get user confirmation on the latest HUD design. After that, move on to the Upcoming Tasks (Sound Alerts, MarineTraffic API).
--   The technical debt in  and  is significant. Proposing a refactor for one of these after completing the next feature would be a valuable step.
+-   **TOP PRIORITY**: The application may be in a broken state. The very first action must be to test the login flow to verify if the last fix in  resolved the crash. Do not proceed with new features until the app is confirmed to be stable.
+-   The user wants to add features to the demo vessels (ETA, direction) and a setting to toggle them. This should be the next task after the app is stable.
+-   The implementation to persist a user's vessel position is new and was the source of the critical bug. It needs to be thoroughly tested after the crash is fixed.
+-   The user has approved continuing the backend refactoring, but feature requests are taking precedence. The next agent should balance delivering features with paying down this technical debt.
 
 **documents and test reports created in this job**
 -    (updated)
--   
--   
+-    (created)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Asks to make the speedometer in the HUD look like a gauge.
-2.  **User**: Reports the new speedometer HUD is covering the map legend.
-3.  **User**: Rejects moving the HUD to under the compass ().
-4.  **User**: Rejects moving the HUD under the map title ().
-5.  **User**: Provides clear instructions: move HUD outside/above map, left-align under logo, make it text-only (no speedometer graphic), and reduce spacing.
-6.  **User**: Requests to add vessel MMSI and name to the new text-based HUD bar.
-7.  **Agent**: Implements the final HUD bar with all requested text.
-8.  **Agent**: Presents the final version of the HUD.
-9.  **User**: (Pending) The user has not yet responded to the agent's final implementation of the HUD bar.
-10. **(Summary of last interaction)**: The agent has just completed a series of rapid UI iterations based on user feedback, arriving at a compact, text-only HUD bar. The last action was presenting this final design to the user.
+1.  **User**: 
+2.  **User**: 
+3.  **User**: 
+4.  **User**: 
+5.  **User**: 
+6.  **User**: 
+7.  **User**: 
+8.  **Agent**: Acknowledges requests and begins fixing the critical bug introduced by the vessel persistence feature.
+9.  **Agent**: Applies an untested fix to .
+10. **(Pending)** The agent needs to verify the fix and then implement the requested demo vessel enhancements and settings toggle.
 
 **Project Health Check:**
--   **Broken**: No. The application is stable and feature-complete for the current phase.
--   **Mocked**: None.
+-   **Broken**: Potentially. The last fix for a critical frontend crash on login is untested.
+-   **Mocked**: Yes, two simulated towboats are now running by default in the background.
 
 **3rd Party Integrations**
 -   **MongoDB**: Primary database.
@@ -170,14 +198,15 @@ Issues Detail:
 -   **JWT (python-jose, passlib)**: For custom email/password authentication.
 
 **Testing status**
--   **Testing agent used after significant changes**: YES (after auth and fleet management).
+-   **Testing agent used after significant changes**: NO
 -   **Troubleshoot agent used after agent stuck in loop**: NO
 -   **Test files created**: []
--   **Known regressions**: None.
+-   **Known regressions**: A critical regression was introduced causing the app to crash on login. An untested fix has been applied.
 
 **Credentials to test flow:**
--   AIS TCP feed connects to IP  on port .
+-   AIS TCP feed can be simulated or connected to a live source if available. The demo vessels provide test data.
 -   User accounts can be created via the registration page. Test user: , pass: .
 
 **What agent forgot to execute**
--   The agent has consistently deferred the high-priority technical debt task of refactoring the monolithic  and complex  files. While this was a reasonable trade-off to address user-facing features and UI requests, this debt is mounting and should be addressed soon.</analysis>
+-   The agent did not test the critical bug fix applied to .
+-   The agent did not start implementing the user's latest feature requests (demo vessel ETA/direction and toggle setting) because it was sidetracked by the bug fix.</analysis>

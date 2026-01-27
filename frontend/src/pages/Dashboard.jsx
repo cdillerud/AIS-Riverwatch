@@ -67,6 +67,7 @@ export default function Dashboard({
   const [zoomLevel, setZoomLevel] = useState(20); // Zoom range in miles (10-500)
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [trafficSummary, setTrafficSummary] = useState(null);
+  const [vesselSearchQuery, setVesselSearchQuery] = useState("");
 
   // Handle logout
   const handleLogout = async () => {

@@ -4615,7 +4615,10 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             v_dict = prepare_vessel_for_output(vessel, mmsi)
             v_dict['eta_minutes'] = eta
             
-            # Calculate distance from USER to this competitor (for filtering threats)
+            # Calculate distance from this competitor TO THE LOCK (for bi-directional filtering)
+            v_dict['distance_to_lock'] = round(abs(vessel_rm - lock_rm), 1) if vessel_rm else None
+            
+            # Calculate distance from USER to this competitor (for display)
             if user_rm and vessel_rm:
                 v_dict['distance_from_user'] = round(abs(user_rm - vessel_rm), 1)
             else:

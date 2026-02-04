@@ -88,16 +88,18 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
                 <div className="flex items-center gap-1 text-amber-400 text-xs">
                   <AlertTriangle className="w-3 h-3" />
                   <span className="font-semibold">{getVesselDisplayName(threat, showVesselNames)}</span>
+                  <span className={`ml-1 ${threat.heading === 'northbound' ? 'text-blue-400' : 'text-orange-400'}`}>
+                    {threat.heading === 'northbound' ? '↑' : '↓'}
+                  </span>
                 </div>
                 <span className="text-amber-400 text-xs font-mono">
                   ETA: {threat.eta_minutes?.toFixed(0)}min
                 </span>
               </div>
-              {threat.distance_from_user && (
-                <div className="text-xs text-slate-500 mt-1">
-                  {threat.distance_from_user} mi from you
-                </div>
-              )}
+              <div className="text-xs text-slate-500 mt-1 flex gap-2">
+                {threat.distance_to_lock && <span>{threat.distance_to_lock}mi to lock</span>}
+                {threat.distance_from_user && <span>• {threat.distance_from_user}mi from you</span>}
+              </div>
             </div>
           )}
 

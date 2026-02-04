@@ -178,7 +178,7 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
               <span className="text-xs text-amber-400 uppercase tracking-wider">Threatening Vessel</span>
             </div>
             <div className="text-white font-semibold">{getVesselDisplayName(threat, showVesselNames)}</div>
-            <div className="flex items-center gap-4 mt-2 text-sm">
+            <div className="flex items-center gap-4 mt-2 text-sm flex-wrap">
               <span className="text-slate-400">
                 <Navigation className="w-3 h-3 inline mr-1" />
                 RM {threat.river_mile?.toFixed(1)}
@@ -187,16 +187,22 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
                 <Gauge className="w-3 h-3 inline mr-1" />
                 {(threat.speed * 1.15078).toFixed(1)} mph
               </span>
+              <span className={`font-mono ${threat.heading === 'northbound' ? 'text-blue-400' : 'text-orange-400'}`}>
+                {threat.heading === 'northbound' ? '↑ NB' : '↓ SB'}
+              </span>
               <span className="text-amber-400 font-mono">
                 <Clock className="w-3 h-3 inline mr-1" />
                 ETA: {threat.eta_minutes?.toFixed(0)} min
               </span>
             </div>
-            {threat.distance_from_user && (
-              <div className="mt-2 text-xs text-slate-500">
-                {threat.distance_from_user} mi from your position
-              </div>
-            )}
+            <div className="mt-2 text-xs text-slate-500 space-y-1">
+              {threat.distance_to_lock && (
+                <div>{threat.distance_to_lock} mi from lock</div>
+              )}
+              {threat.distance_from_user && (
+                <div>{threat.distance_from_user} mi from you</div>
+              )}
+            </div>
             {analysis?.buffer_minutes && (
               <div className="mt-1 text-xs text-slate-500">
                 You need to arrive {analysis.buffer_minutes} min before tow (commercial priority)

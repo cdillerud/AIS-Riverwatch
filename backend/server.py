@@ -4637,41 +4637,25 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm)
         
         # Find most threatening competitor
+        # LOGIC: Any vessel heading TOWARD the lock is a potential competitor,
+        # regardless of which side of the lock they're on (bi-directional).
+        # The competitors list already only contains vessels with valid ETAs
+        # (i.e., vessels heading toward the lock - calculate_eta_to_lock returns None for vessels moving away)
         threat = None
         required_speed = None
         can_beat = True
         
         for comp in competitors:
             comp_eta = comp.get('eta_minutes')
-            distance_from_user = comp.get('distance_from_user')
-            comp_rm = comp.get('river_mile')
+            comp_distance_to_lock = comp.get('distance_to_lock')
             
-            # Skip if this competitor is more than 100 miles from USER
-            if distance_from_user is not None and distance_from_user > MAX_THREAT_DISTANCE:
+            # Skip if this competitor is more than 100 miles from the LOCK
+            # (using distance to lock, not distance from user, for bi-directional logic)
+            if comp_distance_to_lock is not None and comp_distance_to_lock > MAX_THREAT_DISTANCE:
                 continue
             
-            # CRITICAL: Only consider vessels that are BETWEEN user and the lock (i.e., ahead of user)
-            # A vessel behind the user going the same direction is NOT a threat
-            if comp_rm is not None and user_rm is not None:
-                if user_heading == "southbound":
-                    # User heading south (decreasing RM). Lock is at lower RM.
-                    # Threat = vessel with RM LOWER than user (closer to lock) but HIGHER than lock
-                    if comp_rm >= user_rm:
-                        # Competitor is behind user (higher RM), not a threat
-                        continue
-                    if comp_rm <= lock_rm:
-                        # Competitor already past the lock, not a threat
-                        continue
-                elif user_heading == "northbound":
-                    # User heading north (increasing RM). Lock is at higher RM.
-                    # Threat = vessel with RM HIGHER than user (closer to lock) but LOWER than lock
-                    if comp_rm <= user_rm:
-                        # Competitor is behind user (lower RM), not a threat
-                        continue
-                    if comp_rm >= lock_rm:
-                        # Competitor already past the lock, not a threat
-                        continue
-                
+            # Check if this competitor will arrive before user (with buffer)
+            # Competitors are already sorted by ETA, so first valid one is the biggest threat
             if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
                 # User needs to arrive buffer_minutes BEFORE the tow to get through first
                 threat = comp

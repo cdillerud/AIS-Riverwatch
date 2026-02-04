@@ -133,11 +133,19 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 
 ### UI/UX Improvements ✅
 - [x] Nearby Vessels sorted by River Mile (descending)
-- [x] Race analysis only shows threats BETWEEN user and lock
 - [x] Removed Locks/Raw tabs, moved Raw Data to Settings
 - [x] Extended Nearby Vessels card to fill sidebar height
 - [x] Swapped Traffic Ahead and Queue positions
 - [x] Filter vessels within 100 miles of user
+
+### Race Logic Fix ✅ (February 4, 2026)
+- [x] **Bi-directional competitor detection**: Fixed race analysis to consider vessels heading toward the lock from EITHER side (not just vessels between user and lock)
+- [x] Before: Only detected vessels that were physically between user position and lock
+- [x] After: Detects ANY vessel heading toward the target lock, regardless of which side they're on
+- [x] Example: User at RM 850, Lock at RM 815 - now correctly detects both:
+  - Vessel at RM 830 heading southbound (between user and lock)
+  - Vessel at RM 800 heading northbound (opposite side of lock, but heading toward it)
+- [x] UI updated to show vessel heading direction (↑N/↓S) and distance to lock
 
 ## Pending Features
 

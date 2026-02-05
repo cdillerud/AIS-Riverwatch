@@ -4264,6 +4264,19 @@ async def get_debug_state():
     }
 
 
+@api_router.get("/debug/performance")
+async def get_performance_stats():
+    """Get performance statistics for monitoring."""
+    cache_stats = await get_cache_stats()
+    return {
+        "active_vessels": len(active_vessels),
+        "vessel_cache_entries": vessel_cache.count,
+        "caches": cache_stats,
+        "websocket_connections": len(websocket_clients),
+        "demo_vessels_active": demo_vessels_active
+    }
+
+
 @api_router.get("/lockage/tracking")
 async def get_lockage_tracking():
     """Get current vessel lock passage tracking state."""

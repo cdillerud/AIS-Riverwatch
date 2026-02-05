@@ -5424,4 +5424,9 @@ async def usace_refresh_task():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    """Clean up resources on shutdown."""
+    # Close HTTP client pool
+    await close_http_client()
+    # Close MongoDB connection
     client.close()
+    logger.info("Server shutdown complete")

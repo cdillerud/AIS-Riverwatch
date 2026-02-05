@@ -4272,7 +4272,8 @@ async def get_performance_stats():
         "active_vessels": len(active_vessels),
         "vessel_cache_entries": vessel_cache.count,
         "caches": cache_stats,
-        "websocket_connections": len(websocket_clients),
+        "websocket_connections": len(ais_manager._subscribers),
+        "ais_connected": ais_manager.is_connected,
         "demo_vessels_active": demo_vessels_active
     }
 

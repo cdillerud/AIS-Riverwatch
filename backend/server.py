@@ -947,9 +947,11 @@ async def get_traffic_summary(lock_id: str):
         if hasattr(vessel, 'river_mile'):
             vessel_rm = vessel.river_mile
             heading = vessel.heading
+            speed = vessel.speed
         else:
             vessel_rm = vessel.get('river_mile')
             heading = vessel.get('heading') or vessel.get('heading_direction')
+            speed = vessel.get('speed', 0)
         
         if vessel_rm is None:
             continue
@@ -968,10 +970,39 @@ async def get_traffic_summary(lock_id: str):
         if distance <= 20:
             v_dict = prepare_vessel_for_output(vessel, mmsi)
             v_dict['distance_to_lock'] = round(distance, 1)
+            
+            # Calculate ETA for vessels heading TOWARD the lock
+            eta_minutes = None
+            is_heading_to_lock = False
+            
+            if heading == 'northbound' and vessel_rm < lock_rm:
+                # Northbound vessel below lock - heading toward it
+                is_heading_to_lock = True
+            elif heading == 'southbound' and vessel_rm > lock_rm:
+                # Southbound vessel above lock - heading toward it
+                is_heading_to_lock = True
+            
+            if is_heading_to_lock and speed and speed > 0.1:
+                speed_mph = speed * 1.15078  # knots to mph
+                eta_minutes = (distance / speed_mph) * 60
+                v_dict['eta_to_lock'] = round(eta_minutes, 1)
+            else:
+                v_dict['eta_to_lock'] = None
+                
+            v_dict['heading_to_lock'] = is_heading_to_lock
             vessels_near_lock.append(v_dict)
     
-    # Sort by distance to lock
-    vessels_near_lock.sort(key=lambda x: x.get('distance_to_lock', 999))
+    # Sort by ETA (arrival order) - vessels heading to lock with ETA come first, then by distance
+    # Vessels with ETA (heading toward lock) sorted by ETA
+    # Vessels without ETA (heading away or stationary) sorted by distance
+    def sort_key(v):
+        eta = v.get('eta_to_lock')
+        if eta is not None:
+            return (0, eta)  # Priority 0 = heading to lock, sort by ETA
+        else:
+            return (1, v.get('distance_to_lock', 999))  # Priority 1 = not heading to lock, sort by distance
+    
+    vessels_near_lock.sort(key=sort_key)
     
     # Get recent lockage data
     recent_lockages = []

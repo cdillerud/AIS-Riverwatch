@@ -75,6 +75,25 @@ from services.ais_parser import (
     get_cached_vessel_name,
     set_cached_vessel_info
 )
+# Import new performance services
+from services.vessel_service import (
+    vessel_cache,
+    prepare_vessel_for_output as _prepare_vessel_for_output,
+    estimate_river_mile as _estimate_rm_fast,
+    determine_heading as _determine_heading_fast,
+    calculate_eta_to_lock as _calc_eta_fast,
+    calculate_required_speed as _calc_speed_fast
+)
+from services.cache_service import (
+    usace_cache as usace_ttl_cache,
+    usgs_cache as usgs_ttl_cache,
+    get_cache_stats
+)
+from services.http_client import (
+    get_http_client,
+    close_http_client,
+    fetch_with_retry
+)
 
 
 ROOT_DIR = Path(__file__).parent

@@ -1174,16 +1174,24 @@ export default function Dashboard({
                               className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/50 cursor-pointer hover:bg-slate-700/50"
                               onClick={() => setSelectedVessel(vessel)}
                             >
-                              <span className="text-slate-300 truncate max-w-[120px]">
+                              <span className="text-slate-300 truncate max-w-[100px]">
                                 {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
                               </span>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5">
                                 <span className={vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'}>
                                   {vessel.heading === 'northbound' ? '↑N' : vessel.heading === 'southbound' ? '↓S' : '—'}
                                 </span>
                                 <span className="text-slate-500 font-mono">
                                   {vessel.distance_to_lock?.toFixed(1)}mi
                                 </span>
+                                {vessel.eta_to_lock && (
+                                  <span className="text-amber-400 font-mono">
+                                    {vessel.eta_to_lock < 60 
+                                      ? `${Math.round(vessel.eta_to_lock)}m`
+                                      : `${Math.floor(vessel.eta_to_lock / 60)}h${Math.round(vessel.eta_to_lock % 60)}m`
+                                    }
+                                  </span>
+                                )}
                               </div>
                             </div>
                           ))}

@@ -176,13 +176,13 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 
 ## Technical Debt
 
-### Backend Refactoring (PHASE 1 COMPLETE)
-**Status**: Services extracted, route modules created
+### Backend Refactoring (PHASE 2 IN PROGRESS)
+**Status**: Services extracted, route modules created, performance improvements added
 
-Completed:
+Completed (Phase 1):
 - [x] `services/usace_service.py` - USACE lock queue/status data (~230 lines)
 - [x] `services/usgs_service.py` - USGS water conditions (~180 lines)
-- [x] `services/ais_parser.py` - NMEA/AIS parsing (~350 lines) ✓ NEW
+- [x] `services/ais_parser.py` - NMEA/AIS parsing (~350 lines)
 - [x] `routes/admin.py` - Admin endpoints module (~280 lines)
 - [x] `routes/locks.py` - Lock info endpoints module
 - [x] `routes/traffic.py` - Traffic watch endpoints module  
@@ -190,13 +190,22 @@ Completed:
 - [x] Updated server.py imports to use new services
 - [x] Updated README.md with new architecture
 
-Remaining (Phase 2 - Higher Risk):
-- [ ] Migrate inline routes to use route modules (remove duplicates from server.py)
-- [ ] Extract AISConnectionManager class (~500 lines)
-- [ ] Extract WebSocket handlers to `websocket/` directory (~200 lines)
-- [ ] Remove duplicate parsing functions from server.py
+Completed (Phase 2 - Performance):
+- [x] `services/vessel_service.py` - Centralized vessel data management with TTL cache (~200 lines)
+- [x] `services/cache_service.py` - TTL-based caching for expensive API calls (~150 lines)
+- [x] `services/http_client.py` - Shared HTTP client pool for connection reuse (~80 lines)
+- [x] `services/websocket_manager.py` - WebSocket connection manager (~200 lines)
+- [x] `routes/vessels.py` - Vessel and session endpoints module (~250 lines)
+- [x] `/api/debug/performance` endpoint for monitoring cache stats and connections
 
-**Note**: Phase 2 requires careful testing as it removes code rather than adding modules.
+Remaining (Phase 3 - Code Consolidation):
+- [ ] Migrate inline routes to use route modules (remove duplicates from server.py)
+- [ ] Extract AISConnectionManager class to `services/ais_connection.py` (~500 lines)
+- [ ] Move WebSocket handlers to `websocket/` directory (~200 lines)
+- [ ] Remove duplicate parsing functions from server.py
+- [ ] Target: Reduce server.py from ~5,400 lines to <2,000 lines
+
+**Note**: Phase 3 requires careful testing as it removes code rather than adding modules.
 
 ### Frontend Refactoring (NOT STARTED)
 - [ ] Extract state management from Dashboard.jsx into custom hooks

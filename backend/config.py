@@ -146,3 +146,67 @@ RIVER_MILE_POINTS = [
     (39.0050, -90.8180, 241.4),   # L25 - Cap au Gris
     (38.7080, -90.1510, 185.0),   # L27 - Chain of Rocks
 ]
+
+# Upper Mississippi River geographic bounds
+# Used to filter out vessels on tributaries (Illinois River, etc.)
+UPPER_MISSISSIPPI_BOUNDS = {
+    "min_lat": 38.5,    # South of Chain of Rocks
+    "max_lat": 45.5,    # North of Minneapolis
+    "min_lon": -93.5,   # West boundary
+    "max_lon": -89.5,   # East boundary
+    "min_river_mile": 180.0,  # Below Chain of Rocks
+    "max_river_mile": 860.0,  # Above Minneapolis
+}
+
+# Illinois River exclusion zone
+# The Illinois River joins the Mississippi at RM 218 near Grafton, IL
+# Vessels in this zone with certain lat/lon patterns are on the Illinois River
+ILLINOIS_RIVER_EXCLUSION = {
+    # Illinois River runs NE from confluence at Grafton
+    # Approximate bounding box for Illinois River (not Mississippi)
+    "min_lat": 38.8,
+    "max_lat": 41.5,
+    "min_lon": -90.6,  # East of Mississippi main channel
+    "max_lon": -88.5,  # Well into Illinois
+    # If vessel is east of this longitude AND north of confluence, likely on Illinois River
+    "east_of_mississippi_lon": -90.3,
+    "confluence_lat": 38.87,  # Grafton, IL
+}
+
+def is_on_upper_mississippi(lat: float, lon: float, river_mile: float = None) -> bool:
+    """
+    Check if a vessel position is on the Upper Mississippi River.
+    Returns False for vessels likely on Illinois River or other tributaries.
+    """
+    if lat is None or lon is None:
+        return False
+    
+    bounds = UPPER_MISSISSIPPI_BOUNDS
+    exclusion = ILLINOIS_RIVER_EXCLUSION
+    
+    # Check basic bounds
+    if not (bounds["min_lat"] <= lat <= bounds["max_lat"]):
+        return False
+    if not (bounds["min_lon"] <= lon <= bounds["max_lon"]):
+        return False
+    
+    # Check river mile if available
+    if river_mile is not None:
+        if not (bounds["min_river_mile"] <= river_mile <= bounds["max_river_mile"]):
+            return False
+    
+    # Check Illinois River exclusion zone
+    # If vessel is north of the confluence AND east of the Mississippi main channel,
+    # it's likely on the Illinois River
+    if lat > exclusion["confluence_lat"] and lon > exclusion["east_of_mississippi_lon"]:
+        # Additional check: if significantly east, definitely Illinois River
+        if lon > -90.0:
+            return False
+        # In the transition zone, check if closer to Illinois River path
+        # Illinois River runs roughly NE from Grafton
+        # Mississippi runs roughly N-S
+        if lat < 40.0 and lon > -90.2:
+            return False
+    
+    return True
+

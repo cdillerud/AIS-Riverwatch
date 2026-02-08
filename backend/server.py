@@ -5071,6 +5071,18 @@ async def remove_blocked_mmsi(mmsi: str):
     else:
         return {"success": False, "error": "MMSI not found in block list"}
 
+
+@api_router.get("/filter-config")
+async def get_filter_config():
+    """Get the current vessel filtering configuration."""
+    from config import UPPER_MISSISSIPPI_BOUNDS, ILLINOIS_RIVER_EXCLUSION
+    return {
+        "upper_mississippi_bounds": UPPER_MISSISSIPPI_BOUNDS,
+        "illinois_river_exclusion": ILLINOIS_RIVER_EXCLUSION,
+        "description": "Vessels outside Upper Mississippi bounds or in Illinois River zone are filtered out"
+    }
+
+
 async def load_blocked_mmsi():
     """Load user-blocked MMSIs from database on startup."""
     global user_blocked_mmsi

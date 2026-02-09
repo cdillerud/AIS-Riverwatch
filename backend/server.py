@@ -1403,13 +1403,15 @@ async def admin_delete_vessel(request: Request, mmsi: str):
 
 # Demo vessel toggle state (in-memory, reset on server restart)
 demo_vessels_active = True
+demo_vessels_paused = {}  # {mmsi: True} - paused vessels won't auto-move
 
 @api_router.get("/demo-vessels/status")
 async def get_demo_vessels_status():
     """Get current demo vessel simulation status."""
     return {
         "enabled": demo_vessels_active,
-        "vessels": list(DEMO_VESSELS.keys()) if demo_vessels_active else []
+        "vessels": list(DEMO_VESSELS.keys()) if demo_vessels_active else [],
+        "paused": list(demo_vessels_paused.keys())
     }
 
 

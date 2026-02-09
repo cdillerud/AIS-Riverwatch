@@ -1215,6 +1215,118 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 />
               </div>
 
+              {/* Demo Vessel Position Editor */}
+              {demoVesselsEnabled && demoVessels.length > 0 && (
+                <div className="space-y-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-cyan-400 text-sm font-semibold">Edit Demo Vessel Positions</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={loadDemoVessels}
+                      className="h-6 px-2 text-slate-400 hover:text-white"
+                    >
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      Refresh
+                    </Button>
+                  </div>
+                  
+                  {demoVessels.map((vessel) => (
+                    <div key={vessel.mmsi} className="p-2 bg-slate-900 rounded border border-slate-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-white font-medium text-sm">{vessel.name}</span>
+                        <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
+                          RM {vessel.river_mile?.toFixed(1)}
+                        </Badge>
+                      </div>
+                      
+                      {editingDemoVessel === vessel.mmsi ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[10px] text-slate-500">River Mile</Label>
+                              <Input
+                                type="number"
+                                value={demoVesselEdit.river_mile}
+                                onChange={(e) => setDemoVesselEdit({...demoVesselEdit, river_mile: e.target.value})}
+                                className="h-7 text-xs bg-slate-950 border-slate-600"
+                                placeholder="e.g., 815.0"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-slate-500">Speed (knots)</Label>
+                              <Input
+                                type="number"
+                                value={demoVesselEdit.speed}
+                                onChange={(e) => setDemoVesselEdit({...demoVesselEdit, speed: e.target.value})}
+                                className="h-7 text-xs bg-slate-950 border-slate-600"
+                                placeholder="e.g., 5.0"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[10px] text-slate-500">Heading</Label>
+                              <select
+                                value={demoVesselEdit.heading}
+                                onChange={(e) => setDemoVesselEdit({...demoVesselEdit, heading: e.target.value})}
+                                className="w-full h-7 text-xs bg-slate-950 border border-slate-600 rounded px-2 text-white"
+                              >
+                                <option value="northbound">Northbound (Upriver)</option>
+                                <option value="southbound">Southbound (Downriver)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-slate-500">Barge Count</Label>
+                              <Input
+                                type="number"
+                                value={demoVesselEdit.barge_count}
+                                onChange={(e) => setDemoVesselEdit({...demoVesselEdit, barge_count: e.target.value})}
+                                className="h-7 text-xs bg-slate-950 border-slate-600"
+                                placeholder="e.g., 6"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              onClick={() => updateDemoVesselPosition(vessel.mmsi)}
+                              className="h-6 px-2 text-xs bg-cyan-600 hover:bg-cyan-500"
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setEditingDemoVessel(null)}
+                              className="h-6 px-2 text-xs text-slate-400"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] text-slate-400 space-x-3">
+                            <span>{vessel.heading === 'northbound' ? '↑ Upriver' : '↓ Downriver'}</span>
+                            <span>{vessel.speed?.toFixed(1)} kts</span>
+                            <span>{vessel.barge_count}B</span>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => startEditDemoVessel(vessel)}
+                            className="h-6 px-2 text-xs text-cyan-400 hover:text-white"
+                          >
+                            Edit Position
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label className="text-slate-300">
                   Zoom Range: <span className="text-cyan-400 font-mono">±{settings.map_zoom_miles} miles</span>

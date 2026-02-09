@@ -457,6 +457,57 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     }
   };
 
+  // Load demo vessels for editing
+  const loadDemoVessels = async () => {
+    try {
+      const response = await fetch(`${API}/demo-vessels`);
+      if (response.ok) {
+        const data = await response.json();
+        setDemoVessels(data.demo_vessels || []);
+      }
+    } catch (error) {
+      console.error("Failed to load demo vessels:", error);
+    }
+  };
+
+  // Update demo vessel position
+  const updateDemoVesselPosition = async (mmsi) => {
+    try {
+      const updates = {};
+      if (demoVesselEdit.river_mile) updates.river_mile = parseFloat(demoVesselEdit.river_mile);
+      if (demoVesselEdit.speed) updates.speed = parseFloat(demoVesselEdit.speed);
+      if (demoVesselEdit.heading) updates.heading = demoVesselEdit.heading;
+      if (demoVesselEdit.barge_count) updates.barge_count = parseInt(demoVesselEdit.barge_count);
+
+      const response = await fetch(`${API}/demo-vessels/${mmsi}/position`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates)
+      });
+
+      if (response.ok) {
+        toast.success("Demo vessel position updated");
+        setEditingDemoVessel(null);
+        loadDemoVessels();
+      } else {
+        toast.error("Failed to update position");
+      }
+    } catch (error) {
+      toast.error("Failed to update demo vessel");
+    }
+  };
+
+  // Start editing a demo vessel
+  const startEditDemoVessel = (vessel) => {
+    setEditingDemoVessel(vessel.mmsi);
+    setDemoVesselEdit({
+      river_mile: vessel.river_mile?.toString() || "",
+      speed: vessel.speed?.toString() || "",
+      heading: vessel.heading || "southbound",
+      barge_count: vessel.barge_count?.toString() || ""
+    });
+  };
+
   // Load vessel cache
   const loadVesselCache = async () => {
     try {

@@ -1309,7 +1309,7 @@ export default function Dashboard({
                           {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)}
                         </div>
                         <div className="grid grid-cols-2 gap-1 text-slate-400">
-                          <span>ETA: {raceAnalysis.analysis.threat_eta_minutes?.toFixed(0)}m</span>
+                          <span>ETA: {raceAnalysis.analysis.threatening_vessel.eta_minutes?.toFixed(0) || '--'}m</span>
                           <span>RM: {raceAnalysis.analysis.threatening_vessel.river_mile?.toFixed(1)}</span>
                         </div>
                       </div>

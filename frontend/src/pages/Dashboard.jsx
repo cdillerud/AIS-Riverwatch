@@ -1363,6 +1363,17 @@ export default function Dashboard({
                             </div>
                           </div>
                         ))}
+                        {/* Show "You" in queue ONLY if this is the lock you're heading toward */}
+                        {userVessel && nextLock && selectedLock === nextLock.id && (
+                          <div className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-cyan-900/30 border border-cyan-500/30">
+                            <span className="text-cyan-400 font-semibold">
+                              {lockQueue.length + 1}. You
+                            </span>
+                            <span className="text-cyan-400 font-mono">
+                              {lockTravelInfo.distance}mi
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

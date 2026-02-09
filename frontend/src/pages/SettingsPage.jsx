@@ -1323,7 +1323,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                               onClick={() => updateDemoVesselPosition(vessel.mmsi)}
                               className="h-6 px-2 text-xs bg-cyan-600 hover:bg-cyan-500"
                             >
-                              Save
+                              Save (Pauses Auto)
                             </Button>
                             <Button
                               size="sm"
@@ -1341,19 +1341,45 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                             <span>{vessel.heading === 'northbound' ? '↑ Upriver' : '↓ Downriver'}</span>
                             <span>{vessel.speed?.toFixed(1)} kts</span>
                             <span>{vessel.barge_count}B</span>
+                            {vessel.paused && (
+                              <span className="text-amber-400 font-semibold">⏸ PAUSED</span>
+                            )}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => startEditDemoVessel(vessel)}
-                            className="h-6 px-2 text-xs text-cyan-400 hover:text-white"
-                          >
-                            Edit Position
-                          </Button>
+                          <div className="flex gap-1">
+                            {vessel.paused && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => resumeDemoVessel(vessel.mmsi)}
+                                className="h-6 px-2 text-xs text-green-400 hover:text-white"
+                              >
+                                Resume
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => startEditDemoVessel(vessel)}
+                              className="h-6 px-2 text-xs text-cyan-400 hover:text-white"
+                            >
+                              Edit
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
                   ))}
+                  
+                  {/* Resume All button if any are paused */}
+                  {demoVessels.some(v => v.paused) && (
+                    <Button
+                      size="sm"
+                      onClick={resumeAllDemoVessels}
+                      className="w-full h-7 text-xs bg-green-600 hover:bg-green-500"
+                    >
+                      Resume All Auto-Movement
+                    </Button>
+                  )}
                 </div>
               )}
 

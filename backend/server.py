@@ -5458,6 +5458,12 @@ async def simulate_demo_vessels():
                 continue
             
             for vessel_id, config in DEMO_VESSELS.items():
+                mmsi = config["mmsi"]
+                
+                # Skip paused vessels (manual control mode)
+                if mmsi in demo_vessels_paused:
+                    continue
+                
                 current_rm = demo_vessel_positions[vessel_id]
                 speed_mph = config["speed_knots"] * 1.15078
                 

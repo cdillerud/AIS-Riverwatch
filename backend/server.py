@@ -1413,6 +1413,103 @@ async def get_demo_vessels_status():
     }
 
 
+@api_router.get("/demo-vessels")
+async def get_demo_vessels():
+    """Get current demo vessel data for editing."""
+    demo_data = []
+    for vessel_id, config in DEMO_VESSELS.items():
+        mmsi = config["mmsi"]
+        # Get current position from active_vessels if available
+        current = active_vessels.get(mmsi, {})
+        if isinstance(current, dict):
+            demo_data.append({
+                "id": vessel_id,
+                "mmsi": mmsi,
+                "name": current.get("name", config["name"]),
+                "river_mile": current.get("river_mile", config["start_rm"]),
+                "lat": current.get("lat"),
+                "lon": current.get("lon"),
+                "speed": current.get("speed", config["speed_knots"]),
+                "heading": current.get("heading", "southbound"),
+                "barge_count": current.get("barge_count", config["barge_count"]),
+            })
+        else:
+            # Pydantic model
+            demo_data.append({
+                "id": vessel_id,
+                "mmsi": mmsi,
+                "name": getattr(current, "name", config["name"]),
+                "river_mile": getattr(current, "river_mile", config["start_rm"]),
+                "lat": getattr(current, "lat", None),
+                "lon": getattr(current, "lon", None),
+                "speed": getattr(current, "speed", config["speed_knots"]),
+                "heading": getattr(current, "heading", "southbound"),
+                "barge_count": getattr(current, "barge_count", config["barge_count"]),
+            })
+    return {"demo_vessels": demo_data, "enabled": demo_vessels_active}
+
+
+@api_router.post("/demo-vessels/{mmsi}/position")
+async def update_demo_vessel_position(mmsi: str, request: Request):
+    """Manually update a demo vessel's position for testing."""
+    # Verify this is a demo vessel
+    is_demo = any(config["mmsi"] == mmsi for config in DEMO_VESSELS.values())
+    if not is_demo:
+        raise HTTPException(status_code=400, detail="Not a demo vessel")
+    
+    body = await request.json()
+    
+    if mmsi not in active_vessels:
+        raise HTTPException(status_code=404, detail="Demo vessel not active")
+    
+    vessel = active_vessels[mmsi]
+    
+    # Update position fields
+    if isinstance(vessel, dict):
+        if "river_mile" in body:
+            vessel["river_mile"] = float(body["river_mile"])
+            # Estimate lat/lon from river mile
+            coords = river_mile_to_coords(body["river_mile"])
+            if coords:
+                vessel["lat"] = coords[0]
+                vessel["lon"] = coords[1]
+        if "lat" in body:
+            vessel["lat"] = float(body["lat"])
+        if "lon" in body:
+            vessel["lon"] = float(body["lon"])
+        if "speed" in body:
+            vessel["speed"] = float(body["speed"])
+        if "heading" in body:
+            vessel["heading"] = body["heading"]
+            vessel["heading_direction"] = body["heading"]
+            vessel["direction"] = "upriver" if body["heading"] == "northbound" else "downriver"
+        if "barge_count" in body:
+            vessel["barge_count"] = int(body["barge_count"])
+        vessel["timestamp"] = datetime.now(timezone.utc).isoformat()
+    else:
+        # Pydantic model - need to replace
+        if "river_mile" in body:
+            vessel.river_mile = float(body["river_mile"])
+            coords = river_mile_to_coords(body["river_mile"])
+            if coords:
+                vessel.lat = coords[0]
+                vessel.lon = coords[1]
+        if "lat" in body:
+            vessel.lat = float(body["lat"])
+        if "lon" in body:
+            vessel.lon = float(body["lon"])
+        if "speed" in body:
+            vessel.speed = float(body["speed"])
+        if "heading" in body:
+            vessel.heading = body["heading"]
+        if "barge_count" in body:
+            vessel.barge_count = int(body["barge_count"])
+    
+    logger.info(f"[DEMO] Updated {mmsi} position: RM {body.get('river_mile')}, heading {body.get('heading')}")
+    
+    return {"success": True, "mmsi": mmsi, "updated": body}
+
+
 @api_router.post("/demo-vessels/toggle")
 async def toggle_demo_vessels(request: Request):
     """Toggle demo vessel simulation on/off."""

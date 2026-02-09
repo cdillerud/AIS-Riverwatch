@@ -98,6 +98,16 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [accountType, setAccountType] = useState(user?.account_type || "vessel_owner");
   const [modeToggleLoading, setModeToggleLoading] = useState(false);
 
+  // Demo vessel editor
+  const [demoVessels, setDemoVessels] = useState([]);
+  const [editingDemoVessel, setEditingDemoVessel] = useState(null);
+  const [demoVesselEdit, setDemoVesselEdit] = useState({
+    river_mile: "",
+    speed: "",
+    heading: "southbound",
+    barge_count: ""
+  });
+
   // Load demo vessel status on mount
   const loadDemoVesselsStatus = async () => {
     try {

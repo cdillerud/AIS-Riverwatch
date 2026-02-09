@@ -1423,6 +1423,7 @@ async def get_demo_vessels():
         mmsi = config["mmsi"]
         # Get current position from active_vessels if available
         current = active_vessels.get(mmsi, {})
+        is_paused = mmsi in demo_vessels_paused
         if isinstance(current, dict):
             demo_data.append({
                 "id": vessel_id,
@@ -1434,6 +1435,7 @@ async def get_demo_vessels():
                 "speed": current.get("speed", config["speed_knots"]),
                 "heading": current.get("heading", "southbound"),
                 "barge_count": current.get("barge_count", config["barge_count"]),
+                "paused": is_paused,
             })
         else:
             # Pydantic model
@@ -1447,6 +1449,7 @@ async def get_demo_vessels():
                 "speed": getattr(current, "speed", config["speed_knots"]),
                 "heading": getattr(current, "heading", "southbound"),
                 "barge_count": getattr(current, "barge_count", config["barge_count"]),
+                "paused": is_paused,
             })
     return {"demo_vessels": demo_data, "enabled": demo_vessels_active}
 

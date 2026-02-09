@@ -1363,17 +1363,6 @@ export default function Dashboard({
                             </div>
                           </div>
                         ))}
-                        {/* Only show "You" in queue if within 50 miles of lock */}
-                        {userVessel && parseFloat(lockTravelInfo.distance) <= 50 && (
-                          <div className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-cyan-900/30 border border-cyan-500/30">
-                            <span className="text-cyan-400 font-semibold">
-                              {lockQueue.length + 1}. You
-                            </span>
-                            <span className="text-cyan-400 font-mono">
-                              {lockTravelInfo.distance}mi
-                            </span>
-                          </div>
-                        )}
                       </div>
                     </div>
                   )}

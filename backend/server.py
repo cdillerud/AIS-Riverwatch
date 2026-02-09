@@ -4575,10 +4575,18 @@ async def set_vessel_name(mmsi: str, data: dict):
     # Also update active vessel if present
     if mmsi in active_vessels:
         vessel = active_vessels[mmsi]
-        if data.get('name'):
-            vessel.name = data['name']
-        if data.get('ship_type') is not None:
-            vessel.ship_type = data['ship_type']
+        # Handle both dict and Pydantic model
+        if isinstance(vessel, dict):
+            if data.get('name'):
+                vessel['name'] = data['name']
+            if data.get('ship_type') is not None:
+                vessel['ship_type'] = data['ship_type']
+        else:
+            # Pydantic model
+            if data.get('name'):
+                vessel.name = data['name']
+            if data.get('ship_type') is not None:
+                vessel.ship_type = data['ship_type']
     
     return {"success": True, "cached": vessel_static_cache.get(mmsi), "persisted": True}
 

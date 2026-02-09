@@ -1515,6 +1515,29 @@ async def update_demo_vessel_position(mmsi: str, request: Request):
     return {"success": True, "mmsi": mmsi, "updated": body, "paused": True}
 
 
+@api_router.post("/demo-vessels/{mmsi}/resume")
+async def resume_demo_vessel(mmsi: str):
+    """Resume auto-movement for a demo vessel."""
+    global demo_vessels_paused
+    
+    if mmsi in demo_vessels_paused:
+        del demo_vessels_paused[mmsi]
+        logger.info(f"[DEMO] Resumed auto-movement for {mmsi}")
+        return {"success": True, "mmsi": mmsi, "paused": False}
+    
+    return {"success": True, "mmsi": mmsi, "paused": False, "message": "Vessel was not paused"}
+
+
+@api_router.post("/demo-vessels/resume-all")
+async def resume_all_demo_vessels():
+    """Resume auto-movement for all demo vessels."""
+    global demo_vessels_paused
+    count = len(demo_vessels_paused)
+    demo_vessels_paused.clear()
+    logger.info(f"[DEMO] Resumed auto-movement for all demo vessels")
+    return {"success": True, "resumed_count": count}
+
+
 @api_router.post("/demo-vessels/toggle")
 async def toggle_demo_vessels(request: Request):
     """Toggle demo vessel simulation on/off."""

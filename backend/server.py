@@ -5374,7 +5374,7 @@ async def simulate_demo_vessels():
                 # Create vessel entry with direction info
                 vessel = {
                     "mmsi": config["mmsi"],
-                    "name": config["name"],
+                    "name": vessel_static_cache.get(config["mmsi"], {}).get("name") or config["name"],  # Use cached name if renamed
                     "lat": lat,
                     "lon": lon,
                     "speed": config["speed_knots"],
@@ -5382,7 +5382,7 @@ async def simulate_demo_vessels():
                     "heading": heading_dir,  # String: 'northbound' or 'southbound' for race analysis
                     "heading_direction": heading_dir,
                     "direction": direction_display,  # 'upriver' or 'downriver'
-                    "ship_type": config["ship_type"],
+                    "ship_type": vessel_static_cache.get(config["mmsi"], {}).get("ship_type") or config["ship_type"],  # Use cached type if changed
                     "nav_status": 0,  # Under way using engine
                     "river_mile": round(new_rm, 1),
                     "is_tow": config["is_tow"],

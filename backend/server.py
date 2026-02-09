@@ -1509,7 +1509,10 @@ async def update_demo_vessel_position(mmsi: str, request: Request):
     
     logger.info(f"[DEMO] Updated {mmsi} position: RM {body.get('river_mile')}, heading {body.get('heading')}")
     
-    return {"success": True, "mmsi": mmsi, "updated": body}
+    # Pause auto-movement for this vessel (manual control mode)
+    demo_vessels_paused[mmsi] = True
+    
+    return {"success": True, "mmsi": mmsi, "updated": body, "paused": True}
 
 
 @api_router.post("/demo-vessels/toggle")

@@ -1264,28 +1264,37 @@ export default function Dashboard({
                   
                   {/* Feature #1: Distance & Time Breakdown */}
                   {lockTravelInfo.distance && (
-                    <div className="grid grid-cols-2 gap-2 text-xs pb-2 border-b border-slate-700">
-                      <div className="flex items-center gap-1.5">
-                        <Route className="w-3 h-3 text-slate-500" />
-                        <span className="text-slate-400">Distance:</span>
-                        <span className="text-white font-mono">{lockTravelInfo.distance} mi</span>
+                    <>
+                      {/* Show warning if lock is very far away */}
+                      {parseFloat(lockTravelInfo.distance) > 100 && (
+                        <div className="text-[10px] text-slate-500 bg-slate-800/50 rounded px-2 py-1.5 mb-2 flex items-center gap-1.5">
+                          <Route className="w-3 h-3" />
+                          <span>This lock is {parseFloat(lockTravelInfo.distance).toFixed(0)} miles away. Select a closer lock for relevant timing data.</span>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-2 text-xs pb-2 border-b border-slate-700">
+                        <div className="flex items-center gap-1.5">
+                          <Route className="w-3 h-3 text-slate-500" />
+                          <span className="text-slate-400">Distance:</span>
+                          <span className="text-white font-mono">{lockTravelInfo.distance} mi</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Timer className="w-3 h-3 text-slate-500" />
+                          <span className="text-slate-400">Travel:</span>
+                          <span className="text-white font-mono">{lockTravelInfo.travelMinutes || '--'} min</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 text-slate-500" />
+                          <span className="text-slate-400">Est. Wait:</span>
+                          <span className="text-amber-400 font-mono">~{lockTravelInfo.estimatedWait} min</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Gauge className="w-3 h-3 text-slate-500" />
+                          <span className="text-slate-400">Total:</span>
+                          <span className="text-cyan-400 font-mono font-semibold">~{lockTravelInfo.totalMinutes || '--'} min</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Timer className="w-3 h-3 text-slate-500" />
-                        <span className="text-slate-400">Travel:</span>
-                        <span className="text-white font-mono">{lockTravelInfo.travelMinutes || '--'} min</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3 h-3 text-slate-500" />
-                        <span className="text-slate-400">Est. Wait:</span>
-                        <span className="text-amber-400 font-mono">~{lockTravelInfo.estimatedWait} min</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Gauge className="w-3 h-3 text-slate-500" />
-                        <span className="text-slate-400">Total:</span>
-                        <span className="text-cyan-400 font-mono font-semibold">~{lockTravelInfo.totalMinutes || '--'} min</span>
-                      </div>
-                    </div>
+                    </>
                   )}
                   
                   {/* Threat Info / Clear Status */}

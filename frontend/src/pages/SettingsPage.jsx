@@ -508,6 +508,36 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     });
   };
 
+  // Resume auto-movement for a demo vessel
+  const resumeDemoVessel = async (mmsi) => {
+    try {
+      const response = await fetch(`${API}/demo-vessels/${mmsi}/resume`, {
+        method: "POST"
+      });
+      if (response.ok) {
+        toast.success("Resumed auto-movement");
+        loadDemoVessels();
+      }
+    } catch (error) {
+      toast.error("Failed to resume");
+    }
+  };
+
+  // Resume all demo vessels
+  const resumeAllDemoVessels = async () => {
+    try {
+      const response = await fetch(`${API}/demo-vessels/resume-all`, {
+        method: "POST"
+      });
+      if (response.ok) {
+        toast.success("Resumed all demo vessels");
+        loadDemoVessels();
+      }
+    } catch (error) {
+      toast.error("Failed to resume");
+    }
+  };
+
   // Load vessel cache
   const loadVesselCache = async () => {
     try {

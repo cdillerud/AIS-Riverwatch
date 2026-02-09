@@ -717,6 +717,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     loadVesselCache();
     loadBlockedMmsi();
     loadDemoVesselsStatus();
+    loadDemoVessels();
   }, []);
 
   const handleSave = async () => {

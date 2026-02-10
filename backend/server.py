@@ -1406,7 +1406,7 @@ demo_vessels_active = True
 demo_vessels_paused = {}  # {mmsi: True} - paused vessels won't auto-move
 
 # Illinois River filter toggle and stats
-illinois_filter_enabled = True
+illinois_filter_enabled = False  # DISABLED by default - enable in settings if needed
 filter_stats = {"passed": 0, "filtered": 0}
 
 @api_router.get("/filter/stats")

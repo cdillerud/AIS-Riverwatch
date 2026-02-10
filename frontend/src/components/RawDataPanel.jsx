@@ -137,6 +137,12 @@ export default function RawDataPanel({ isConnected, compact = false }) {
             >
               AIS
             </Badge>
+            <Badge 
+              className={`cursor-pointer text-[9px] px-1.5 py-0 ${filter === 'demo' ? 'bg-purple-500/30 text-purple-400' : 'bg-slate-800/50 text-slate-500'}`}
+              onClick={() => setFilter('demo')}
+            >
+              DEMO
+            </Badge>
           </div>
           <div className="flex items-center gap-1">
             <Button

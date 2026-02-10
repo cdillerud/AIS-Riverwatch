@@ -43,7 +43,7 @@ const getSentenceInfo = (line) => {
 export default function RawDataPanel({ isConnected, compact = false }) {
   const [lines, setLines] = useState([]);
   const [isPaused, setIsPaused] = useState(false);
-  const [filter, setFilter] = useState('all'); // 'all', 'gps', 'ais', 'own'
+  const [filter, setFilter] = useState('all'); // 'all', 'gps', 'ais', 'own', 'demo'
   const [stats, setStats] = useState({ gps: 0, ais: 0, own: 0, other: 0, demo: 0 });
   const scrollRef = useRef(null);
   const wsRef = useRef(null);

@@ -5365,6 +5365,53 @@ async def broadcast_raw_line(line: str):
     # Clean up disconnected clients
     raw_data_subscribers.difference_update(disconnected)
 
+
+def generate_nmea_checksum(sentence: str) -> str:
+    """Calculate NMEA checksum for a sentence (without $ and *)."""
+    checksum = 0
+    for char in sentence:
+        checksum ^= ord(char)
+    return f"{checksum:02X}"
+
+
+async def broadcast_demo_nmea(mmsi: str, lat: float, lon: float, speed_knots: float, course: float):
+    """Generate and broadcast simulated NMEA sentences for demo vessels."""
+    if not raw_data_subscribers:
+        return
+    
+    # Generate simulated AIS position report (Message Type 1)
+    # Format: !AIVDM,1,1,,A,<payload>,0*<checksum>
+    # For simplicity, we'll create a readable pseudo-NMEA that shows the data
+    
+    now = datetime.now(timezone.utc)
+    time_str = now.strftime("%H%M%S")
+    date_str = now.strftime("%d%m%y")
+    
+    # Convert lat/lon to NMEA format (DDMM.MMMM)
+    lat_deg = int(abs(lat))
+    lat_min = (abs(lat) - lat_deg) * 60
+    lat_dir = 'N' if lat >= 0 else 'S'
+    lat_nmea = f"{lat_deg:02d}{lat_min:07.4f}"
+    
+    lon_deg = int(abs(lon))
+    lon_min = (abs(lon) - lon_deg) * 60
+    lon_dir = 'W' if lon < 0 else 'E'
+    lon_nmea = f"{lon_deg:03d}{lon_min:07.4f}"
+    
+    # Generate simulated GPRMC (GPS position)
+    gprmc_body = f"GPRMC,{time_str}.00,A,{lat_nmea},{lat_dir},{lon_nmea},{lon_dir},{speed_knots:.1f},{course:.1f},{date_str},,,A"
+    gprmc_checksum = generate_nmea_checksum(gprmc_body)
+    gprmc_sentence = f"${gprmc_body}*{gprmc_checksum}"
+    
+    # Generate simulated AIS VDM (simplified - shows MMSI and position in comment format)
+    # Real AIS is binary encoded, but for demo we'll use a readable format
+    aivdm_comment = f"!AIVDM,1,1,,A,DEMO:{mmsi}:LAT{lat:.4f}:LON{lon:.4f}:SPD{speed_knots:.1f}:CRS{course:.0f},0*00"
+    
+    # Broadcast both sentences
+    await broadcast_raw_line(f"[DEMO] {gprmc_sentence}")
+    await broadcast_raw_line(f"[DEMO] {aivdm_comment}")
+
+
 # Include the router in the main app
 app.include_router(api_router)
 

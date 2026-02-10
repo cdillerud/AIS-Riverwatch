@@ -1420,6 +1420,26 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 </div>
               )}
 
+              {/* Illinois River Filter Toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300">Filter Illinois River</Label>
+                  <p className="text-xs text-slate-500">
+                    Only show vessels on Upper Mississippi (hide Illinois River traffic)
+                  </p>
+                  {filterStats.filtered > 0 && (
+                    <p className="text-[10px] text-amber-400 mt-1">
+                      {filterStats.passed} passed, {filterStats.filtered} filtered
+                    </p>
+                  )}
+                </div>
+                <Switch
+                  checked={illinoisFilterEnabled}
+                  onCheckedChange={(checked) => toggleIllinoisFilter(checked)}
+                  data-testid="settings-illinois-filter"
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label className="text-slate-300">
                   Zoom Range: <span className="text-cyan-400 font-mono">±{settings.map_zoom_miles} miles</span>

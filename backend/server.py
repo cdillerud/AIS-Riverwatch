@@ -1405,6 +1405,29 @@ async def admin_delete_vessel(request: Request, mmsi: str):
 demo_vessels_active = True
 demo_vessels_paused = {}  # {mmsi: True} - paused vessels won't auto-move
 
+# Illinois River filter toggle and stats
+illinois_filter_enabled = True
+filter_stats = {"passed": 0, "filtered": 0}
+
+@api_router.get("/filter/stats")
+async def get_filter_stats():
+    """Get Illinois River filter statistics."""
+    return {
+        "enabled": illinois_filter_enabled,
+        "passed": filter_stats["passed"],
+        "filtered": filter_stats["filtered"],
+        "total": filter_stats["passed"] + filter_stats["filtered"]
+    }
+
+@api_router.post("/filter/toggle")
+async def toggle_illinois_filter(request: Request):
+    """Toggle Illinois River filter on/off."""
+    global illinois_filter_enabled
+    body = await request.json()
+    illinois_filter_enabled = body.get("enabled", not illinois_filter_enabled)
+    logger.info(f"Illinois River filter {'enabled' if illinois_filter_enabled else 'disabled'}")
+    return {"enabled": illinois_filter_enabled}
+
 @api_router.get("/demo-vessels/status")
 async def get_demo_vessels_status():
     """Get current demo vessel simulation status."""

@@ -404,6 +404,38 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     }
   };
 
+  // Load Illinois River filter status
+  const loadFilterStatus = async () => {
+    try {
+      const response = await fetch(`${API}/filter/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setIllinoisFilterEnabled(data.enabled);
+        setFilterStats({ passed: data.passed, filtered: data.filtered });
+      }
+    } catch (error) {
+      console.error("Failed to load filter status:", error);
+    }
+  };
+
+  // Toggle Illinois River filter
+  const toggleIllinoisFilter = async (enabled) => {
+    try {
+      const response = await fetch(`${API}/filter/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setIllinoisFilterEnabled(data.enabled);
+        toast.success(`Illinois River filter ${data.enabled ? 'enabled' : 'disabled'}`);
+      }
+    } catch (error) {
+      toast.error("Failed to toggle filter");
+    }
+  };
+
   // Load blocked MMSIs
   const loadBlockedMmsi = async () => {
     try {

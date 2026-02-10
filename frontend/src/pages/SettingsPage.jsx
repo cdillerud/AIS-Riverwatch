@@ -59,6 +59,10 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [demoVesselsEnabled, setDemoVesselsEnabled] = useState(true);
   const [demoToggleLoading, setDemoToggleLoading] = useState(false);
   
+  // Illinois River filter toggle
+  const [illinoisFilterEnabled, setIllinoisFilterEnabled] = useState(true);
+  const [filterStats, setFilterStats] = useState({ passed: 0, filtered: 0 });
+  
   // Vessel name cache management
   const [vesselCache, setVesselCache] = useState({});
   const [newVesselMmsi, setNewVesselMmsi] = useState("");

@@ -157,9 +157,19 @@ export default function RawDataPanel({ isConnected, compact = false }) {
                 <p className="text-[10px]">Connect to see raw data</p>
               </div>
             ) : filteredLines.length === 0 ? (
-              <div className="text-center py-4 text-slate-500">
-                <Terminal className="w-6 h-6 mx-auto mb-1 opacity-30" />
-                <p className="text-[10px]">Waiting for data...</p>
+              <div className="text-center py-6 text-slate-500">
+                <Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p className="text-[11px] font-medium mb-1">No NMEA Data</p>
+                <p className="text-[9px] text-slate-600 max-w-[200px] mx-auto">
+                  Raw data will appear here when:
+                </p>
+                <ul className="text-[9px] text-slate-600 mt-1 text-left max-w-[180px] mx-auto space-y-0.5">
+                  <li>• AIS TCP feed is connected</li>
+                  <li>• Demo vessels are enabled (simulated NMEA)</li>
+                </ul>
+                <p className="text-[9px] text-cyan-400/60 mt-2">
+                  Check Settings → Connection
+                </p>
               </div>
             ) : (
               filteredLines.slice(-50).map((item) => {

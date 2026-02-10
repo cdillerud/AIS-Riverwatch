@@ -95,7 +95,7 @@ export default function RawDataPanel({ isConnected, compact = false }) {
 
   const clearLines = () => {
     setLines([]);
-    setStats({ gps: 0, ais: 0, own: 0, other: 0 });
+    setStats({ gps: 0, ais: 0, own: 0, other: 0, demo: 0 });
   };
 
   const downloadLog = () => {

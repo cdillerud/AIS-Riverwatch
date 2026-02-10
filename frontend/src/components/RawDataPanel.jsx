@@ -280,6 +280,13 @@ export default function RawDataPanel({ isConnected, compact = false }) {
             <MapPin className="w-3 h-3 mr-1" />
             Own ({stats.own})
           </Badge>
+          <Badge 
+            className={`cursor-pointer ${filter === 'demo' ? 'bg-purple-500/30 text-purple-400' : 'bg-slate-800 text-slate-400'}`}
+            onClick={() => setFilter('demo')}
+          >
+            <Radio className="w-3 h-3 mr-1" />
+            Demo ({stats.demo})
+          </Badge>
         </div>
       </CardHeader>
 

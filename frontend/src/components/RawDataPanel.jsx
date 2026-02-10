@@ -12,6 +12,16 @@ const MAX_LINES = 200;
 
 // Categorize NMEA sentence types
 const getSentenceInfo = (line) => {
+  // Demo vessel simulated data
+  if (line.startsWith('[DEMO]')) {
+    if (line.includes('GPRMC') || line.includes('GPGGA')) {
+      return { type: 'DEMO', icon: Satellite, color: 'text-purple-400', bg: 'bg-purple-900/20' };
+    }
+    if (line.includes('AIVDM')) {
+      return { type: 'DEMO', icon: Ship, color: 'text-purple-400', bg: 'bg-purple-900/20' };
+    }
+    return { type: 'DEMO', icon: Radio, color: 'text-purple-400', bg: 'bg-purple-900/20' };
+  }
   if (line.startsWith('$GPGGA') || line.startsWith('$GNGGA')) {
     return { type: 'GPS', icon: Satellite, color: 'text-green-400', bg: 'bg-green-900/20' };
   }

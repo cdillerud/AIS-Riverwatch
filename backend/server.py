@@ -2134,13 +2134,15 @@ class AISConnectionManager:
                 return
             
             # Filter out vessels not on Upper Mississippi (e.g., Illinois River)
+            # Only filter if we have actual position data (some AIS messages are static data without position)
             lat = vessel_data.get('lat')
             lon = vessel_data.get('lon')
-            if illinois_filter_enabled and lat and lon and not is_on_upper_mississippi(lat, lon):
-                filter_stats["filtered"] += 1
-                logger.debug(f"Filtered vessel {mmsi_parsed} - not on Upper Mississippi (lat={lat}, lon={lon})")
-                return
-            filter_stats["passed"] += 1
+            if illinois_filter_enabled and lat is not None and lon is not None:
+                if not is_on_upper_mississippi(lat, lon):
+                    filter_stats["filtered"] += 1
+                    logger.debug(f"Filtered vessel {mmsi_parsed} - not on Upper Mississippi (lat={lat}, lon={lon})")
+                    return
+                filter_stats["passed"] += 1
             
             # Calculate river mile and heading
             rm = estimate_river_mile(vessel_data['lat'], vessel_data['lon'])

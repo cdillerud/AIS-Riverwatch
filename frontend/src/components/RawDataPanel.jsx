@@ -277,8 +277,19 @@ export default function RawDataPanel({ isConnected, compact = false }) {
               </div>
             ) : filteredLines.length === 0 ? (
               <div className="text-center py-8 text-slate-500">
-                <Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                <p>Waiting for data...</p>
+                <Terminal className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm font-medium mb-2">No NMEA Data Received</p>
+                <p className="text-xs text-slate-600 max-w-[280px] mx-auto mb-3">
+                  Raw NMEA sentences will appear here when data is flowing from your AIS receiver or when demo vessels are active.
+                </p>
+                <div className="text-xs text-slate-600 text-left max-w-[240px] mx-auto space-y-1">
+                  <p className="font-medium text-slate-400">To see data:</p>
+                  <p>• Connect to an AIS TCP feed in Settings</p>
+                  <p>• Or enable Demo Vessels (simulated NMEA)</p>
+                </div>
+                <p className="text-xs text-cyan-400/60 mt-4">
+                  Demo vessels generate [DEMO] prefixed sentences
+                </p>
               </div>
             ) : (
               filteredLines.map((item) => {

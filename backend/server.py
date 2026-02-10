@@ -5534,6 +5534,9 @@ async def simulate_demo_vessels():
                 # Store in active_vessels
                 active_vessels[config["mmsi"]] = vessel
                 
+                # Generate simulated NMEA and broadcast to raw data subscribers
+                await broadcast_demo_nmea(config["mmsi"], lat, lon, config["speed_knots"], course)
+                
                 # Persist to database
                 asyncio.create_task(persist_vessel_sighting(vessel))
             

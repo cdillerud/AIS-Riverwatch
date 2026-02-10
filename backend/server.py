@@ -2137,7 +2137,13 @@ class AISConnectionManager:
             # Only filter if we have actual position data (some AIS messages are static data without position)
             lat = vessel_data.get('lat')
             lon = vessel_data.get('lon')
-            if illinois_filter_enabled and lat is not None and lon is not None:
+            
+            # Skip vessels without position data
+            if lat is None or lon is None:
+                # This is likely a static data message (type 5) - just cache the name
+                return
+            
+            if illinois_filter_enabled:
                 if not is_on_upper_mississippi(lat, lon):
                     filter_stats["filtered"] += 1
                     logger.debug(f"Filtered vessel {mmsi_parsed} - not on Upper Mississippi (lat={lat}, lon={lon})")
@@ -2145,7 +2151,7 @@ class AISConnectionManager:
                 filter_stats["passed"] += 1
             
             # Calculate river mile and heading
-            rm = estimate_river_mile(vessel_data['lat'], vessel_data['lon'])
+            rm = estimate_river_mile(lat, lon)
             heading = determine_heading(vessel_data['speed'], vessel_data['course'])
             
             # Preserve existing name if new data doesn't have one

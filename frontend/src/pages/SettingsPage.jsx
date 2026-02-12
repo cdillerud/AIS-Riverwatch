@@ -457,9 +457,9 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
 
   // Load user vessel simulation status
   const loadUserSimulation = async () => {
-    if (!userMmsi) return;
+    if (!settings.user_mmsi) return;
     try {
-      const response = await fetch(`${API}/user-vessel/simulation/${userMmsi}`);
+      const response = await fetch(`${API}/user-vessel/simulation/${settings.user_mmsi}`);
       if (response.ok) {
         const data = await response.json();
         setUserSimEnabled(data.simulation_enabled || false);
@@ -474,12 +474,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
 
   // Update user vessel simulation
   const updateUserSimulation = async (enabled) => {
-    if (!userMmsi) {
+    if (!settings.user_mmsi) {
       toast.error("No vessel MMSI configured");
       return;
     }
     try {
-      const response = await fetch(`${API}/user-vessel/simulation/${userMmsi}`, {
+      const response = await fetch(`${API}/user-vessel/simulation/${settings.user_mmsi}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -835,7 +835,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     loadDemoVessels();
     loadFilterStatus();
     loadUserSimulation();
-  }, [userMmsi]);
+  }, [settings.user_mmsi]);
 
   const handleSave = async () => {
     setSaving(true);

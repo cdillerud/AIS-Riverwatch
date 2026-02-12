@@ -63,6 +63,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [illinoisFilterEnabled, setIllinoisFilterEnabled] = useState(true);
   const [filterStats, setFilterStats] = useState({ passed: 0, filtered: 0 });
   
+  // User vessel simulation
+  const [userSimEnabled, setUserSimEnabled] = useState(false);
+  const [userSimRiverMile, setUserSimRiverMile] = useState("815.0");
+  const [userSimSpeed, setUserSimSpeed] = useState("5.0");
+  const [userSimHeading, setUserSimHeading] = useState("southbound");
+  
   // Vessel name cache management
   const [vesselCache, setVesselCache] = useState({});
   const [newVesselMmsi, setNewVesselMmsi] = useState("");

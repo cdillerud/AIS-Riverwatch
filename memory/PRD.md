@@ -139,6 +139,7 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 - [x] Bug Fixed: Frontend `userMmsi` undefined variable changed to `settings.user_mmsi`
 - [x] Feature isolated to vessel_owner account type (hidden in traffic_watch mode)
 - [x] Test file created: `/app/backend/tests/test_user_vessel_simulation.py`
+- [x] **Quick Test button** added - one-click preset (RM 820, 8 kts, southbound) for instant testing
 
 ### UI/UX Improvements ✅
 - [x] Nearby Vessels sorted by River Mile (descending)

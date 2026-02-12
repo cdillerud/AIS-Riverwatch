@@ -1227,6 +1227,70 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                   Use one of the options above to manually inject your position.
                 </p>
               </div>
+
+              {/* Vessel Simulation Mode */}
+              <div className="p-4 rounded-lg bg-purple-900/20 border border-purple-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Play className="w-5 h-5 text-purple-400" />
+                    <Label className="text-white font-medium">Simulate Vessel Movement</Label>
+                  </div>
+                  <Switch
+                    checked={userSimEnabled}
+                    onCheckedChange={(checked) => updateUserSimulation(checked)}
+                    data-testid="user-simulation-toggle"
+                  />
+                </div>
+                <p className="text-xs text-slate-500">
+                  Automatically move your vessel based on speed and heading for testing when no AIS feed is available.
+                </p>
+                
+                {userSimEnabled && (
+                  <div className="space-y-3 pt-2 border-t border-purple-500/20">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <Label className="text-[10px] text-slate-500">River Mile</Label>
+                        <Input
+                          type="number"
+                          value={userSimRiverMile}
+                          onChange={(e) => setUserSimRiverMile(e.target.value)}
+                          onBlur={() => updateUserSimulation(true)}
+                          className="h-8 text-sm bg-slate-950 border-slate-600"
+                          placeholder="815.0"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-slate-500">Speed (kts)</Label>
+                        <Input
+                          type="number"
+                          value={userSimSpeed}
+                          onChange={(e) => setUserSimSpeed(e.target.value)}
+                          onBlur={() => updateUserSimulation(true)}
+                          className="h-8 text-sm bg-slate-950 border-slate-600"
+                          placeholder="5.0"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-slate-500">Heading</Label>
+                        <select
+                          value={userSimHeading}
+                          onChange={(e) => {
+                            setUserSimHeading(e.target.value);
+                            setTimeout(() => updateUserSimulation(true), 100);
+                          }}
+                          className="w-full h-8 text-sm bg-slate-950 border border-slate-600 rounded px-2 text-white"
+                        >
+                          <option value="northbound">↑ Northbound</option>
+                          <option value="southbound">↓ Southbound</option>
+                        </select>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-purple-400">
+                      Your vessel will move automatically every 10 seconds based on these settings.
+                    </p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
           )}

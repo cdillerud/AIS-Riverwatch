@@ -1235,11 +1235,49 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                     <Play className="w-5 h-5 text-purple-400" />
                     <Label className="text-white font-medium">Simulate Vessel Movement</Label>
                   </div>
-                  <Switch
-                    checked={userSimEnabled}
-                    onCheckedChange={(checked) => updateUserSimulation(checked)}
-                    data-testid="user-simulation-toggle"
-                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        if (!settings.user_mmsi) {
+                          toast.error("Please set your MMSI in 'Your Vessel' section first");
+                          return;
+                        }
+                        // Quick test preset: RM 820, 8 knots, southbound
+                        setUserSimRiverMile("820.0");
+                        setUserSimSpeed("8.0");
+                        setUserSimHeading("southbound");
+                        try {
+                          const response = await fetch(`${API}/user-vessel/simulation/${settings.user_mmsi}`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              enabled: true,
+                              river_mile: 820.0,
+                              speed_knots: 8.0,
+                              heading: "southbound"
+                            })
+                          });
+                          if (response.ok) {
+                            setUserSimEnabled(true);
+                            toast.success("Quick Test started! Vessel at RM 820, 8 kts southbound");
+                          }
+                        } catch (error) {
+                          toast.error("Failed to start simulation");
+                        }
+                      }}
+                      className="h-7 px-2 text-xs border-purple-500/50 text-purple-400 hover:bg-purple-500/20"
+                      data-testid="quick-test-btn"
+                    >
+                      Quick Test
+                    </Button>
+                    <Switch
+                      checked={userSimEnabled}
+                      onCheckedChange={(checked) => updateUserSimulation(checked)}
+                      data-testid="user-simulation-toggle"
+                    />
+                  </div>
                 </div>
                 <p className="text-xs text-slate-500">
                   Automatically move your vessel based on speed and heading for testing when no AIS feed is available.

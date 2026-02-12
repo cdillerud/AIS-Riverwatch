@@ -5743,6 +5743,38 @@ async def simulate_demo_vessels():
                 # Persist to database
                 asyncio.create_task(persist_vessel_sighting(vessel))
             
+            # ALSO simulate user vessels if enabled
+            for mmsi, sim in list(user_vessel_simulation.items()):
+                if not sim.get('enabled'):
+                    continue
+                
+                current_rm = sim.get('river_mile', 815.0)
+                speed_knots = sim.get('speed_knots', 0)
+                heading = sim.get('heading', 'southbound')
+                
+                # Skip if not moving
+                if speed_knots < 0.1:
+                    continue
+                
+                speed_mph = speed_knots * 1.15078
+                movement = speed_mph * (10 / 3600)  # Movement per 10 seconds
+                
+                if heading == "southbound":
+                    new_rm = current_rm - movement
+                else:
+                    new_rm = current_rm + movement
+                
+                # Clamp to river bounds
+                new_rm = max(180.0, min(860.0, new_rm))
+                
+                # Update simulation state
+                sim['river_mile'] = new_rm
+                
+                # Update vessel in active_vessels
+                await _update_simulated_user_vessel(mmsi, sim)
+                
+                logger.debug(f"[USER SIM] {mmsi}: RM {current_rm:.1f} -> {new_rm:.1f} ({heading})")
+            
         except asyncio.CancelledError:
             logger.info("Demo vessel simulation stopped")
             break

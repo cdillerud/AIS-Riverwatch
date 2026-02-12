@@ -265,6 +265,11 @@ Remaining (Phase 3 - Code Consolidation):
 - `GET /api/locks/{lock_id}/water-conditions` - USGS water data
 - `GET /api/session/{mmsi}/race-analysis/{lock_id}` - Race analysis
 
+### User Vessel Simulation
+- `GET /api/user-vessel/simulation/{mmsi}` - Get simulation status and parameters
+- `POST /api/user-vessel/simulation/{mmsi}` - Enable/configure simulation
+- `POST /api/user-vessel/simulation/{mmsi}/stop` - Stop simulation
+
 ## Refresh Intervals
 - Vessels: 30 seconds (WebSocket provides real-time updates)
 - Race Analysis: 20 seconds

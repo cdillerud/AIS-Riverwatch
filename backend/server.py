@@ -1405,6 +1405,9 @@ async def admin_delete_vessel(request: Request, mmsi: str):
 demo_vessels_active = True
 demo_vessels_paused = {}  # {mmsi: True} - paused vessels won't auto-move
 
+# User vessel simulation state
+user_vessel_simulation = {}  # {mmsi: {enabled: bool, speed_knots: float, heading: str, river_mile: float}}
+
 # Illinois River filter toggle and stats
 illinois_filter_enabled = False  # DISABLED by default - enable in settings if needed
 filter_stats = {"passed": 0, "filtered": 0}
@@ -1427,6 +1430,126 @@ async def toggle_illinois_filter(request: Request):
     illinois_filter_enabled = body.get("enabled", not illinois_filter_enabled)
     logger.info(f"Illinois River filter {'enabled' if illinois_filter_enabled else 'disabled'}")
     return {"enabled": illinois_filter_enabled}
+
+
+# ============================================================================
+# USER VESSEL SIMULATION
+# ============================================================================
+
+@api_router.get("/user-vessel/simulation/{mmsi}")
+async def get_user_vessel_simulation(mmsi: str):
+    """Get user vessel simulation status."""
+    sim = user_vessel_simulation.get(mmsi, {})
+    vessel = active_vessels.get(mmsi, {})
+    
+    # Get current position from active_vessels
+    if isinstance(vessel, dict):
+        current_rm = vessel.get('river_mile', 815.0)
+        current_speed = vessel.get('speed', 0)
+        current_heading = vessel.get('heading', 'southbound')
+    else:
+        current_rm = getattr(vessel, 'river_mile', 815.0)
+        current_speed = getattr(vessel, 'speed', 0)
+        current_heading = getattr(vessel, 'heading', 'southbound')
+    
+    return {
+        "mmsi": mmsi,
+        "simulation_enabled": sim.get('enabled', False),
+        "river_mile": sim.get('river_mile', current_rm),
+        "speed_knots": sim.get('speed_knots', current_speed),
+        "heading": sim.get('heading', current_heading),
+        "in_active_vessels": mmsi in active_vessels
+    }
+
+
+@api_router.post("/user-vessel/simulation/{mmsi}")
+async def set_user_vessel_simulation(mmsi: str, request: Request):
+    """Enable/configure user vessel simulation."""
+    body = await request.json()
+    
+    sim = user_vessel_simulation.get(mmsi, {
+        'enabled': False,
+        'river_mile': 815.0,
+        'speed_knots': 5.0,
+        'heading': 'southbound'
+    })
+    
+    # Update simulation config
+    if 'enabled' in body:
+        sim['enabled'] = body['enabled']
+    if 'river_mile' in body:
+        sim['river_mile'] = float(body['river_mile'])
+    if 'speed_knots' in body:
+        sim['speed_knots'] = float(body['speed_knots'])
+    if 'heading' in body:
+        sim['heading'] = body['heading']
+    
+    user_vessel_simulation[mmsi] = sim
+    
+    # If enabling, create/update the vessel in active_vessels
+    if sim['enabled']:
+        await _update_simulated_user_vessel(mmsi, sim)
+    
+    logger.info(f"[USER SIM] {mmsi}: enabled={sim['enabled']}, RM={sim['river_mile']}, speed={sim['speed_knots']}, heading={sim['heading']}")
+    
+    return {"success": True, "simulation": sim}
+
+
+@api_router.post("/user-vessel/simulation/{mmsi}/stop")
+async def stop_user_vessel_simulation(mmsi: str):
+    """Stop user vessel simulation."""
+    if mmsi in user_vessel_simulation:
+        user_vessel_simulation[mmsi]['enabled'] = False
+        logger.info(f"[USER SIM] {mmsi}: simulation stopped")
+    return {"success": True, "mmsi": mmsi, "enabled": False}
+
+
+async def _update_simulated_user_vessel(mmsi: str, sim: dict):
+    """Update/create the simulated user vessel in active_vessels."""
+    rm = sim['river_mile']
+    speed = sim['speed_knots']
+    heading = sim['heading']
+    
+    # Get coordinates from river mile
+    coords = river_mile_to_coords(rm)
+    if coords:
+        lat, lon = coords
+    else:
+        lat, lon = 44.74, -92.85  # Default to Lock 2 area
+    
+    # Calculate course from heading
+    course = 0 if heading == 'northbound' else 180
+    
+    # Get existing vessel name from cache or active_vessels
+    name = "Your Vessel"
+    if mmsi in vessel_static_cache:
+        name = vessel_static_cache[mmsi].get('name', name)
+    elif mmsi in active_vessels:
+        v = active_vessels[mmsi]
+        name = v.get('name', name) if isinstance(v, dict) else getattr(v, 'name', name)
+    
+    vessel = {
+        "mmsi": mmsi,
+        "name": name,
+        "lat": lat,
+        "lon": lon,
+        "speed": speed,
+        "course": course,
+        "heading": heading,
+        "heading_direction": heading,
+        "direction": "upriver" if heading == "northbound" else "downriver",
+        "river_mile": round(rm, 1),
+        "is_user_vessel": True,
+        "is_simulated": True,
+        "ship_type": 37,  # Pleasure craft
+        "nav_status": 0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    active_vessels[mmsi] = vessel
+    
+    # Broadcast to raw data subscribers
+    await broadcast_demo_nmea(mmsi, lat, lon, speed, course)
 
 @api_router.get("/demo-vessels/status")
 async def get_demo_vessels_status():

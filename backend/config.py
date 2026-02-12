@@ -19,7 +19,7 @@ def get_cors_origins():
     # Default origins for development and production
     return [
         "http://localhost:3000",
-        "https://mississippitracker.preview.emergentagent.com"
+        "https://lock-timing-demo.preview.emergentagent.com"
     ]
 
 # AIS Connection defaults

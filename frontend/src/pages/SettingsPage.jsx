@@ -455,6 +455,49 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     }
   };
 
+  // Load user vessel simulation status
+  const loadUserSimulation = async () => {
+    if (!userMmsi) return;
+    try {
+      const response = await fetch(`${API}/user-vessel/simulation/${userMmsi}`);
+      if (response.ok) {
+        const data = await response.json();
+        setUserSimEnabled(data.simulation_enabled || false);
+        setUserSimRiverMile(data.river_mile?.toString() || "815.0");
+        setUserSimSpeed(data.speed_knots?.toString() || "5.0");
+        setUserSimHeading(data.heading || "southbound");
+      }
+    } catch (error) {
+      console.error("Failed to load user simulation:", error);
+    }
+  };
+
+  // Update user vessel simulation
+  const updateUserSimulation = async (enabled) => {
+    if (!userMmsi) {
+      toast.error("No vessel MMSI configured");
+      return;
+    }
+    try {
+      const response = await fetch(`${API}/user-vessel/simulation/${userMmsi}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: enabled,
+          river_mile: parseFloat(userSimRiverMile) || 815.0,
+          speed_knots: parseFloat(userSimSpeed) || 5.0,
+          heading: userSimHeading
+        })
+      });
+      if (response.ok) {
+        setUserSimEnabled(enabled);
+        toast.success(enabled ? "Vessel simulation started" : "Vessel simulation stopped");
+      }
+    } catch (error) {
+      toast.error("Failed to update simulation");
+    }
+  };
+
   // Add MMSI to block list
   const addBlockedMmsi = async () => {
     if (!newBlockedMmsi.trim()) {

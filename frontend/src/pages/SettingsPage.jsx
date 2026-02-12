@@ -21,7 +21,7 @@ import {
   Wifi, Bell, MapPin, AlertTriangle, Plus, Trash2, Users,
   Navigation, Crosshair, Loader2, Ban, Terminal, Shield,
   UserPlus, UserMinus, Eye, EyeOff, RefreshCw, BarChart3,
-  Key, Search, ChevronRight
+  Key, Search, ChevronRight, Play
 } from "lucide-react";
 import { toast } from "sonner";
 import VesselManagement from "@/components/VesselManagement";

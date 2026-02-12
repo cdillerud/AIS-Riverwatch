@@ -834,7 +834,8 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     loadDemoVesselsStatus();
     loadDemoVessels();
     loadFilterStatus();
-  }, []);
+    loadUserSimulation();
+  }, [userMmsi]);
 
   const handleSave = async () => {
     setSaving(true);

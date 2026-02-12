@@ -131,6 +131,15 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 - [x] Fixed: Mode toggle correctly routes to SetupPage for watch point configuration when needed
 - [x] Fixed: AIS WebSocket connection maintained across mode switches
 
+### User Vessel Simulation Feature ✅ (February 12, 2026)
+- [x] Implemented vessel simulation for testing when no live AIS feed is available
+- [x] Settings page UI controls: toggle switch, river mile, speed (knots), heading (northbound/southbound)
+- [x] Backend API: GET/POST /api/user-vessel/simulation/{mmsi}
+- [x] Simulated vessel appears on Dashboard map at correct position
+- [x] Bug Fixed: Frontend `userMmsi` undefined variable changed to `settings.user_mmsi`
+- [x] Feature isolated to vessel_owner account type (hidden in traffic_watch mode)
+- [x] Test file created: `/app/backend/tests/test_user_vessel_simulation.py`
+
 ### UI/UX Improvements ✅
 - [x] Nearby Vessels sorted by River Mile (descending)
 - [x] Removed Locks/Raw tabs, moved Raw Data to Settings

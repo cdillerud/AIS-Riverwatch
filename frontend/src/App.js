@@ -639,7 +639,8 @@ function MainApp() {
 
     ws.onopen = () => {
       console.log("WebSocket connected, sending connection request...");
-      setIsConnected(true);
+      // Don't set isConnected here - wait for actual AIS connection confirmation
+      // setIsConnected(true); -- Removed: This was incorrect
       // Send connection config including boat name for proper identification
       ws.send(JSON.stringify({
         action: "connect",
@@ -654,13 +655,17 @@ function MainApp() {
       const data = JSON.parse(event.data);
       
       if (data.type === "connected") {
-        // Silently log - don't toast to avoid spam across sessions
-        console.log("AIS feed status:", data.message);
+        // AIS TCP connection to relay hub succeeded
+        console.log("AIS feed connected:", data.message);
+        setIsConnected(true);
       } else if (data.type === "disconnected") {
-        // Only log, don't toast - this fires for all subscribers
-        console.log("AIS feed status:", data.message);
+        // AIS TCP connection to relay hub failed/disconnected
+        console.log("AIS feed disconnected:", data.message);
+        setIsConnected(false);
       } else if (data.type === "error") {
-        // Only show errors to the user
+        // Connection error (e.g., "Connection refused")
+        console.error("AIS connection error:", data.message);
+        setIsConnected(false);
         toast.error(data.message);
       } else if (data.type === "vessel_update") {
         // OPTIMIZED: Throttle vessel updates - batch them every 2 seconds

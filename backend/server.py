@@ -5568,6 +5568,39 @@ async def broadcast_demo_nmea(mmsi: str, lat: float, lon: float, speed_knots: fl
     await broadcast_raw_line(f"[DEMO] {aivdm_comment}")
 
 
+@api_router.post("/debug/inject-nmea")
+async def inject_test_nmea(request: Request):
+    """
+    Inject a test NMEA sentence to verify the raw data pipeline is working.
+    Useful for debugging when you're not sure if:
+    - The WebSocket connection to browser is working
+    - The AIS TCP connection to Boat Beacon is working
+    """
+    body = await request.json()
+    sentence = body.get("sentence", "!AIVDM,1,1,,A,TEST_SENTENCE_FROM_DEBUG_ENDPOINT,0*00")
+    
+    # Broadcast to all raw data subscribers
+    await broadcast_raw_line(f"[TEST] {sentence}")
+    
+    return {
+        "success": True,
+        "message": "Test sentence broadcasted",
+        "sentence": sentence,
+        "subscriber_count": len(raw_data_subscribers)
+    }
+
+
+@api_router.get("/debug/raw-subscribers")
+async def get_raw_subscribers():
+    """Check how many clients are subscribed to raw NMEA data."""
+    return {
+        "subscriber_count": len(raw_data_subscribers),
+        "ais_connected": ais_manager.is_connected,
+        "ais_config": ais_manager.get_status().get("config"),
+        "last_data_time": ais_manager.get_status().get("last_data_time")
+    }
+
+
 # Include the router in the main app
 app.include_router(api_router)
 

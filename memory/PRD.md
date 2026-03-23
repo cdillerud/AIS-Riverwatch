@@ -209,11 +209,18 @@ Completed (Phase 2 - Performance):
 - [x] `/api/debug/performance` endpoint for monitoring cache stats and connections
 
 Remaining (Phase 3 - Code Consolidation):
+- [x] Extract AISConnectionManager class to `services/ais_connection.py` (~380 lines) - CREATED
+- [x] Create WebSocket handlers module `services/websocket_handlers.py` (~170 lines) - CREATED  
+- [x] Create Repository layer `repositories/__init__.py` (~400 lines) - CREATED
 - [ ] Migrate inline routes to use route modules (remove duplicates from server.py)
-- [ ] Extract AISConnectionManager class to `services/ais_connection.py` (~500 lines)
-- [ ] Move WebSocket handlers to `websocket/` directory (~200 lines)
+- [ ] Wire up new services/repositories to replace inline code in server.py
 - [ ] Remove duplicate parsing functions from server.py
-- [ ] Target: Reduce server.py from ~5,400 lines to <2,000 lines
+- [ ] Target: Reduce server.py from ~5,876 lines to <2,000 lines
+
+**New Modules Created (March 23, 2026):**
+- `services/ais_connection.py` - AIS TCP connection manager with watchdog
+- `services/websocket_handlers.py` - WebSocket endpoint handlers for /ws/ais and /ws/raw
+- `repositories/__init__.py` - Database repository layer (Vessel, User, Session, TrafficWatch, LockPassage, Settings)
 
 **Note**: Phase 3 requires careful testing as it removes code rather than adding modules.
 

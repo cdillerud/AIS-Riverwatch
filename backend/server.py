@@ -94,6 +94,17 @@ from services.http_client import (
     close_http_client,
     fetch_with_retry
 )
+# Import WebSocket handlers (for reference, not actively replacing yet)
+# These will be used incrementally as we refactor
+from services.websocket_handlers import (
+    broadcast_raw_line as _ws_broadcast_raw_line,
+    broadcast_demo_nmea as _ws_broadcast_demo_nmea,
+    get_raw_subscriber_count as _ws_get_raw_subscriber_count
+)
+# Note: AIS Connection Manager still in server.py - will be migrated incrementally
+# from services.ais_connection import ais_manager
+# Import repositories
+from repositories import RepositoryFactory
 
 
 ROOT_DIR = Path(__file__).parent

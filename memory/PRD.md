@@ -211,16 +211,31 @@ Completed (Phase 2 - Performance):
 Remaining (Phase 3 - Code Consolidation):
 - [x] Extract AISConnectionManager class to `services/ais_connection.py` (~380 lines) - CREATED
 - [x] Create WebSocket handlers module `services/websocket_handlers.py` (~170 lines) - CREATED  
-- [x] Create Repository layer `repositories/__init__.py` (~400 lines) - CREATED
-- [ ] Migrate inline routes to use route modules (remove duplicates from server.py)
-- [ ] Wire up new services/repositories to replace inline code in server.py
-- [ ] Remove duplicate parsing functions from server.py
-- [ ] Target: Reduce server.py from ~5,876 lines to <2,000 lines
+- [x] Create Repository layer `repositories/__init__.py` (~480 lines) - CREATED
+- [x] Replace vessel_names db calls with repos.vessels (3 calls)
+- [x] Replace blocked_mmsi db calls with repos.blocked_mmsi (4 calls)
+- [ ] Replace db.users calls (48 remaining)
+- [ ] Replace db.user_sessions calls (9 remaining)
+- [ ] Replace db.lockage_history calls (12 remaining)
+- [ ] Replace db.vessel_sightings calls (6 remaining)
+- [ ] Migrate inline routes to use route modules
+- [ ] Wire up new AIS connection manager to replace inline class
+- [ ] Target: Reduce server.py from ~5,866 lines to <2,000 lines (currently 89 db calls remain)
+
+**Repository Classes Created:**
+- VesselRepository - vessel names cache
+- UserRepository - user accounts
+- SessionRepository - user sessions
+- TrafficWatchRepository - watch points
+- LockPassageRepository - lock passage history
+- SettingsRepository - global app settings
+- UserSettingsRepository - per-user settings
+- BlockedMMSIRepository - blocked vessel list
 
 **New Modules Created (March 23, 2026):**
 - `services/ais_connection.py` - AIS TCP connection manager with watchdog
 - `services/websocket_handlers.py` - WebSocket endpoint handlers for /ws/ais and /ws/raw
-- `repositories/__init__.py` - Database repository layer (Vessel, User, Session, TrafficWatch, LockPassage, Settings)
+- `repositories/__init__.py` - Database repository layer with 8 repositories
 
 **Note**: Phase 3 requires careful testing as it removes code rather than adding modules.
 

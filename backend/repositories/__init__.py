@@ -340,6 +340,84 @@ class SettingsRepository:
             return False
 
 
+class UserSettingsRepository:
+    """Repository for per-user settings (by MMSI)."""
+    
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.db = db
+        self.collection = db.user_settings
+    
+    async def get_settings(self, mmsi: str) -> Optional[Dict]:
+        """Get settings for a specific MMSI."""
+        try:
+            doc = await self.collection.find_one(
+                {"mmsi": mmsi},
+                {"_id": 0}
+            )
+            return doc
+        except Exception as e:
+            logger.error(f"Error getting user settings for {mmsi}: {e}")
+            return None
+    
+    async def save_settings(self, mmsi: str, settings: Dict) -> bool:
+        """Save or update settings for a specific MMSI."""
+        try:
+            settings["mmsi"] = mmsi
+            settings["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await self.collection.update_one(
+                {"mmsi": mmsi},
+                {"$set": settings},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error saving user settings for {mmsi}: {e}")
+            return False
+
+
+class BlockedMMSIRepository:
+    """Repository for blocked MMSI list."""
+    
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.db = db
+        self.collection = db.blocked_mmsi
+    
+    async def get_all_blocked(self) -> List[Dict]:
+        """Get all blocked MMSIs."""
+        try:
+            cursor = self.collection.find({}, {"_id": 0})
+            return await cursor.to_list(length=100)
+        except Exception as e:
+            logger.error(f"Error getting blocked MMSIs: {e}")
+            return []
+    
+    async def block_mmsi(self, mmsi: str, reason: Optional[str] = None) -> bool:
+        """Block an MMSI."""
+        try:
+            await self.collection.update_one(
+                {"mmsi": mmsi},
+                {"$set": {
+                    "mmsi": mmsi,
+                    "reason": reason,
+                    "blocked_at": datetime.now(timezone.utc).isoformat()
+                }},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error blocking MMSI {mmsi}: {e}")
+            return False
+    
+    async def unblock_mmsi(self, mmsi: str) -> bool:
+        """Unblock an MMSI."""
+        try:
+            result = await self.collection.delete_one({"mmsi": mmsi})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error unblocking MMSI {mmsi}: {e}")
+            return False
+
+
 # Repository factory
 class RepositoryFactory:
     """Factory for creating repository instances."""
@@ -352,6 +430,8 @@ class RepositoryFactory:
         self._traffic_watch: Optional[TrafficWatchRepository] = None
         self._lock_passages: Optional[LockPassageRepository] = None
         self._settings: Optional[SettingsRepository] = None
+        self._user_settings: Optional[UserSettingsRepository] = None
+        self._blocked_mmsi: Optional[BlockedMMSIRepository] = None
     
     @property
     def vessels(self) -> VesselRepository:
@@ -388,3 +468,15 @@ class RepositoryFactory:
         if self._settings is None:
             self._settings = SettingsRepository(self.db)
         return self._settings
+    
+    @property
+    def user_settings(self) -> UserSettingsRepository:
+        if self._user_settings is None:
+            self._user_settings = UserSettingsRepository(self.db)
+        return self._user_settings
+    
+    @property
+    def blocked_mmsi(self) -> BlockedMMSIRepository:
+        if self._blocked_mmsi is None:
+            self._blocked_mmsi = BlockedMMSIRepository(self.db)
+        return self._blocked_mmsi

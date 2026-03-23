@@ -115,6 +115,9 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# Initialize repository factory for cleaner database access
+repos = RepositoryFactory(db)
+
 # Helper function to persist vessel sighting with USACE data
 async def persist_vessel_sighting(vessel_data: dict):
     """
@@ -2333,16 +2336,11 @@ class AISConnectionManager:
             # Persist vessel name to database if we got one from AIS
             if vessel_data.get('name') and vessel_data.get('_persist_to_db'):
                 try:
-                    await db.vessel_names.update_one(
-                        {"mmsi": mmsi_parsed},
-                        {"$set": {
-                            "mmsi": mmsi_parsed,
-                            "name": vessel_data['name'],
-                            "ship_type": vessel_data.get('ship_type'),
-                            "source": "AIS",
-                            "updated_at": datetime.now(timezone.utc).isoformat()
-                        }},
-                        upsert=True
+                    await repos.vessels.save_vessel_name(
+                        mmsi=mmsi_parsed,
+                        name=vessel_data['name'],
+                        ship_type=vessel_data.get('ship_type'),
+                        source="AIS"
                     )
                 except Exception as e:
                     logger.error(f"Failed to persist vessel name to DB: {e}")
@@ -4860,10 +4858,11 @@ async def set_vessel_name(mmsi: str, data: dict):
         update_data['ship_type'] = data['ship_type']
     
     # Persist to MongoDB for sharing across users and sessions
-    await db.vessel_names.update_one(
-        {"mmsi": mmsi},
-        {"$set": update_data},
-        upsert=True
+    await repos.vessels.save_vessel_name(
+        mmsi=mmsi,
+        name=data.get('name'),
+        ship_type=data.get('ship_type'),
+        source="user"
     )
     logger.info(f"Saved vessel name to database: MMSI {mmsi} = {data.get('name')}")
     
@@ -4890,8 +4889,7 @@ async def load_vessel_names_from_db():
     global vessel_static_cache
     
     try:
-        cursor = db.vessel_names.find({}, {"_id": 0})
-        vessels = await cursor.to_list(length=1000)
+        vessels = await repos.vessels.get_all_vessel_names()
         
         for v in vessels:
             mmsi = v.get("mmsi")
@@ -5318,7 +5316,7 @@ async def save_user_settings(mmsi: str, data: dict):
 @api_router.get("/blocked-mmsi")
 async def get_blocked_mmsi():
     """Get list of user-blocked MMSIs."""
-    blocked = await db.blocked_mmsi.find({}, {"_id": 0}).to_list(100)
+    blocked = await repos.blocked_mmsi.get_all_blocked()
     return {
         "blocked": blocked,
         "system_filtered": list(FILTERED_MMSI)
@@ -5336,15 +5334,7 @@ async def add_blocked_mmsi(data: dict):
         return {"success": False, "error": "MMSI required"}
     
     # Add to database
-    await db.blocked_mmsi.update_one(
-        {"mmsi": mmsi},
-        {"$set": {
-            "mmsi": mmsi,
-            "reason": reason,
-            "blocked_at": datetime.now(timezone.utc).isoformat()
-        }},
-        upsert=True
-    )
+    await repos.blocked_mmsi.block_mmsi(mmsi, reason)
     
     # Add to in-memory set
     user_blocked_mmsi.add(mmsi)
@@ -5363,12 +5353,12 @@ async def remove_blocked_mmsi(mmsi: str):
     global user_blocked_mmsi
     
     # Remove from database
-    result = await db.blocked_mmsi.delete_one({"mmsi": mmsi})
+    success = await repos.blocked_mmsi.unblock_mmsi(mmsi)
     
     # Remove from in-memory set
     user_blocked_mmsi.discard(mmsi)
     
-    if result.deleted_count > 0:
+    if success:
         logger.info(f"Unblocked MMSI {mmsi}")
         return {"success": True, "mmsi": mmsi}
     else:
@@ -5389,7 +5379,7 @@ async def get_filter_config():
 async def load_blocked_mmsi():
     """Load user-blocked MMSIs from database on startup."""
     global user_blocked_mmsi
-    blocked = await db.blocked_mmsi.find({}, {"_id": 0}).to_list(100)
+    blocked = await repos.blocked_mmsi.get_all_blocked()
     user_blocked_mmsi = {item["mmsi"] for item in blocked}
     logger.info(f"Loaded {len(user_blocked_mmsi)} blocked MMSIs from database")
 

@@ -15,10 +15,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: riverwatch-backend
-    ports:
-      - "8001:8001"
+    network_mode: host
     environment:
-      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_URL=mongodb://localhost:27017
       - DB_NAME=riverwatch
       - CORS_ORIGINS=*
     depends_on:

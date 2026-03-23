@@ -211,21 +211,30 @@ Completed (Phase 2 - Performance):
 Remaining (Phase 3 - Code Consolidation):
 - [x] Extract AISConnectionManager class to `services/ais_connection.py` (~380 lines) - CREATED
 - [x] Create WebSocket handlers module `services/websocket_handlers.py` (~170 lines) - CREATED  
-- [x] Create Repository layer `repositories/__init__.py` (~480 lines) - CREATED
+- [x] Create Repository layer `repositories/__init__.py` (~540 lines) - CREATED & EXPANDED
 - [x] Replace vessel_names db calls with repos.vessels (3 calls)
 - [x] Replace blocked_mmsi db calls with repos.blocked_mmsi (4 calls)
-- [ ] Replace db.users calls (48 remaining)
-- [ ] Replace db.user_sessions calls (9 remaining)
+- [x] Replace majority of db.users calls (31 of 48 replaced)
+- [x] Replace majority of db.user_sessions calls (8 of 9 replaced)
+- [ ] Replace remaining db.users calls (17 remaining)
 - [ ] Replace db.lockage_history calls (12 remaining)
 - [ ] Replace db.vessel_sightings calls (6 remaining)
+- [ ] Replace db.vessel_history calls (4 remaining)
+- [ ] Replace db.user_settings calls (6 remaining)
 - [ ] Migrate inline routes to use route modules
 - [ ] Wire up new AIS connection manager to replace inline class
-- [ ] Target: Reduce server.py from ~5,866 lines to <2,000 lines (currently 89 db calls remain)
+- [ ] Target: Reduce server.py from ~5,850 lines to <2,000 lines (currently 50 db calls remain, down from 96)
+
+**Progress Summary (March 23, 2026):**
+- Started with 96 direct db.* calls in server.py
+- Replaced 46 calls with repository pattern
+- 50 db calls remaining
+- repos.* calls: 46
 
 **Repository Classes Created:**
 - VesselRepository - vessel names cache
-- UserRepository - user accounts
-- SessionRepository - user sessions
+- UserRepository - user accounts (expanded with get_user_by_email, update_by_email, find_by_vessel_mmsi)
+- SessionRepository - user sessions (expanded with get_by_token, delete_by_token, count_active)
 - TrafficWatchRepository - watch points
 - LockPassageRepository - lock passage history
 - SettingsRepository - global app settings

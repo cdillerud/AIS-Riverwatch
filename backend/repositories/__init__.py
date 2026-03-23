@@ -72,7 +72,7 @@ class UserRepository:
     
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
-        self.collection = db.user_accounts
+        self.collection = db.users  # Note: matches server.py collection name
     
     async def get_user_by_email(self, email: str) -> Optional[Dict]:
         """Get user by email address."""
@@ -90,8 +90,20 @@ class UserRepository:
         """Get user by their ID."""
         try:
             doc = await self.collection.find_one(
-                {"id": user_id},
+                {"user_id": user_id},  # Changed from "id" to "user_id"
                 {"_id": 0}
+            )
+            return doc
+        except Exception as e:
+            logger.error(f"Error getting user by id: {e}")
+            return None
+    
+    async def get_user_by_id_exclude_password(self, user_id: str) -> Optional[Dict]:
+        """Get user by ID, excluding password hash."""
+        try:
+            doc = await self.collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0, "password_hash": 0}
             )
             return doc
         except Exception as e:
@@ -114,42 +126,74 @@ class UserRepository:
         try:
             updates["updated_at"] = datetime.now(timezone.utc).isoformat()
             result = await self.collection.update_one(
-                {"id": user_id},
+                {"user_id": user_id},
                 {"$set": updates}
             )
-            return result.modified_count > 0
+            return result.modified_count > 0 or result.matched_count > 0
         except Exception as e:
             logger.error(f"Error updating user: {e}")
+            return False
+    
+    async def update_user_by_email(self, email: str, updates: Dict) -> bool:
+        """Update user account by email."""
+        try:
+            updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+            result = await self.collection.update_one(
+                {"email": email.lower()},
+                {"$set": updates}
+            )
+            return result.modified_count > 0 or result.matched_count > 0
+        except Exception as e:
+            logger.error(f"Error updating user by email: {e}")
             return False
     
     async def delete_user(self, user_id: str) -> bool:
         """Delete a user account."""
         try:
-            result = await self.collection.delete_one({"id": user_id})
+            result = await self.collection.delete_one({"user_id": user_id})
             return result.deleted_count > 0
         except Exception as e:
             logger.error(f"Error deleting user: {e}")
             return False
     
-    async def get_all_users(self, skip: int = 0, limit: int = 100) -> List[Dict]:
-        """Get all users with pagination."""
+    async def get_all_users(
+        self, 
+        skip: int = 0, 
+        limit: int = 100,
+        query: Dict = None,
+        sort_field: str = "created_at",
+        sort_order: int = -1
+    ) -> List[Dict]:
+        """Get all users with pagination and optional filtering."""
         try:
             cursor = self.collection.find(
-                {},
-                {"_id": 0, "hashed_password": 0}
-            ).skip(skip).limit(limit)
+                query or {},
+                {"_id": 0, "password_hash": 0}
+            ).skip(skip).limit(limit).sort(sort_field, sort_order)
             return await cursor.to_list(length=limit)
         except Exception as e:
             logger.error(f"Error getting all users: {e}")
             return []
     
-    async def count_users(self) -> int:
-        """Count total users."""
+    async def count_users(self, query: Dict = None) -> int:
+        """Count total users matching query."""
         try:
-            return await self.collection.count_documents({})
+            return await self.collection.count_documents(query or {})
         except Exception as e:
             logger.error(f"Error counting users: {e}")
             return 0
+    
+    async def find_user_by_vessel_mmsi(self, mmsi: str) -> Optional[Dict]:
+        """Find user who owns a vessel by MMSI."""
+        try:
+            doc = await self.collection.find_one(
+                {"vessels.mmsi": mmsi},
+                {"_id": 0, "user_id": 1}
+            )
+            return doc
+        except Exception as e:
+            logger.error(f"Error finding user by vessel mmsi: {e}")
+            return None
 
 
 class SessionRepository:
@@ -157,7 +201,7 @@ class SessionRepository:
     
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
-        self.collection = db.sessions
+        self.collection = db.user_sessions  # Changed to match server.py
     
     async def create_session(self, session_data: Dict) -> bool:
         """Create a new session."""
@@ -181,13 +225,34 @@ class SessionRepository:
             logger.error(f"Error getting session: {e}")
             return None
     
+    async def get_session_by_token(self, session_token: str) -> Optional[Dict]:
+        """Get session by token."""
+        try:
+            doc = await self.collection.find_one(
+                {"session_token": session_token},
+                {"_id": 0}
+            )
+            return doc
+        except Exception as e:
+            logger.error(f"Error getting session by token: {e}")
+            return None
+    
     async def delete_session(self, session_id: str) -> bool:
-        """Delete a session."""
+        """Delete a session by ID."""
         try:
             result = await self.collection.delete_one({"session_id": session_id})
             return result.deleted_count > 0
         except Exception as e:
             logger.error(f"Error deleting session: {e}")
+            return False
+    
+    async def delete_session_by_token(self, session_token: str) -> bool:
+        """Delete a session by token."""
+        try:
+            result = await self.collection.delete_one({"session_token": session_token})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error deleting session by token: {e}")
             return False
     
     async def delete_user_sessions(self, user_id: str) -> int:
@@ -197,6 +262,17 @@ class SessionRepository:
             return result.deleted_count
         except Exception as e:
             logger.error(f"Error deleting user sessions: {e}")
+            return 0
+    
+    async def count_active_sessions(self, since: datetime = None) -> int:
+        """Count active sessions, optionally since a specific time."""
+        try:
+            query = {}
+            if since:
+                query["created_at"] = {"$gte": since.isoformat()}
+            return await self.collection.count_documents(query)
+        except Exception as e:
+            logger.error(f"Error counting active sessions: {e}")
             return 0
 
 

@@ -308,10 +308,7 @@ async def get_current_user(request: Request) -> Optional[dict]:
         return None
     
     # Find session in database
-    session_doc = await db.user_sessions.find_one(
-        {"session_token": session_token},
-        {"_id": 0}
-    )
+    session_doc = await repos.sessions.get_session_by_token(session_token)
     
     if not session_doc:
         return None
@@ -327,10 +324,7 @@ async def get_current_user(request: Request) -> Optional[dict]:
             return None
     
     # Get user
-    user_doc = await db.users.find_one(
-        {"user_id": session_doc["user_id"]},
-        {"_id": 0}
-    )
+    user_doc = await repos.users.get_user_by_id(session_doc["user_id"])
     
     return user_doc
 
@@ -342,7 +336,7 @@ async def get_current_user(request: Request) -> Optional[dict]:
 async def register_user(data: UserRegistration, response: Response):
     """Register a new user with email/password."""
     # Check if email already exists
-    existing = await db.users.find_one({"email": data.email}, {"_id": 0})
+    existing = await repos.users.get_user_by_email(data.email)
     if existing:
         # Return a friendly message instead of error
         return {
@@ -373,12 +367,12 @@ async def register_user(data: UserRegistration, response: Response):
         "auth_provider": "email"
     }
     
-    await db.users.insert_one(user_doc)
+    await repos.users.create_user(user_doc)
     logger.info(f"[AUTH] New user registered: {data.email} ({user_id})" + (" [SUPER ADMIN]" if is_super else ""))
     
     # Create session
     session_token = generate_session_token()
-    await db.user_sessions.insert_one({
+    await repos.sessions.create_session({
         "user_id": user_id,
         "session_token": session_token,
         "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
@@ -407,7 +401,7 @@ async def register_user(data: UserRegistration, response: Response):
 async def login_user(data: UserLogin, response: Response):
     """Login with email/password."""
     # Find user
-    user_doc = await db.users.find_one({"email": data.email}, {"_id": 0})
+    user_doc = await repos.users.get_user_by_email(data.email)
     if not user_doc:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
@@ -423,15 +417,12 @@ async def login_user(data: UserLogin, response: Response):
         update_fields["is_admin"] = True
         update_fields["is_super_admin"] = True
     
-    await db.users.update_one(
-        {"user_id": user_doc["user_id"]},
-        {"$set": update_fields}
-    )
+    await repos.users.update_user(user_doc["user_id"], update_fields)
     user_doc.update(update_fields)
     
     # Create session
     session_token = generate_session_token()
-    await db.user_sessions.insert_one({
+    await repos.sessions.create_session({
         "user_id": user_doc["user_id"],
         "session_token": session_token,
         "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
@@ -484,7 +475,7 @@ async def google_auth_session(request: Request, response: Response):
     # Find or create user
     email = google_data.get("email")
     is_super = email.lower() == SUPER_ADMIN_EMAIL.lower()
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    existing_user = await repos.users.get_user_by_email(email)
     
     if existing_user:
         user_id = existing_user["user_id"]
@@ -500,11 +491,8 @@ async def google_auth_session(request: Request, response: Response):
             update_fields["is_admin"] = True
             update_fields["is_super_admin"] = True
         
-        await db.users.update_one(
-            {"user_id": user_id},
-            {"$set": update_fields}
-        )
-        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        await repos.users.update_user(user_id, update_fields)
+        user_doc = await repos.users.get_user_by_id(user_id)
         logger.info(f"[AUTH] Google user logged in: {email}" + (" [SUPER ADMIN]" if is_super else ""))
     else:
         # Create new user
@@ -524,12 +512,12 @@ async def google_auth_session(request: Request, response: Response):
             "created_at": datetime.now(timezone.utc).isoformat(),
             "auth_provider": "google"
         }
-        await db.users.insert_one(user_doc)
+        await repos.users.create_user(user_doc)
         logger.info(f"[AUTH] New Google user created: {email} ({user_id})" + (" [SUPER ADMIN]" if is_super else ""))
     
     # Create session
     session_token = generate_session_token()
-    await db.user_sessions.insert_one({
+    await repos.sessions.create_session({
         "user_id": user_id,
         "session_token": session_token,
         "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
@@ -575,12 +563,12 @@ async def logout_user(request: Request, response: Response):
     
     if session_token:
         # Get the user's session to find their MMSI
-        session = await db.user_sessions.find_one({"session_token": session_token})
+        session = await repos.sessions.get_session_by_token(session_token)
         if session:
             user_id = session.get("user_id")
             if user_id:
                 # Get user's vessels to clear them from active_vessels
-                user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+                user = await repos.users.get_user_by_id(user_id)
                 if user and user.get("vessels"):
                     for vessel in user["vessels"]:
                         mmsi = vessel.get("mmsi")
@@ -589,7 +577,7 @@ async def logout_user(request: Request, response: Response):
                             logger.info(f"[AUTH] Cleared vessel {mmsi} from active_vessels on logout")
         
         # Delete the session
-        await db.user_sessions.delete_one({"session_token": session_token})
+        await repos.sessions.delete_session_by_token(session_token)
     
     response.delete_cookie(key="session_token", path="/")
     
@@ -1095,10 +1083,8 @@ async def admin_get_users(request: Request, search: str = None, limit: int = 50,
             {"name": {"$regex": search, "$options": "i"}}
         ]
     
-    cursor = db.users.find(query, {"_id": 0, "password_hash": 0}).skip(skip).limit(limit).sort("created_at", -1)
-    users = await cursor.to_list(length=limit)
-    
-    total = await db.users.count_documents(query)
+    users = await repos.users.get_all_users(skip=skip, limit=limit, query=query)
+    total = await repos.users.count_users(query)
     
     return {"users": users, "total": total, "limit": limit, "skip": skip}
 
@@ -1118,7 +1104,7 @@ async def admin_create_user(request: Request):
         raise HTTPException(status_code=400, detail="Email is required")
     
     # Check if user exists
-    existing = await db.users.find_one({"email": email})
+    existing = await repos.users.get_user_by_email(email)
     if existing:
         raise HTTPException(status_code=400, detail="User with this email already exists")
     
@@ -1139,7 +1125,7 @@ async def admin_create_user(request: Request):
         "auth_provider": "admin_created"
     }
     
-    await db.users.insert_one(user_doc)
+    await repos.users.create_user(user_doc)
     logger.info(f"[ADMIN] User created by {admin['email']}: {email}")
     
     user_doc.pop("password_hash", None)
@@ -1152,7 +1138,7 @@ async def admin_delete_user(request: Request, user_id: str):
     admin = await require_admin(request)
     
     # Find the user first
-    user = await db.users.find_one({"user_id": user_id})
+    user = await repos.users.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -1165,10 +1151,10 @@ async def admin_delete_user(request: Request, user_id: str):
         raise HTTPException(status_code=403, detail="Cannot delete your own account")
     
     # Delete user sessions
-    await db.user_sessions.delete_many({"user_id": user_id})
+    await repos.sessions.delete_user_sessions(user_id)
     
     # Delete user
-    await db.users.delete_one({"user_id": user_id})
+    await repos.users.delete_user(user_id)
     
     logger.info(f"[ADMIN] User deleted by {admin['email']}: {user['email']}")
     return {"success": True, "deleted_user_id": user_id}
@@ -1179,7 +1165,7 @@ async def admin_update_user(request: Request, user_id: str):
     admin = await require_admin(request)
     body = await request.json()
     
-    user = await db.users.find_one({"user_id": user_id})
+    user = await repos.users.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -1206,10 +1192,10 @@ async def admin_update_user(request: Request, user_id: str):
             raise HTTPException(status_code=403, detail="Only super admin can change admin status")
     
     if update_fields:
-        await db.users.update_one({"user_id": user_id}, {"$set": update_fields})
+        await repos.users.update_user(user_id, update_fields)
         logger.info(f"[ADMIN] User updated by {admin['email']}: {user['email']}")
     
-    updated_user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    updated_user = await repos.users.get_user_by_id_exclude_password(user_id)
     return {"success": True, "user": updated_user}
 
 @api_router.post("/admin/users/{user_id}/promote")
@@ -1217,11 +1203,11 @@ async def admin_promote_user(request: Request, user_id: str):
     """Promote a user to admin (super admin only)."""
     await require_super_admin(request)
     
-    user = await db.users.find_one({"user_id": user_id})
+    user = await repos.users.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": True}})
+    await repos.users.update_user(user_id, {"is_admin": True})
     logger.info(f"[ADMIN] User promoted to admin: {user['email']}")
     
     return {"success": True, "message": f"{user['email']} is now an admin"}
@@ -1231,14 +1217,14 @@ async def admin_demote_user(request: Request, user_id: str):
     """Demote a user from admin (super admin only)."""
     admin = await require_super_admin(request)
     
-    user = await db.users.find_one({"user_id": user_id})
+    user = await repos.users.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     if user.get("is_super_admin"):
         raise HTTPException(status_code=403, detail="Cannot demote super admin")
     
-    await db.users.update_one({"user_id": user_id}, {"$set": {"is_admin": False}})
+    await repos.users.update_user(user_id, {"is_admin": False})
     logger.info(f"[ADMIN] User demoted from admin: {user['email']}")
     
     return {"success": True, "message": f"{user['email']} is no longer an admin"}
@@ -1253,14 +1239,11 @@ async def admin_reset_password(request: Request, user_id: str):
     if not new_password:
         raise HTTPException(status_code=400, detail="New password is required")
     
-    user = await db.users.find_one({"user_id": user_id})
+    user = await repos.users.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    await db.users.update_one(
-        {"user_id": user_id},
-        {"$set": {"password_hash": hash_password(new_password)}}
-    )
+    await repos.users.update_user(user_id, {"password_hash": hash_password(new_password)})
     
     logger.info(f"[ADMIN] Password reset by {admin['email']} for: {user['email']}")
     return {"success": True, "message": f"Password reset for {user['email']}"}
@@ -1270,16 +1253,16 @@ async def admin_impersonate_user(request: Request, response: Response, user_id: 
     """Impersonate a user (admin only). Creates a session as that user."""
     admin = await require_admin(request)
     
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    user = await repos.users.get_user_by_id_exclude_password(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     # Create impersonation session
     session_token = generate_session_token()
-    await db.user_sessions.insert_one({
+    await repos.sessions.create_session({
         "user_id": user_id,
         "session_token": session_token,
-        "expires_at": datetime.now(timezone.utc) + timedelta(hours=2),  # Shorter session for impersonation
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=2),
         "created_at": datetime.now(timezone.utc),
         "impersonated_by": admin["user_id"],
         "impersonated_by_email": admin["email"]
@@ -1306,10 +1289,10 @@ async def admin_get_stats(request: Request):
     """Get system statistics (admin only)."""
     await require_admin(request)
     
-    total_users = await db.users.count_documents({})
-    admin_users = await db.users.count_documents({"is_admin": True})
-    vessel_owners = await db.users.count_documents({"account_type": "vessel_owner"})
-    traffic_watchers = await db.users.count_documents({"account_type": "traffic_watch"})
+    total_users = await repos.users.count_users()
+    admin_users = await repos.users.count_users({"is_admin": True})
+    vessel_owners = await repos.users.count_users({"account_type": "vessel_owner"})
+    traffic_watchers = await repos.users.count_users({"account_type": "traffic_watch"})
     
     # Active sessions (not expired)
     active_sessions = await db.user_sessions.count_documents({
@@ -1318,7 +1301,7 @@ async def admin_get_stats(request: Request):
     
     # Recent signups (last 7 days)
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    recent_signups = await db.users.count_documents({
+    recent_signups = await repos.users.count_users({
         "created_at": {"$gte": week_ago}
     })
     

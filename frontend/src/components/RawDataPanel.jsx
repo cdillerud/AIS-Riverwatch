@@ -50,11 +50,29 @@ export default function RawDataPanel({ isConnected, compact = false }) {
 
   // Connect to raw data WebSocket
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected) {
+      console.log("[RawDataPanel] Not connecting - isConnected is false");
+      return;
+    }
 
     const WS_URL = process.env.REACT_APP_BACKEND_URL?.replace('https://', 'wss://').replace('http://', 'ws://');
-    const ws = new WebSocket(`${WS_URL}/api/ws/raw`);
+    const wsUrl = `${WS_URL}/api/ws/raw`;
+    console.log("[RawDataPanel] Connecting to WebSocket:", wsUrl);
+    
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("[RawDataPanel] WebSocket connected successfully");
+    };
+
+    ws.onerror = (error) => {
+      console.error("[RawDataPanel] WebSocket error:", error);
+    };
+
+    ws.onclose = (event) => {
+      console.log("[RawDataPanel] WebSocket closed:", event.code, event.reason);
+    };
 
     ws.onmessage = (event) => {
       if (isPaused) return;
@@ -75,16 +93,22 @@ export default function RawDataPanel({ isConnected, compact = false }) {
             ...prev,
             [info.type.toLowerCase()]: prev[info.type.toLowerCase()] + 1
           }));
+        } else if (data.type === 'keepalive') {
+          // Ignore keepalive messages
+        } else {
+          console.log("[RawDataPanel] Received message:", data.type);
         }
       } catch (e) {
         // Not JSON, treat as raw line
+        console.log("[RawDataPanel] Non-JSON message:", event.data);
       }
     };
 
     return () => {
+      console.log("[RawDataPanel] Cleaning up WebSocket");
       if (ws) ws.close();
     };
-  }, [isConnected, isPaused]);
+  }, [isConnected]); // Removed isPaused from deps to prevent reconnects on pause
 
   // Auto-scroll to bottom
   useEffect(() => {

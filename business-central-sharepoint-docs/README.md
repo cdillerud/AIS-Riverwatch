@@ -47,3 +47,15 @@ If you share:
 - and target BC pages/documents to support first,
 
 I can implement the next iteration to attach this directly to specific Business Central records and workflows.
+
+## Purchase Invoice focus (current iteration)
+
+This iteration adds actions directly on the **Purchase Invoice** page:
+
+- **Upload to SharePoint**: prompts user for a local file and uploads to SharePoint.
+- **View SharePoint Documents**: opens the metadata list filtered to the current purchase invoice.
+
+Notes:
+
+- The purchase invoice record must exist (saved) before upload.
+- Upload now sends binary stream content (`application/octet-stream`) so PDFs and attachments are supported.

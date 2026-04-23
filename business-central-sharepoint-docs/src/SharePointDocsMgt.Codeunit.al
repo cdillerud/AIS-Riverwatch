@@ -4,7 +4,6 @@ codeunit 50300 "SP Docs Mgt"
     var
         Setup: Record "SP Docs Setup";
         DocEntry: Record "SP Document Entry";
-        FileContent: Text;
         TargetPath: Text;
         AccessToken: Text;
         UploadedItemId: Text;
@@ -13,10 +12,9 @@ codeunit 50300 "SP Docs Mgt"
         EnsureSetup(Setup);
         AccessToken := GetGraphToken(Setup);
 
-        InS.ReadText(FileContent);
         TargetPath := BuildTargetPath(Setup, FileName);
 
-        UploadToSharePoint(Setup, AccessToken, TargetPath, FileContent, UploadedItemId, UploadedWebUrl);
+        UploadToSharePoint(Setup, AccessToken, TargetPath, InS, UploadedItemId, UploadedWebUrl);
 
         DocEntry.Init();
         DocEntry."Source Table Id" := SourceRecordId.TableNo;
@@ -87,7 +85,7 @@ codeunit 50300 "SP Docs Mgt"
         exit(AccessTokenJson.AsValue().AsText());
     end;
 
-    local procedure UploadToSharePoint(Setup: Record "SP Docs Setup"; AccessToken: Text; TargetPath: Text; FileContent: Text; var ItemId: Text; var WebUrl: Text)
+    local procedure UploadToSharePoint(Setup: Record "SP Docs Setup"; AccessToken: Text; TargetPath: Text; FileInStream: InStream; var ItemId: Text; var WebUrl: Text)
     var
         Client: HttpClient;
         Request: HttpRequestMessage;
@@ -104,10 +102,10 @@ codeunit 50300 "SP Docs Mgt"
             'https://graph.microsoft.com/v1.0/sites/' + Setup."Site Id" +
             '/drives/' + Setup."Drive Id" + '/root:/' + TargetPath + ':/content';
 
-        Content.WriteFrom(FileContent);
+        Content.WriteFrom(FileInStream);
         Content.GetHeaders(Headers);
         Headers.Clear();
-        Headers.Add('Content-Type', 'text/plain');
+        Headers.Add('Content-Type', 'application/octet-stream');
 
         Request.SetRequestUri(Endpoint);
         Request.Method('PUT');

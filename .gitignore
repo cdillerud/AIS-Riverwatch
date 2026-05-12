@@ -728,3 +728,12 @@ riverwatch_*.log
 docker-compose.clean.yml.before-prod-proxy.*
 riverwatch-nginx-*-backup-*
 *.tgz
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials

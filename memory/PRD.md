@@ -171,6 +171,20 @@ Synced workspace to baseline commit `e3ff8e0` on branch `riverwatch-runtime-stab
 - [x] 10/10 pytest cases pass at `/app/backend/tests/test_planning.py`
 - [x] testing_agent_v3_fork iteration_7 — 100% backend + frontend pass
 
+### Phase 7: Lock Detail Data Accuracy Audit ✅ (February 12, 2026)
+Audit + corrections requested in user prompt of 2026-02-12 ("audit and correct Lock Detail modal data accuracy").
+
+- [x] **Per-lock water-station catalog** (`backend/lock_stations.py`) with `official_station` + `reference_stations`, each carrying `station_id`, `source`, `river_mile`, `datum`, `thresholds`, `threshold_source`.
+- [x] **Lock 2 mapped to HSTM5** (NWS/USACE Hastings L&D 2) with thresholds `{action:13, flood:15, moderate:17, major:18}` and datum `"USACE Gage Zero 600.00 ft 1912 MSL (NGVD29)"`. Prescott (USGS 05344500) demoted to a labelled **reference station** with `thresholds=null` — never cross-applied.
+- [x] **No cross-station threshold application**: locks without a verified station/threshold pairing (L&D 5/5A/6/7/9/10/12-18/20-25) return `thresholds=null` and the UI displays *"Flood category not defined for this gauge."*
+- [x] New service `services/water_station_service.py` fetches USGS JSON or NWS AHPS XML, builds the structured record with `value`, `units`, `observed_at`, `status`, `status_explanation`, `data_url`, `source_url`, etc.
+- [x] `GET /api/water-conditions/{lock_id}` returns the new `{official, references, selection_reason, fetched_at}` shape (legacy fields preserved).
+- [x] New `GET /api/locks/{lock_id}/water-condition-debug` returns selection reasoning + alternates + raw values + source URLs.
+- [x] `LockDetailModal.jsx` renders station_id/source/datum/threshold_source, supports `not_defined` and `unknown` status states, and exposes a **"Station details / debug"** expandable section showing reference stations and source URLs.
+- [x] **AIS-inferred lockage tracker**: dwell session opens when a vessel is within ±0.2 RM at ≤0.3 kt; closes on exit or speed-up; persists `lockage_history` record with `source="ais_inferred"`, `confidence="medium"`, `mmsi`, `direction`, `start/end_time`, `duration_minutes`. State-machine recordings now tagged `source="ais_state_machine"`.
+- [x] UI: "No lockage history recorded" → **"No recorded lockages yet."**; baseline lockage averages now show a clear *"Baseline estimates — used until real lockages are observed"* explanation block.
+- [x] Tests: 14 new pytest cases (10 water-stations + 4 lockage-events) — all green.
+
 ## Pending Features
 
 ### P0 - High Priority

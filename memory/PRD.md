@@ -157,12 +157,27 @@ Build a local application named "River Watch" to track vessels on the upper Miss
   - Vessel at RM 800 heading northbound (opposite side of lock, but heading toward it)
 - [x] UI updated to show vessel heading direction (↑N/↓S) and distance to lock
 
+### Phase 6: River Traffic Planning ✅ (February 12, 2026)
+Synced workspace to baseline commit `e3ff8e0` on branch `riverwatch-runtime-stable` and developed on `feature/river-traffic-planning`.
+
+- [x] **Trip Planner**: `POST /api/planning/trip` — origin/destination RM + ETD → multi-leg plan with per-lock wait + lockage minutes and full ETA. Auto-prefills speed from AIS (when `mmsi` provided), else user override, else 8 kn default
+- [x] **Lock Queue View**: `GET /api/planning/lock-queue/{lock_id}?lookahead_hours=N` — ordered approaching vessels with slot numbers, ETA, direction, distance, barge counts
+- [x] **Meeting Predictor**: `GET /api/planning/meetings?lookahead_hours=N` — head-on and overtake encounters between AIS vessels with meeting RM and passing advice
+- [x] **Bottleneck Forecast**: `GET /api/planning/bottlenecks?hours=N` — utilization heatmap for all 27 Upper Mississippi locks (low/moderate/high severity) using USACE queue + lockage history
+- [x] Helper endpoint `GET /api/planning/locks` for the UI
+- [x] Frontend `pages/TrafficPlanner.jsx` at `/planning` with 4 tabs, quick-pick presets, severity badges, per-leg table
+- [x] Dashboard header `Compass` button (`data-testid=planning-nav-btn`) routes to `/planning`
+- [x] Available to all account types (Vessel Owner, Traffic Watch, Super Admin)
+- [x] 10/10 pytest cases pass at `/app/backend/tests/test_planning.py`
+- [x] testing_agent_v3_fork iteration_7 — 100% backend + frontend pass
+
 ## Pending Features
 
 ### P0 - High Priority
 - [ ] Expand NOAA/USGS integration with forecast data
 - [ ] Vessel Alert notifications (when watched vessels pass a point)
 - [ ] Password reset email flow
+- [ ] Improve Trip Planner lock-wait estimates: feed direction-aware USACE queue count and average lockage time per lock direction
 
 ### P1 - Medium Priority
 - [ ] Sound/Vibration alerts for "Can't Beat" warnings

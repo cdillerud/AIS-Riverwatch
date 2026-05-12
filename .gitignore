@@ -722,3 +722,8 @@ frontend/.env.*backup*
 riverwatch_*.log
 *_recover.sh
 *_recovery.sh
+*.before-prod-proxy.*
+*.before-static-nginx.*
+*.before-fast-refresh-static-build.*
+docker-compose.clean.yml.before-prod-proxy.*
+riverwatch-nginx-*-backup-*

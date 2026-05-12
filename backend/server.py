@@ -4533,13 +4533,27 @@ async def get_water_conditions_for_lock(lock_id: str):
     official = structured["official"]
     raw = official.get("raw") or {}
 
-    # Pull supplemental temp/discharge from any reference station if the
-    # official one doesn't supply them (e.g., NWS hydrograph has stage only).
+    # Reference station data is kept in a separate `reference_conditions`
+    # block. We intentionally do NOT merge reference discharge / current
+    # speed into the official conditions object: those readings live on a
+    # different datum and don't describe Lock {lock_id}'s flow.
+    reference_conditions = []
     for ref in structured.get("references", []):
         rraw = ref.get("raw") or {}
-        for k in ("water_temp_c", "water_temp_f", "discharge_cfs"):
-            if k not in raw and k in rraw:
-                raw[k] = rraw[k]
+        reference_conditions.append({
+            "station_id": ref.get("station_id"),
+            "station_name": ref.get("station_name"),
+            "source": ref.get("source"),
+            "value": ref.get("value"),
+            "units": ref.get("units"),
+            "observed_at": ref.get("observed_at"),
+            "datum": ref.get("datum"),
+            "distance_from_lock_miles": ref.get("distance_from_lock_miles"),
+            "raw": rraw,
+            "note": ref.get("note"),
+            "fetch_method": ref.get("fetch_method"),
+            "source_status": ref.get("source_status"),
+        })
 
     legacy_flood_status = (
         official.get("status")
@@ -4547,16 +4561,39 @@ async def get_water_conditions_for_lock(lock_id: str):
         else None
     )
 
+    # `official_current` summarises just the headline reading + state.
+    official_current = {
+        "station_id": official.get("station_id"),
+        "station_name": official.get("station_name"),
+        "value": official.get("value"),
+        "units": official.get("units"),
+        "measurement_type": official.get("measurement_type"),
+        "observed_at": official.get("observed_at"),
+        "status": official.get("status"),
+        "status_explanation": official.get("status_explanation"),
+        "available": official.get("value") is not None,
+        "unavailable_reason": (
+            None if official.get("value") is not None
+            else (official.get("fetch_error") or "Official stage unavailable")
+        ),
+        "fetch_method": official.get("fetch_method"),
+        "fallback_used": official.get("fallback_used", False),
+        "source_status": official.get("source_status"),
+    }
+
     payload = {
         "lock_id": lock_id,
         "lock_name": structured["lock_name"],
         "lock_river_mile": structured["lock_river_mile"],
         # NEW structured shape
         "official": official,
+        "official_current": official_current,
         "references": structured.get("references", []),
+        "reference_conditions": reference_conditions,
         "selection_reason": structured.get("selection_reason"),
         "fetched_at": structured.get("fetched_at"),
-        # LEGACY shape - kept so older modal builds keep rendering
+        # LEGACY shape - kept so older modal builds keep rendering. Only
+        # data sourced from the official station is allowed in here.
         "gauge": {
             "site_id": official["station_id"],
             "name": official["station_name"],
@@ -4572,15 +4609,20 @@ async def get_water_conditions_for_lock(lock_id: str):
             "water_temp_f": raw.get("water_temp_f"),
             "water_temp_c": raw.get("water_temp_c"),
             "discharge_cfs": raw.get("discharge_cfs"),
-            "current_speed_mph": None,  # legacy field - computed below if discharge available
+            "current_speed_mph": None,  # computed below from OFFICIAL discharge only
             "flood_stage": legacy_flood_status,
             "status_explanation": official.get("status_explanation"),
+            "source_status": official.get("source_status"),
+            "fetch_method": official.get("fetch_method"),
+            "fallback_used": official.get("fallback_used", False),
+            "from_reference": False,
         },
         "flood_stages": official.get("thresholds") or {},
         "threshold_source": official.get("threshold_source"),
     }
 
-    # Maintain old current-speed estimate where discharge is available
+    # Only derive current_speed_mph from the OFFICIAL discharge. Never mix
+    # reference-station discharge into the official conditions block.
     discharge = raw.get("discharge_cfs")
     if discharge:
         fps = discharge / (2000 * 15)

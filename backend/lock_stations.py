@@ -62,8 +62,8 @@ def _nws(nws_id: str, name: str, river_mile: float, *, datum: str, thresholds, t
         "measurement_type": "river_stage",
         "units": "ft",
         "datum": datum,
-        "data_url": f"https://water.weather.gov/ahps2/hydrograph_to_xml.php?gage={nws_id}&output=xml",
-        "source_url": f"https://water.weather.gov/ahps2/hydrograph.php?gage={nws_id}",
+        "data_url": f"https://api.water.noaa.gov/nwps/v1/gauges/{nws_id}",
+        "source_url": f"https://water.noaa.gov/gauges/{nws_id}",
         "thresholds": thresholds,
         "threshold_source": threshold_source,
     }

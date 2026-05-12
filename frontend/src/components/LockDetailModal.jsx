@@ -227,53 +227,69 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                         </Badge>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-3">
-                        {/* Water Level / Stage */}
-                        <div className="text-center p-2 bg-slate-800/50 rounded-lg">
-                          <p className="text-2xl font-bold text-blue-400">
-                            {waterConditions.official.value != null
-                              ? waterConditions.official.value.toFixed(1)
-                              : '--'}
-                          </p>
-                          <p className="text-[10px] text-slate-400">
-                            {waterConditions.official.measurement_type === "river_stage"
-                              ? "River Stage (ft)"
-                              : "Water Level (ft)"}
-                          </p>
+                      {/* Official station headline */}
+                      <div className="mb-3 p-3 bg-slate-800/60 rounded-md border border-slate-700/50">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+                              Official station {waterConditions.official.fallback_used ? "(USACE fallback)" : ""}
+                            </div>
+                            <div className="text-sm text-slate-200 truncate" data-testid="water-station-name">
+                              {waterConditions.official.station_id} · {waterConditions.official.station_name}
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            {waterConditions.official.value != null ? (
+                              <>
+                                <div className="text-3xl font-bold text-blue-400" data-testid="water-official-value">
+                                  {waterConditions.official.value.toFixed(1)}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  {waterConditions.official.measurement_type === "river_stage"
+                                    ? "ft river stage"
+                                    : "ft water level"}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-sm font-semibold text-amber-300" data-testid="water-official-unavailable">
+                                Official stage unavailable
+                              </div>
+                            )}
+                          </div>
                         </div>
+                        {waterConditions.official.status_explanation && (
+                          <p className="mt-2 text-[11px] text-slate-400 italic" data-testid="water-status-explanation">
+                            {waterConditions.official.status_explanation}
+                          </p>
+                        )}
+                        {waterConditions.official.value == null && waterConditions.official.fetch_error && (
+                          <p className="mt-1 text-[10px] text-red-400/80" data-testid="water-official-error">
+                            Fetch error: {waterConditions.official.fetch_error}
+                          </p>
+                        )}
+                      </div>
 
-                        {/* Water Temp */}
-                        <div className="text-center p-2 bg-slate-800/50 rounded-lg">
-                          <p className="text-2xl font-bold text-cyan-400">
+                      {/* Supplementary metrics — sourced from the OFFICIAL station only */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="text-center p-2 bg-slate-800/40 rounded-lg">
+                          <p className="text-xl font-bold text-cyan-400">
                             {waterConditions.conditions?.water_temp_f?.toFixed?.(0) ?? '--'}°
                           </p>
                           <p className="text-[10px] text-slate-400">Water Temp (°F)</p>
                         </div>
-
-                        {/* Current Speed (estimated from discharge) */}
-                        <div className="text-center p-2 bg-slate-800/50 rounded-lg">
-                          <p className="text-2xl font-bold text-green-400">
+                        <div className="text-center p-2 bg-slate-800/40 rounded-lg">
+                          <p className="text-xl font-bold text-green-400">
                             {waterConditions.conditions?.current_speed_mph?.toFixed?.(1) ?? '--'}
                           </p>
-                          <p className="text-[10px] text-slate-400">Current (mph)</p>
+                          <p className="text-[10px] text-slate-400">Current (mph, estimated)</p>
                         </div>
                       </div>
 
-                      {/* Status explanation */}
-                      {waterConditions.official.status_explanation && (
-                        <p className="mt-3 text-[11px] text-slate-400 italic" data-testid="water-status-explanation">
-                          {waterConditions.official.status_explanation}
-                        </p>
-                      )}
-
-                      {/* Gauge Info */}
+                      {/* Station meta + debug toggle */}
                       <div className="mt-3 flex items-start justify-between text-xs text-slate-500 gap-3">
                         <div className="min-w-0">
-                          <div className="text-slate-300 truncate" data-testid="water-station-name">
-                            {waterConditions.official.station_name}
-                          </div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">
-                            Source: {waterConditions.official.source} · ID {waterConditions.official.station_id}
+                          <div className="text-[10px] text-slate-500">
+                            Source: {waterConditions.official.source} · {waterConditions.official.fetch_method || 'n/a'}
                             {waterConditions.official.distance_from_lock_miles != null && (
                               <> · {waterConditions.official.distance_from_lock_miles} mi from lock</>
                             )}
@@ -320,6 +336,35 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                         </div>
                       )}
 
+                      {/* Reference stations (always rendered when present, clearly labelled) */}
+                      {waterConditions.reference_conditions && waterConditions.reference_conditions.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-slate-700 space-y-2" data-testid="reference-stations-block">
+                          <p className="text-[11px] text-slate-400 uppercase tracking-wider">
+                            Reference stations <span className="text-slate-600 normal-case">(reference only — not used for lock status)</span>
+                          </p>
+                          {waterConditions.reference_conditions.map((ref) => (
+                            <div key={ref.station_id} className="rounded border border-slate-700/60 p-2 bg-slate-900/40">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-xs text-slate-200 truncate">{ref.station_id} · {ref.station_name}</div>
+                                <Badge className="bg-slate-700/60 text-slate-300 border-slate-600 text-[10px] uppercase">Reference</Badge>
+                              </div>
+                              <div className="text-[10px] text-slate-500 mt-0.5">
+                                {ref.source}
+                                {ref.distance_from_lock_miles != null && <> · {ref.distance_from_lock_miles} mi from lock</>}
+                                {ref.datum && <> · {ref.datum}</>}
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                Reading: {ref.value != null ? `${ref.value} ${ref.units || 'ft'}` : '—'}
+                                {ref.observed_at && <> · {ref.observed_at}</>}
+                              </div>
+                              {ref.note && (
+                                <div className="text-[10px] text-amber-400/80 mt-1">{ref.note}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       {/* Expandable: station-mapping debug section */}
                       {showStationDebug && (
                         <div className="mt-3 pt-3 border-t border-slate-700 space-y-2" data-testid="station-debug-block">
@@ -330,35 +375,18 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                             </div>
                           )}
                           {waterConditions.official.data_url && (
-                            <div className="text-[10px] text-slate-500 truncate">
+                            <div className="text-[10px] text-slate-500 break-all">
                               Data URL: <a href={waterConditions.official.data_url} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">{waterConditions.official.data_url}</a>
                             </div>
                           )}
-                          {waterConditions.references && waterConditions.references.length > 0 && (
-                            <div className="space-y-2 mt-2">
-                              <p className="text-[11px] text-slate-400 uppercase tracking-wider">Nearby reference stations</p>
-                              {waterConditions.references.map((ref) => (
-                                <div key={ref.station_id} className="rounded border border-slate-700/60 p-2 bg-slate-900/40">
-                                  <div className="text-xs text-slate-200">{ref.station_name}</div>
-                                  <div className="text-[10px] text-slate-500 mt-0.5">
-                                    {ref.source} · ID {ref.station_id}
-                                    {ref.distance_from_lock_miles != null && <> · {ref.distance_from_lock_miles} mi from lock</>}
-                                    {ref.datum && <> · {ref.datum}</>}
-                                  </div>
-                                  <div className="text-[10px] text-slate-400 mt-0.5">
-                                    Reading: {ref.value != null ? `${ref.value} ft` : '—'}
-                                    {ref.observed_at && <> · {ref.observed_at}</>}
-                                  </div>
-                                  {ref.note && (
-                                    <div className="text-[10px] text-amber-400/80 mt-1">{ref.note}</div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {waterConditions.official.fetch_error && (
-                            <div className="text-[10px] text-red-400 mt-1">
-                              Fetch error: {waterConditions.official.fetch_error}
+                          <div className="text-[10px] text-slate-500">
+                            fetch_method: <span className="text-slate-300">{waterConditions.official.fetch_method || '—'}</span>
+                            {' · '}fallback_used: <span className="text-slate-300">{String(waterConditions.official.fallback_used)}</span>
+                            {' · '}source_status: <span className="text-slate-300">{waterConditions.official.source_status || '—'}</span>
+                          </div>
+                          {waterConditions.official.primary_fetch_error && (
+                            <div className="text-[10px] text-amber-400/80">
+                              Primary (NWPS) error: {waterConditions.official.primary_fetch_error}
                             </div>
                           )}
                         </div>

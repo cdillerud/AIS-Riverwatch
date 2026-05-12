@@ -166,15 +166,16 @@ function MainApp() {
           setConnectionConfig(null);
         }
       } else if (user?.watch_point) {
-        // No localStorage config, but user has a saved watch_point - auto-connect!
-        console.log("[APP] Traffic Watch mode - using saved watch_point from user account");
+        // No localStorage config, but user has a saved watch_point - auto-connect via relay
+        console.log("[APP] Traffic Watch mode - using saved watch_point + internal relay");
         const defaultConfig = {
-          ip_address: "136.116.165.255",
-          port: 7000,
+          ip_address: "ais-relay",
+          port: 5353,
           user_mmsi: "",
           boat_name: "",
           account_type: "traffic_watch",
-          watch_point: user.watch_point
+          watch_point: user.watch_point,
+          source: "internal_relay"
         };
         // Save to localStorage for next time
         localStorage.setItem('riverwatch_connection', JSON.stringify(defaultConfig));
@@ -200,6 +201,14 @@ function MainApp() {
         if (storedConfig) {
           try {
             const config = JSON.parse(storedConfig);
+            // Strip stale public-IP defaults left over from previous builds so
+            // a browser cache cannot keep hammering 136.116.165.255:7000.
+            if (config.ip_address === "136.116.165.255" || config.port === 7000) {
+              console.warn("[APP] Discarding stale public-IP connection config (136.116.165.255:7000) from localStorage");
+              localStorage.removeItem('riverwatch_connection');
+              setConnectionConfig(null);
+              return;
+            }
             // IMPORTANT: Override the MMSI with the current user's MMSI
             // This prevents using another user's MMSI from stale localStorage
             config.user_mmsi = primaryVessel.mmsi;
@@ -207,26 +216,21 @@ function MainApp() {
             setConnectionConfig(config);
           } catch (e) {
             console.error("Failed to parse stored connection config:", e);
-            // Create default config on parse error
-            const defaultConfig = {
-              ip_address: "136.116.165.255",
-              port: 7000,
-              user_mmsi: primaryVessel.mmsi,
-              boat_name: primaryVessel.boat_name,
-              account_type: "vessel_owner"
-            };
-            localStorage.setItem('riverwatch_connection', JSON.stringify(defaultConfig));
-            setConnectionConfig(defaultConfig);
+            localStorage.removeItem('riverwatch_connection');
+            setConnectionConfig(null);
           }
         } else {
-          // No localStorage config - create default and connect!
-          console.log("[APP] Vessel Owner mode - creating default config for auto-connect");
+          // No localStorage config - default to the internal relay. The relay
+          // is responsible for selecting the actual Boat Beacon upstream via
+          // POST /api/ais-scan/select. Do NOT bake a public AIS IP here.
+          console.log("[APP] Vessel Owner mode - defaulting to internal relay (ais-relay:5353)");
           const defaultConfig = {
-            ip_address: "136.116.165.255",
-            port: 7000,
+            ip_address: "ais-relay",
+            port: 5353,
             user_mmsi: primaryVessel.mmsi,
             boat_name: primaryVessel.boat_name,
-            account_type: "vessel_owner"
+            account_type: "vessel_owner",
+            source: "internal_relay"
           };
           localStorage.setItem('riverwatch_connection', JSON.stringify(defaultConfig));
           setConnectionConfig(defaultConfig);

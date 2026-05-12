@@ -10,9 +10,12 @@ import { useAuth } from "@/context/AuthContext";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// Default connection settings - can be edited in advanced settings
-const DEFAULT_IP = "136.116.165.255";
-const DEFAULT_PORT = "7000";
+// Default connection settings - can be edited in advanced settings.
+// The relay (ais-relay:5353 inside the docker network) is the canonical
+// upstream. Operators discover the real Boat Beacon feed via the AIS
+// Feed Scanner panel on the Settings page; the relay then forwards.
+const DEFAULT_IP = "ais-relay";
+const DEFAULT_PORT = "5353";
 
 // Preset watch points for common river locations
 const WATCH_POINT_PRESETS = [

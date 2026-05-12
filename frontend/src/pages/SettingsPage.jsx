@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner";
 import VesselManagement from "@/components/VesselManagement";
 import RawDataPanel from "@/components/RawDataPanel";
+import AISFeedScanner from "@/components/AISFeedScanner";
 import { useAuth } from "@/context/AuthContext";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -1332,6 +1333,9 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
           )}
+
+          {/* AIS Feed Scanner (Boat Beacon discovery) */}
+          <AISFeedScanner />
 
           {/* Connection Settings */}
           <Card className="glass-panel border-white/10">

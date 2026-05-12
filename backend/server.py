@@ -5811,6 +5811,14 @@ try:
 except ImportError as e:
     logger.error(f"Failed to load planning routes: {e}")
 
+# AIS scanner proxy routes (forwards to ais-relay:8088)
+try:
+    from routes.ais_scan import router as ais_scan_router
+    app.include_router(ais_scan_router, prefix="/api")
+    logger.info("AIS Scanner proxy routes loaded at /api/ais-scan/*")
+except ImportError as e:
+    logger.error(f"Failed to load ais-scan routes: {e}")
+
 # CORS: When credentials are used, specific origins must be listed (not '*')
 cors_origins = get_cors_origins()
 

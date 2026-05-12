@@ -727,3 +727,4 @@ riverwatch_*.log
 *.before-fast-refresh-static-build.*
 docker-compose.clean.yml.before-prod-proxy.*
 riverwatch-nginx-*-backup-*
+*.tgz

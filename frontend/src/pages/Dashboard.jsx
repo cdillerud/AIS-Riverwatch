@@ -588,6 +588,18 @@ export default function Dashboard({
             
             {/* Right: Actions */}
             <div className="flex items-center gap-2">
+              {/* Traffic Planning - Icon only */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => { window.location.href = '/planning'; }}
+                className="text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 w-9 h-9"
+                data-testid="planning-nav-btn"
+                title="River Traffic Planning"
+              >
+                <Compass className="w-4 h-4" />
+              </Button>
+
               {/* Settings - Icon only */}
               <Button
                 variant="ghost"

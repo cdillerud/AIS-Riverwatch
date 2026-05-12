@@ -5607,6 +5607,14 @@ try:
 except ImportError as e:
     logger.warning(f"Could not import modular routes: {e}")
 
+# River Traffic Planning routes (Trip Planner, Lock Queue, Meetings, Bottlenecks)
+try:
+    from routes.planning import router as planning_router
+    app.include_router(planning_router, prefix="/api")
+    logger.info("Traffic Planning routes loaded at /api/planning/*")
+except ImportError as e:
+    logger.error(f"Failed to load planning routes: {e}")
+
 # CORS: When credentials are used, specific origins must be listed (not '*')
 cors_origins = get_cors_origins()
 

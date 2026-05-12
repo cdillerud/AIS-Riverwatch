@@ -1927,6 +1927,18 @@ LOCK_APPROACH_DISTANCE = 2.0  # Start tracking when within 2 miles
 LOCK_CHAMBER_DISTANCE = 0.3   # Consider "in chamber" when within 0.3 miles
 LOCK_CLEARED_DISTANCE = 1.5   # Consider cleared when 1.5 miles past lock
 
+# AIS-inferred lockage dwell detector
+# A vessel sitting inside ±LOCK_DWELL_DISTANCE_RM at or below LOCK_DWELL_MAX_SPEED_KT
+# for at least LOCK_DWELL_MIN_SECONDS is treated as undergoing a lockage and gets
+# a record written to db.lockage_history with source="ais_inferred".
+LOCK_DWELL_DISTANCE_RM = 0.2
+LOCK_DWELL_MAX_SPEED_KT = 0.3
+LOCK_DWELL_MIN_SECONDS = 60
+LOCK_DWELL_EXIT_DISTANCE_RM = 0.4
+
+# Open dwell sessions: { (mmsi, lock_id): {start_time, last_seen, vessel_name, direction_at_entry} }
+ais_dwell_sessions: Dict[tuple, dict] = {}
+
 # Cache for vessel static data (names, ship types, dimensions)
 # AIS sends position data frequently (every 2-10s) but static data only every 6 minutes
 # This cache persists names once we receive them from Type 5 or Type 24 messages
@@ -2315,6 +2327,8 @@ class AISConnectionManager:
             
             # Track vessel passage through locks
             await track_vessel_lock_passage(vessel.model_dump())
+            # Also run the AIS-inferred dwell detector for lockage events
+            await track_ais_inferred_lockage(vessel.model_dump())
             
             # Persist vessel name to database if we got one from AIS
             if vessel_data.get('name') and vessel_data.get('_persist_to_db'):
@@ -3393,7 +3407,6 @@ async def track_vessel_lock_passage(vessel: dict):
     States: approaching -> waiting -> in_chamber -> cleared
     """
     global vessel_lock_tracking
-    
     mmsi = vessel.get("mmsi")
     river_mile = vessel.get("river_mile")
     heading = vessel.get("heading")  # "northbound" or "southbound"
@@ -3499,6 +3512,7 @@ async def save_lockage_record(lock_id: str, tracking: dict):
         record = {
             "lock_id": lock_id,
             "vessel_name": tracking.get("vessel_name", "Unknown"),
+            "mmsi": tracking.get("mmsi"),
             "direction": tracking.get("direction"),
             "arrival_time": tracking.get("arrival_time"),
             "entry_time": tracking.get("entry_time"),
@@ -3508,14 +3522,100 @@ async def save_lockage_record(lock_id: str, tracking: dict):
             "total_time_minutes": round(tracking.get("total_time_minutes", 0), 1),
             "is_tow": tracking.get("is_tow", False),
             "barge_count": tracking.get("barge_count", 0),
+            "source": tracking.get("source", "ais_state_machine"),
+            "confidence": tracking.get("confidence", "medium"),
             "recorded_at": datetime.now(timezone.utc)
         }
         
         await db.lockage_history.insert_one(record)
-        logger.info(f"📊 Saved lockage record for {lock_id}: {record['vessel_name']} - {record['lockage_duration_minutes']}min lockage, {record['wait_time_minutes']}min wait")
+        logger.info(f"📊 Saved lockage record for {lock_id}: {record['vessel_name']} - {record['lockage_duration_minutes']}min lockage, {record['wait_time_minutes']}min wait (source={record['source']})")
         
     except Exception as e:
         logger.error(f"Error saving lockage record: {e}")
+
+
+async def track_ais_inferred_lockage(vessel: dict):
+    """
+    Dwell-based lockage detector.
+
+    Opens a session when a vessel is within ±LOCK_DWELL_DISTANCE_RM of a lock
+    AND moving slower than LOCK_DWELL_MAX_SPEED_KT. Closes the session and
+    writes a `lockage_history` record (source="ais_inferred", confidence="medium")
+    when the vessel leaves the dwell zone or accelerates above the speed
+    threshold, provided the session lasted at least LOCK_DWELL_MIN_SECONDS.
+
+    This complements `track_vessel_lock_passage` (which is approach-based) and
+    is much less likely to mislabel transient passes as lockages.
+    """
+    mmsi = vessel.get("mmsi")
+    river_mile = vessel.get("river_mile")
+    speed_kt = vessel.get("speed")
+
+    if not mmsi or river_mile is None or speed_kt is None:
+        return
+
+    now = datetime.now(timezone.utc)
+    heading = (vessel.get("heading") or "").lower()
+    direction = None
+    if heading in ("northbound", "upriver", "upstream"):
+        direction = "upbound"
+    elif heading in ("southbound", "downriver", "downstream"):
+        direction = "downbound"
+
+    for lock_id, lock_info in LOCKS.items():
+        lock_rm = lock_info["river_mile"]
+        delta_rm = abs(river_mile - lock_rm)
+        key = (mmsi, lock_id)
+
+        in_zone = delta_rm <= LOCK_DWELL_DISTANCE_RM
+        moving_slow = speed_kt <= LOCK_DWELL_MAX_SPEED_KT
+        session = ais_dwell_sessions.get(key)
+
+        # Open a new session?
+        if in_zone and moving_slow and session is None:
+            ais_dwell_sessions[key] = {
+                "start_time": now,
+                "last_seen": now,
+                "vessel_name": vessel.get("name", f"MMSI {mmsi}"),
+                "direction_at_entry": direction,
+                "is_tow": vessel.get("is_tow", False),
+                "barge_count": vessel.get("barge_count", 0),
+                "min_distance_rm": delta_rm,
+            }
+            continue
+
+        # Update an open session
+        if session is not None:
+            session["last_seen"] = now
+            session["min_distance_rm"] = min(session["min_distance_rm"], delta_rm)
+            session["last_direction"] = direction or session.get("last_direction")
+
+            exited = delta_rm > LOCK_DWELL_EXIT_DISTANCE_RM
+            sped_up = speed_kt > (LOCK_DWELL_MAX_SPEED_KT + 0.3)  # small hysteresis
+            if exited or sped_up:
+                duration = (session["last_seen"] - session["start_time"]).total_seconds()
+                if duration >= LOCK_DWELL_MIN_SECONDS:
+                    record_payload = {
+                        "vessel_name": session.get("vessel_name", f"MMSI {mmsi}"),
+                        "mmsi": mmsi,
+                        "direction": session.get("last_direction") or session.get("direction_at_entry"),
+                        "arrival_time": session["start_time"],
+                        "entry_time": session["start_time"],
+                        "exit_time": session["last_seen"],
+                        "wait_time_minutes": 0,
+                        "lockage_duration_minutes": duration / 60.0,
+                        "total_time_minutes": duration / 60.0,
+                        "is_tow": session.get("is_tow", False),
+                        "barge_count": session.get("barge_count", 0),
+                        "source": "ais_inferred",
+                        "confidence": "medium",
+                        "min_distance_rm": round(session["min_distance_rm"], 3),
+                    }
+                    try:
+                        await save_lockage_record(lock_id, record_payload)
+                    except Exception as e:
+                        logger.warning(f"[ais-dwell] failed to save record for {lock_id}/{mmsi}: {e}")
+                ais_dwell_sessions.pop(key, None)
 
 
 def estimate_river_mile(lat: float, lon: float) -> float:
@@ -4408,46 +4508,100 @@ async def fetch_usgs_water_data(site_id: str) -> dict:
 async def get_water_conditions_for_lock(lock_id: str):
     """
     Get water conditions (level, temp, current) for a specific lock.
-    Uses data from the nearest USGS gauge station.
+    Uses the lock's authoritative station from /app/backend/lock_stations.py
+    and ONLY applies that station's thresholds. Reference stations are returned
+    alongside (no threshold cross-application) for audit/comparison.
+
+    Response shape (per the data-accuracy audit):
+        official:  {station_id, station_name, source, river_mile,
+                    distance_from_lock_miles, measurement_type, value,
+                    units, datum, observed_at, thresholds, threshold_source,
+                    status, status_explanation, raw, data_url, source_url}
+        references: [ ...same shape... ]
+
+    Backwards-compatible legacy fields are still surfaced at the top level
+    (`conditions`, `gauge`, `flood_stages`) so older clients keep working.
     """
     if lock_id not in LOCKS:
         raise HTTPException(status_code=404, detail="Invalid lock ID")
-    
-    if lock_id not in USGS_GAUGES:
-        return {
-            "lock_id": lock_id,
-            "error": "No gauge data available for this lock"
-        }
-    
-    gauge_info = USGS_GAUGES[lock_id]
-    lock_info = LOCKS[lock_id]
-    
-    # Fetch water data
-    water_data = await fetch_usgs_water_data(gauge_info['site_id'])
-    
-    return {
+
+    from services.water_station_service import get_water_conditions as _structured_water
+    structured = await _structured_water(lock_id)
+    if "error" in structured:
+        return {"lock_id": lock_id, "error": structured["error"]}
+
+    official = structured["official"]
+    raw = official.get("raw") or {}
+
+    # Pull supplemental temp/discharge from any reference station if the
+    # official one doesn't supply them (e.g., NWS hydrograph has stage only).
+    for ref in structured.get("references", []):
+        rraw = ref.get("raw") or {}
+        for k in ("water_temp_c", "water_temp_f", "discharge_cfs"):
+            if k not in raw and k in rraw:
+                raw[k] = rraw[k]
+
+    legacy_flood_status = (
+        official.get("status")
+        if official.get("status") in ("normal", "action", "flood", "moderate", "major")
+        else None
+    )
+
+    payload = {
         "lock_id": lock_id,
-        "lock_name": lock_info['name'],
-        "lock_river_mile": lock_info['river_mile'],
+        "lock_name": structured["lock_name"],
+        "lock_river_mile": structured["lock_river_mile"],
+        # NEW structured shape
+        "official": official,
+        "references": structured.get("references", []),
+        "selection_reason": structured.get("selection_reason"),
+        "fetched_at": structured.get("fetched_at"),
+        # LEGACY shape - kept so older modal builds keep rendering
         "gauge": {
-            "site_id": gauge_info['site_id'],
-            "name": gauge_info['name'],
-            "river_mile": gauge_info['river_mile'],
-            "distance_from_lock": abs(lock_info['river_mile'] - gauge_info['river_mile'])
+            "site_id": official["station_id"],
+            "name": official["station_name"],
+            "river_mile": official.get("river_mile"),
+            "distance_from_lock": official.get("distance_from_lock_miles"),
+            "source": official.get("source"),
+            "datum": official.get("datum"),
         },
         "conditions": {
-            "timestamp": water_data.get('timestamp'),
-            "gage_height_ft": water_data.get('gage_height_ft'),
-            "water_temp_f": water_data.get('water_temp_f'),
-            "water_temp_c": water_data.get('water_temp_c'),
-            "discharge_cfs": water_data.get('discharge_cfs'),
-            "current_speed_mph": water_data.get('current_speed_mph'),
-            "flood_stage": water_data.get('flood_stage'),
+            "timestamp": official.get("observed_at"),
+            "gage_height_ft": raw.get("gage_height_ft") if official.get("measurement_type") == "gage_height" else None,
+            "river_stage_ft": raw.get("river_stage_ft") if official.get("measurement_type") == "river_stage" else None,
+            "water_temp_f": raw.get("water_temp_f"),
+            "water_temp_c": raw.get("water_temp_c"),
+            "discharge_cfs": raw.get("discharge_cfs"),
+            "current_speed_mph": None,  # legacy field - computed below if discharge available
+            "flood_stage": legacy_flood_status,
+            "status_explanation": official.get("status_explanation"),
         },
-        "flood_stages": FLOOD_STAGES.get(gauge_info['site_id'], {}),
-        "forecast": water_data.get('forecast'),
-        "error": water_data.get('error')
+        "flood_stages": official.get("thresholds") or {},
+        "threshold_source": official.get("threshold_source"),
     }
+
+    # Maintain old current-speed estimate where discharge is available
+    discharge = raw.get("discharge_cfs")
+    if discharge:
+        fps = discharge / (2000 * 15)
+        payload["conditions"]["current_speed_mph"] = round(fps * 0.681818, 1)
+
+    return payload
+
+
+@api_router.get("/locks/{lock_id}/water-condition-debug")
+async def get_water_condition_debug(lock_id: str):
+    """
+    Diagnostic view of the water-condition station mapping for `lock_id`.
+
+    Returns the selected official station, any alternate (reference)
+    stations, raw fetched values, thresholds with source citation, source
+    URLs, and why this station was selected.
+    """
+    if lock_id not in LOCKS:
+        raise HTTPException(status_code=404, detail="Invalid lock ID")
+    from services.water_station_service import get_debug as _debug_water
+    return await _debug_water(lock_id)
 
 
 @api_router.get("/water-conditions")

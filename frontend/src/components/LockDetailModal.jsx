@@ -23,6 +23,7 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
   const [waterConditions, setWaterConditions] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showStationDebug, setShowStationDebug] = useState(false);
 
   useEffect(() => {
     if (isOpen && lockId) {
@@ -98,6 +99,8 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
       case 'moderate': return 'bg-red-500/20 text-red-400 border-red-500/50';
       case 'flood': return 'bg-orange-500/20 text-orange-400 border-orange-500/50';
       case 'action': return 'bg-amber-500/20 text-amber-400 border-amber-500/50';
+      case 'not_defined': return 'bg-slate-700 text-slate-300 border-slate-500/50';
+      case 'unknown': return 'bg-slate-700 text-slate-400 border-slate-500/50';
       default: return 'bg-green-500/20 text-green-400 border-green-500/50';
     }
   };
@@ -108,7 +111,9 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
       case 'moderate': return 'MODERATE FLOOD';
       case 'flood': return 'FLOOD STAGE';
       case 'action': return 'ACTION STAGE';
-      default: return 'NORMAL';
+      case 'not_defined': return 'CATEGORY UNDEFINED';
+      case 'unknown': return 'NO READING';
+      default: return 'BELOW ACTION STAGE';
     }
   };
 
@@ -208,8 +213,8 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                   </CardContent>
                 </Card>
 
-                {/* Water Conditions from USGS */}
-                {waterConditions && waterConditions.conditions && (
+                {/* Water Conditions from authoritative station */}
+                {waterConditions && waterConditions.official && (
                   <Card className="bg-gradient-to-br from-blue-900/30 to-slate-800/50 border-blue-500/30">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between mb-3">
@@ -217,68 +222,145 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                           <Activity className="w-4 h-4 text-blue-400" />
                           River Conditions
                         </h3>
-                        <Badge className={getFloodStageColor(waterConditions.conditions.flood_stage)}>
-                          {getFloodStageLabel(waterConditions.conditions.flood_stage)}
+                        <Badge className={getFloodStageColor(waterConditions.official.status)}>
+                          {getFloodStageLabel(waterConditions.official.status)}
                         </Badge>
                       </div>
-                      
+
                       <div className="grid grid-cols-3 gap-3">
-                        {/* Water Level */}
+                        {/* Water Level / Stage */}
                         <div className="text-center p-2 bg-slate-800/50 rounded-lg">
                           <p className="text-2xl font-bold text-blue-400">
-                            {waterConditions.conditions.gage_height_ft?.toFixed(1) || '--'}
+                            {waterConditions.official.value != null
+                              ? waterConditions.official.value.toFixed(1)
+                              : '--'}
                           </p>
-                          <p className="text-[10px] text-slate-400">Water Level (ft)</p>
+                          <p className="text-[10px] text-slate-400">
+                            {waterConditions.official.measurement_type === "river_stage"
+                              ? "River Stage (ft)"
+                              : "Water Level (ft)"}
+                          </p>
                         </div>
-                        
+
                         {/* Water Temp */}
                         <div className="text-center p-2 bg-slate-800/50 rounded-lg">
                           <p className="text-2xl font-bold text-cyan-400">
-                            {waterConditions.conditions.water_temp_f?.toFixed(0) || '--'}°
+                            {waterConditions.conditions?.water_temp_f?.toFixed?.(0) ?? '--'}°
                           </p>
                           <p className="text-[10px] text-slate-400">Water Temp (°F)</p>
                         </div>
-                        
-                        {/* Current Speed */}
+
+                        {/* Current Speed (estimated from discharge) */}
                         <div className="text-center p-2 bg-slate-800/50 rounded-lg">
                           <p className="text-2xl font-bold text-green-400">
-                            {waterConditions.conditions.current_speed_mph?.toFixed(1) || '--'}
+                            {waterConditions.conditions?.current_speed_mph?.toFixed?.(1) ?? '--'}
                           </p>
                           <p className="text-[10px] text-slate-400">Current (mph)</p>
                         </div>
                       </div>
 
+                      {/* Status explanation */}
+                      {waterConditions.official.status_explanation && (
+                        <p className="mt-3 text-[11px] text-slate-400 italic" data-testid="water-status-explanation">
+                          {waterConditions.official.status_explanation}
+                        </p>
+                      )}
+
                       {/* Gauge Info */}
-                      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                        <span>Gauge: {waterConditions.gauge?.name}</span>
-                        <span>{waterConditions.gauge?.distance_from_lock?.toFixed(1)} mi from lock</span>
+                      <div className="mt-3 flex items-start justify-between text-xs text-slate-500 gap-3">
+                        <div className="min-w-0">
+                          <div className="text-slate-300 truncate" data-testid="water-station-name">
+                            {waterConditions.official.station_name}
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            Source: {waterConditions.official.source} · ID {waterConditions.official.station_id}
+                            {waterConditions.official.distance_from_lock_miles != null && (
+                              <> · {waterConditions.official.distance_from_lock_miles} mi from lock</>
+                            )}
+                          </div>
+                          {waterConditions.official.datum && (
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              Datum: {waterConditions.official.datum}
+                            </div>
+                          )}
+                          {waterConditions.official.threshold_source && (
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              Thresholds: {waterConditions.official.threshold_source}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowStationDebug((v) => !v)}
+                          className="flex-shrink-0 text-cyan-400 hover:text-cyan-300 underline-offset-2 hover:underline text-[10px]"
+                          data-testid="toggle-station-debug"
+                        >
+                          {showStationDebug ? "Hide station details" : "Station details / debug"}
+                        </button>
                       </div>
 
-                      {/* Forecast if available */}
-                      {waterConditions.forecast && waterConditions.forecast.length > 0 && (
+                      {/* Flood Stage Legend (only when this station defines thresholds) */}
+                      {waterConditions.official.thresholds ? (
                         <div className="mt-3 pt-3 border-t border-slate-700">
-                          <p className="text-xs text-slate-400 mb-2">48-Hour Forecast</p>
-                          <div className="flex gap-2 overflow-x-auto pb-1">
-                            {waterConditions.forecast.slice(0, 6).map((f, i) => (
-                              <div key={i} className="flex-shrink-0 text-center p-1.5 bg-slate-800/30 rounded min-w-[60px]">
-                                <p className="text-sm font-mono text-white">{f.stage_ft?.toFixed(1)} ft</p>
-                                <p className="text-[9px] text-slate-500">{new Date(f.time).toLocaleDateString('en-US', { weekday: 'short' })}</p>
-                              </div>
-                            ))}
+                          <p className="text-xs text-slate-400 mb-2">
+                            Flood Stage Thresholds <span className="text-slate-600">({waterConditions.official.threshold_source})</span>
+                          </p>
+                          <div className="flex gap-3 text-[10px] flex-wrap">
+                            <span className="text-amber-400">Action: {waterConditions.official.thresholds.action} ft</span>
+                            <span className="text-orange-400">Flood: {waterConditions.official.thresholds.flood} ft</span>
+                            <span className="text-red-400">Moderate: {waterConditions.official.thresholds.moderate} ft</span>
+                            <span className="text-purple-400">Major: {waterConditions.official.thresholds.major} ft</span>
                           </div>
+                        </div>
+                      ) : (
+                        <div className="mt-3 pt-3 border-t border-slate-700">
+                          <p className="text-xs text-slate-500 italic" data-testid="water-no-thresholds">
+                            Flood category not defined for this gauge.
+                          </p>
                         </div>
                       )}
 
-                      {/* Flood Stage Legend */}
-                      {waterConditions.flood_stages && (
-                        <div className="mt-3 pt-3 border-t border-slate-700">
-                          <p className="text-xs text-slate-400 mb-2">Flood Stage Thresholds</p>
-                          <div className="flex gap-2 text-[10px]">
-                            <span className="text-amber-400">Action: {waterConditions.flood_stages.action} ft</span>
-                            <span className="text-orange-400">Flood: {waterConditions.flood_stages.flood} ft</span>
-                            <span className="text-red-400">Moderate: {waterConditions.flood_stages.moderate} ft</span>
-                            <span className="text-purple-400">Major: {waterConditions.flood_stages.major} ft</span>
-                          </div>
+                      {/* Expandable: station-mapping debug section */}
+                      {showStationDebug && (
+                        <div className="mt-3 pt-3 border-t border-slate-700 space-y-2" data-testid="station-debug-block">
+                          {waterConditions.selection_reason && (
+                            <div className="text-[11px] text-slate-400">
+                              <span className="text-slate-500 uppercase mr-1">Why this station:</span>
+                              {waterConditions.selection_reason}
+                            </div>
+                          )}
+                          {waterConditions.official.data_url && (
+                            <div className="text-[10px] text-slate-500 truncate">
+                              Data URL: <a href={waterConditions.official.data_url} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">{waterConditions.official.data_url}</a>
+                            </div>
+                          )}
+                          {waterConditions.references && waterConditions.references.length > 0 && (
+                            <div className="space-y-2 mt-2">
+                              <p className="text-[11px] text-slate-400 uppercase tracking-wider">Nearby reference stations</p>
+                              {waterConditions.references.map((ref) => (
+                                <div key={ref.station_id} className="rounded border border-slate-700/60 p-2 bg-slate-900/40">
+                                  <div className="text-xs text-slate-200">{ref.station_name}</div>
+                                  <div className="text-[10px] text-slate-500 mt-0.5">
+                                    {ref.source} · ID {ref.station_id}
+                                    {ref.distance_from_lock_miles != null && <> · {ref.distance_from_lock_miles} mi from lock</>}
+                                    {ref.datum && <> · {ref.datum}</>}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 mt-0.5">
+                                    Reading: {ref.value != null ? `${ref.value} ft` : '—'}
+                                    {ref.observed_at && <> · {ref.observed_at}</>}
+                                  </div>
+                                  {ref.note && (
+                                    <div className="text-[10px] text-amber-400/80 mt-1">{ref.note}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {waterConditions.official.fetch_error && (
+                            <div className="text-[10px] text-red-400 mt-1">
+                              Fetch error: {waterConditions.official.fetch_error}
+                            </div>
+                          )}
                         </div>
                       )}
                     </CardContent>
@@ -353,9 +435,17 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                       <TrendingUp className="w-4 h-4 text-cyan-400" />
                       Average Lockage Times
                       {lockDetails.is_baseline_data && (
-                        <span className="text-[10px] text-slate-500 font-normal">(baseline estimates)</span>
+                        <Badge className="bg-slate-700 text-slate-300 border-slate-500/50 text-[10px]" data-testid="baseline-estimates-badge">
+                          Baseline estimates
+                        </Badge>
                       )}
                     </h4>
+                    {lockDetails.is_baseline_data && (
+                      <p className="text-[10px] text-slate-500 mb-3" data-testid="baseline-estimates-explanation">
+                        These are baseline estimates - not recorded lockage history. They will be replaced
+                        by averages of real observed lockages once enough events are recorded for this lock.
+                      </p>
+                    )}
                     
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-slate-900/50 rounded p-3">

@@ -257,7 +257,7 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
               ))}
             </div>
           ) : !loading ? (
-            <p className="text-slate-500 text-xs italic">No lockage history recorded</p>
+            <p className="text-slate-500 text-xs italic" data-testid="no-recorded-lockages">No recorded lockages yet.</p>
           ) : null}
         </div>
 

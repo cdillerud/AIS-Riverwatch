@@ -109,7 +109,11 @@ export default function TrafficPlanner() {
       .then((r) => r.json())
       .then((d) => {
         setLocks(d.locks || []);
-        if (d.locks?.length && !queueLockId) setQueueLockId(d.locks[Math.floor(d.locks.length / 2)].lock_id);
+        // Default to Lock 2 (RM 815.2) where demo vessels live; fall back to middle
+        if (d.locks?.length && !queueLockId) {
+          const lock2 = d.locks.find((l) => l.lock_id === "lock_2");
+          setQueueLockId(lock2 ? lock2.lock_id : d.locks[Math.floor(d.locks.length / 2)].lock_id);
+        }
       })
       .catch(() => toast.error("Failed to load locks"));
     // eslint-disable-next-line react-hooks/exhaustive-deps

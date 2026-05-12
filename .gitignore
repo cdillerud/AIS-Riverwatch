@@ -711,3 +711,14 @@ credentials.json
 *.pem
 *.key
 .credentials
+*.backup.*
+*.before-*
+*.failed-fetch-backup.*
+*.orphan-runtime-backup.*
+*.final-recover-backup.*
+docker-compose.yml.backup.*
+frontend/public/index.html.*backup*
+frontend/.env.*backup*
+riverwatch_*.log
+*_recover.sh
+*_recovery.sh

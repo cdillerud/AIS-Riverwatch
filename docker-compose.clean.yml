@@ -1,0 +1,55 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: riverwatchclean-mongodb-1
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  ais-relay:
+    build:
+      context: ./ais_push_relay
+      dockerfile: Dockerfile
+    container_name: riverwatchclean-ais-relay-1
+    environment:
+      - AIS_RELAY_TOKEN=${AIS_RELAY_TOKEN}
+      - WS_HOST=0.0.0.0
+      - WS_PORT=8088
+      - TCP_HOST=0.0.0.0
+      - TCP_PORT=5353
+    ports:
+      - "8088:8088"
+    restart: unless-stopped
+
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: riverwatchclean-backend-1
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=riverwatch
+      - CORS_ORIGINS=http://34.172.47.153:3000
+    depends_on:
+      - mongodb
+      - ais-relay
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_BACKEND_URL=http://34.172.47.153:8001
+    container_name: riverwatchclean-frontend-1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:

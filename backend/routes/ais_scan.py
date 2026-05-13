@@ -83,9 +83,18 @@ async def scan_status():
 
 
 @router.get("/results")
-async def scan_results():
+async def scan_results(
+    include_low_confidence: bool = False,
+    exclude_loopback: bool = True,
+    exclude_docker: bool = True,
+):
     """List of candidate AIS feeds discovered by the most recent scan."""
-    return await _relay_get("/scan/results")
+    qs = (
+        f"include_low_confidence={'true' if include_low_confidence else 'false'}"
+        f"&exclude_loopback={'true' if exclude_loopback else 'false'}"
+        f"&exclude_docker={'true' if exclude_docker else 'false'}"
+    )
+    return await _relay_get(f"/scan/results?{qs}")
 
 
 @router.post("/select")

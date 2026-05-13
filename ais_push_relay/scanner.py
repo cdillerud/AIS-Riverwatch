@@ -22,8 +22,9 @@ import logging
 import os
 import re
 import socket
+import struct
 from datetime import datetime, timezone
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger("relay.scanner")
 
@@ -47,65 +48,185 @@ MAX_CONCURRENCY = int(os.environ.get("SCAN_CONCURRENCY", "128"))
 # Hard cap so a /16 subnet override doesn't fork 65k probes by accident.
 MAX_HOSTS = int(os.environ.get("SCAN_MAX_HOSTS", "512"))
 
+# Interfaces created by Docker / k8s / VPN tooling. We want to *see* them
+# (for diagnostics) but never auto-scan them.
+DOCKER_IFACE_PREFIXES = (
+    "docker", "br-", "veth", "cni", "flannel", "weave", "cali", "tun", "tap", "vxlan",
+)
 
-def _is_private_v4(ip: str) -> bool:
+
+def _classify_iface(iface: str) -> dict:
+    is_loopback = iface == "lo" or iface.startswith("lo:")
+    is_docker = any(iface.startswith(p) for p in DOCKER_IFACE_PREFIXES)
+    return {"is_loopback": is_loopback, "is_docker": is_docker}
+
+
+def _classify_ip(ip: str) -> dict:
     try:
-        addr = ipaddress.ip_address(ip)
-        return addr.version == 4 and (addr.is_private or addr.is_link_local)
-    except ValueError:
-        return False
+        addr = ipaddress.IPv4Address(ip)
+    except (ValueError, ipaddress.AddressValueError):
+        return {"is_loopback": False, "is_link_local": False, "is_private": False,
+                "is_reserved": True, "is_172_block": False}
+    return {
+        "is_loopback": addr.is_loopback,
+        "is_link_local": addr.is_link_local,
+        "is_private": addr.is_private and not addr.is_loopback and not addr.is_link_local,
+        "is_reserved": addr.is_reserved or addr.is_multicast or addr.is_unspecified,
+        "is_172_block": ip.startswith("172."),
+    }
 
 
-def detect_local_subnets() -> List[str]:
+def _parse_proc_net_route() -> List[dict]:
     """
-    Best-effort detection of the relay host's local IPv4 /24 subnets.
+    Parse /proc/net/route and return one entry per interface that owns a
+    real route (i.e. has a non-zero destination *or* is the default route).
 
-    We avoid raw netlink/route lookups (which require CAP_NET_ADMIN inside
-    containers) and instead:
-      - Try /proc/net/fib_trie for assigned local IPs (Linux-only).
-      - Fall back to socket.getaddrinfo on the host name.
-      - Always derive a /24 from each discovered private IP.
+    Each entry: {iface, network (CIDR), netmask, gateway, is_default}
     """
-    found: List[str] = []
-    seen = set()
+    rows: List[dict] = []
+    try:
+        with open("/proc/net/route", "r") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return rows
+    for raw in lines[1:]:
+        parts = raw.split()
+        if len(parts) < 8:
+            continue
+        iface, dest_hex, gw_hex, _flags, _refcnt, _use, _metric, mask_hex = parts[:8]
+        try:
+            dest = socket.inet_ntoa(struct.pack("<L", int(dest_hex, 16)))
+            mask = socket.inet_ntoa(struct.pack("<L", int(mask_hex, 16)))
+            gw = socket.inet_ntoa(struct.pack("<L", int(gw_hex, 16)))
+        except Exception:
+            continue
+        is_default = (dest_hex == "00000000")
+        try:
+            prefix = sum(bin(int(o)).count("1") for o in mask.split("."))
+            network = str(ipaddress.IPv4Network(f"{dest}/{prefix}", strict=False))
+        except (ValueError, ipaddress.AddressValueError):
+            continue
+        rows.append({
+            "iface": iface,
+            "network": network,
+            "netmask": mask,
+            "gateway": gw,
+            "is_default": is_default,
+        })
+    return rows
 
-    def add(ip: str) -> None:
-        if _is_private_v4(ip):
-            net = str(ipaddress.IPv4Network(f"{ip}/24", strict=False))
-            if net not in seen:
-                seen.add(net)
-                found.append(net)
 
+def _ips_per_iface() -> Dict[str, List[str]]:
+    """Map iface name -> list of assigned IPv4 addresses from /proc/net/fib_trie."""
+    out: Dict[str, List[str]] = {}
     try:
         with open("/proc/net/fib_trie", "r") as f:
             data = f.read()
-        # Lines containing assigned local IPs look like:
-        #   |-- 192.168.1.42 ... LOCAL ... host
-        for line in data.splitlines():
-            m = re.search(r"\|--\s+([0-9.]+)$", line.strip())
-            if m:
-                add(m.group(1))
-    except Exception as e:
-        logger.debug(f"[scanner] /proc/net/fib_trie unavailable: {e}")
+    except FileNotFoundError:
+        return out
+    # fib_trie has alternating sections per table. Local IPs live under
+    # entries marked "LOCAL"; we just want every IP marked as host-local
+    # whatever interface it's attached to, then we'll cross-reference
+    # against route destinations.
+    # The structure doesn't list iface inline, so we use ifaddrs via
+    # /sys/class/net/*/address to discover interfaces and ip-link bind
+    # via socket if available. As a portable fallback we just gather
+    # all local IPs and let route entries provide the iface mapping.
+    ips: List[str] = []
+    for line in data.splitlines():
+        m = re.search(r"\|--\s+([0-9.]+)$", line.strip())
+        if m:
+            ips.append(m.group(1))
+    # Assign each IP to whichever iface owns its /24 (best effort).
+    routes = _parse_proc_net_route()
+    for ip in ips:
+        try:
+            addr = ipaddress.IPv4Address(ip)
+        except (ValueError, ipaddress.AddressValueError):
+            continue
+        chosen = "?"
+        for r in routes:
+            if r["is_default"]:
+                continue
+            try:
+                if addr in ipaddress.IPv4Network(r["network"], strict=False):
+                    chosen = r["iface"]
+                    break
+            except (ValueError, ipaddress.AddressValueError):
+                continue
+        out.setdefault(chosen, []).append(ip)
+    return out
 
-    try:
-        hostname = socket.gethostname()
-        for fam, _, _, _, sa in socket.getaddrinfo(hostname, None, family=socket.AF_INET):
-            if fam == socket.AF_INET:
-                add(sa[0])
-    except Exception as e:
-        logger.debug(f"[scanner] getaddrinfo({socket.gethostname()}) failed: {e}")
 
-    # Always include the docker bridge fallback so the scanner finds *something*
-    # when running inside a stock compose network.
-    add("172.17.0.1")
+def list_visible_networks() -> List[dict]:
+    """
+    Return the relay's visible IPv4 networks with classification flags so
+    the UI can show what the scanner can / cannot see.
 
-    return found
+    Eligibility for auto-scan:
+      - Must be IPv4 private RFC1918 space
+      - Must NOT be loopback, link-local, multicast or reserved
+      - Interface name must NOT match a Docker/VPN bridge prefix
+      - 172.16/12 ranges are NEVER auto-scanned (operator must opt in
+        explicitly via the subnet override).
+    """
+    routes = _parse_proc_net_route()
+    iface_ips = _ips_per_iface()
+
+    seen: Dict[str, dict] = {}
+    for r in routes:
+        if r["is_default"]:
+            continue
+        net = r["network"]
+        iface = r["iface"]
+        iface_flags = _classify_iface(iface)
+        try:
+            netobj = ipaddress.IPv4Network(net, strict=False)
+        except (ValueError, ipaddress.AddressValueError):
+            continue
+        # Skip /32 host routes
+        if netobj.prefixlen >= 31:
+            continue
+        ip_for_iface = (iface_ips.get(iface) or [None])[0]
+        flags = _classify_ip(ip_for_iface or str(netobj.network_address))
+        is_eligible_auto = (
+            flags["is_private"]
+            and not iface_flags["is_loopback"]
+            and not iface_flags["is_docker"]
+            and not flags["is_172_block"]   # opt-in only
+            and netobj.num_addresses <= MAX_HOSTS + 2
+        )
+        entry = {
+            "iface": iface,
+            "network": net,
+            "ip": ip_for_iface,
+            "is_loopback": iface_flags["is_loopback"] or flags["is_loopback"],
+            "is_docker": iface_flags["is_docker"],
+            "is_link_local": flags["is_link_local"],
+            "is_172_block": flags["is_172_block"],
+            "is_private": flags["is_private"],
+            "eligible_for_auto_scan": is_eligible_auto,
+        }
+        # Deduplicate (multiple route rows for same network)
+        key = f"{iface}:{net}"
+        if key not in seen:
+            seen[key] = entry
+    return list(seen.values())
+
+
+def detect_local_subnets() -> List[str]:
+    """Return only the subnets eligible for an unattended auto-scan."""
+    nets = list_visible_networks()
+    return [n["network"] for n in nets if n["eligible_for_auto_scan"]]
+
+
+class NoUsableSubnetError(RuntimeError):
+    """Raised by run_scan when auto-detection finds nothing scannable."""
 
 
 def resolve_targets(subnet_override: Optional[str], ports: Iterable[int]) -> Tuple[List[Tuple[str, int]], str]:
     """Return list of (ip, port) tuples to probe and the human-readable subnet label."""
-    ports = list(ports) or list(DEFAULT_PORTS)
+    ports = list(ports) if ports else list(DEFAULT_PORTS)
     if subnet_override:
         try:
             net = ipaddress.ip_network(subnet_override, strict=False)
@@ -117,7 +238,11 @@ def resolve_targets(subnet_override: Optional[str], ports: Iterable[int]) -> Tup
     else:
         subnets = detect_local_subnets()
         if not subnets:
-            raise RuntimeError("Could not detect a local subnet; pass subnet=<cidr> override")
+            raise NoUsableSubnetError(
+                "No scannable LAN subnet found from this relay. "
+                "Run the relay on the same network as Boat Beacon "
+                "or provide a reachable subnet manually."
+            )
 
     hosts: List[str] = []
     for s in subnets:
@@ -241,3 +366,45 @@ async def run_scan(
 
     candidates.sort(key=lambda c: c["score"], reverse=True)
     return candidates, subnet_label
+
+
+def filter_results(
+    results: List[dict],
+    *,
+    include_low_confidence: bool = False,
+    exclude_loopback: bool = True,
+    exclude_docker: bool = True,
+) -> List[dict]:
+    """
+    Apply the result filters requested by the audit:
+      - exclude loopback (127.0.0.0/8) by default
+      - exclude Docker bridge ranges (172.17/16, 172.18/16, ...) by default
+      - hide socket_open-only noise unless include_low_confidence=True
+
+    A candidate counts as 'high confidence' if any of:
+      * AIS sentence detected
+      * NMEA sentence detected
+      * a non-empty sample was received
+    """
+    docker_nets = [ipaddress.IPv4Network(f"172.{n}.0.0/16") for n in range(17, 32)]
+
+    def keep(c: dict) -> bool:
+        try:
+            addr = ipaddress.IPv4Address(c.get("ip", ""))
+        except (ValueError, ipaddress.AddressValueError):
+            return False
+        if exclude_loopback and addr.is_loopback:
+            return False
+        if exclude_loopback and addr.is_link_local:
+            return False
+        if exclude_docker and any(addr in n for n in docker_nets):
+            return False
+        if not include_low_confidence:
+            details = c.get("details") or {}
+            high = bool(details.get("is_ais")) or bool(details.get("is_nmea")) or bool(c.get("sample"))
+            if not high:
+                return False
+        return True
+
+    return [c for c in results if keep(c)]
+

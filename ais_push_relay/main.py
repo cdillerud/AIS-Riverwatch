@@ -233,12 +233,20 @@ async def health():
 @app.get("/scan/status")
 async def scan_status():
     snap = state.snapshot()
+    networks = scanner.list_visible_networks()
+    has_usable = any(n["eligible_for_auto_scan"] for n in networks)
     return {
         "scan_status": snap["scan_status"],
         "last_scan": snap["last_scan"],
         "selected_feed": snap["selected_feed"],
         "upstream": snap["upstream"],
         "fanout_clients": len(fanout_clients),
+        "networks": networks,
+        "auto_scan_supported": has_usable,
+        "auto_scan_hint": (
+            None if has_usable
+            else "Relay only sees Docker/loopback interfaces. Provide a subnet override or run the relay on the same LAN as Boat Beacon."
+        ),
     }
 
 
@@ -246,6 +254,23 @@ async def scan_status():
 async def trigger_boat_beacon_scan(req: ScanRequest):
     """Kick off a network scan for Boat Beacon AIS feeds."""
     global scan_task
+    # Reject auto scan early if there's nothing scannable - much faster
+    # than queuing 65k probes against the docker bridge.
+    if not req.subnet:
+        try:
+            scanner.resolve_targets(None, scanner.DEFAULT_PORTS)
+        except scanner.NoUsableSubnetError as e:
+            state.update_scan_status(
+                state="completed",
+                started_at=datetime.now(timezone.utc).isoformat(),
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                progress=0.0,
+                scanned=0,
+                total=0,
+                subnet=None,
+                error=str(e),
+            )
+            return {"status": "no_usable_subnet", "error": str(e)}
     async with scan_lock:
         if scan_task and not scan_task.done():
             raise HTTPException(status_code=409, detail="A scan is already running")
@@ -282,6 +307,16 @@ async def _run_scan_task(subnet: Optional[str], ports: Optional[list]) -> None:
             error=None,
         )
         logger.info("[scanner] completed with %d candidates on %s", len(candidates), subnet_label)
+    except scanner.NoUsableSubnetError as e:
+        logger.info("[scanner] no usable subnet: %s", e)
+        state.set_scan_results([], subnet=None)
+        state.update_scan_status(
+            state="completed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            progress=0.0,
+            subnet=None,
+            error=str(e),
+        )
     except Exception as e:
         logger.exception("[scanner] scan failed")
         state.update_scan_status(
@@ -292,10 +327,32 @@ async def _run_scan_task(subnet: Optional[str], ports: Optional[list]) -> None:
 
 
 @app.get("/scan/results")
-async def scan_results():
+async def scan_results(
+    include_low_confidence: bool = False,
+    exclude_loopback: bool = True,
+    exclude_docker: bool = True,
+):
+    """List of candidates from the most recent scan, filtered to high
+    confidence by default (AIS / NMEA / sample received).
+
+    Set include_low_confidence=true to also see socket_open-only rows."""
     snap = state.snapshot()
+    raw_results = snap["scan_results"]
+    filtered = scanner.filter_results(
+        raw_results,
+        include_low_confidence=include_low_confidence,
+        exclude_loopback=exclude_loopback,
+        exclude_docker=exclude_docker,
+    )
     return {
-        "results": snap["scan_results"],
+        "results": filtered,
+        "raw_count": len(raw_results),
+        "shown_count": len(filtered),
+        "filters": {
+            "include_low_confidence": include_low_confidence,
+            "exclude_loopback": exclude_loopback,
+            "exclude_docker": exclude_docker,
+        },
         "last_scan": snap["last_scan"],
         "scan_status": snap["scan_status"],
     }

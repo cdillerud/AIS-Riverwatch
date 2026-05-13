@@ -37,14 +37,20 @@ class _MockRelayHandler(BaseHTTPRequestHandler):
         return  # silence test output
 
     def do_GET(self):
-        if self.path == "/scan/status":
+        path = self.path.split("?", 1)[0]
+        if path == "/scan/status":
             self._send(200, {"scan_status": self.state["scan_status"],
                              "selected_feed": self.state["selected_feed"],
                              "upstream": {"connected": False},
                              "fanout_clients": 0,
-                             "last_scan": None})
-        elif self.path == "/scan/results":
+                             "last_scan": None,
+                             "networks": [],
+                             "auto_scan_supported": False})
+        elif path == "/scan/results":
             self._send(200, {"results": self.state["results"],
+                             "raw_count": len(self.state["results"]),
+                             "shown_count": len(self.state["results"]),
+                             "filters": {},
                              "last_scan": None,
                              "scan_status": self.state["scan_status"]})
         else:

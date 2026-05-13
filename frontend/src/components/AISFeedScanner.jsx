@@ -48,21 +48,27 @@ export default function AISFeedScanner() {
   const [loading, setLoading] = useState(false);
   const [selecting, setSelecting] = useState(null);
   const [scannerError, setScannerError] = useState(null);
+  const [includeLowConf, setIncludeLowConf] = useState(false);
+  const [shownCount, setShownCount] = useState(0);
+  const [rawCount, setRawCount] = useState(0);
   const pollRef = useRef(null);
 
   const refresh = useCallback(async () => {
     try {
+      const qs = `?include_low_confidence=${includeLowConf}&exclude_loopback=true&exclude_docker=true`;
       const [s, r] = await Promise.all([
         fetch(`${API}/status`).then((x) => x.json()),
-        fetch(`${API}/results`).then((x) => x.json()),
+        fetch(`${API}/results${qs}`).then((x) => x.json()),
       ]);
       setStatus(s);
       setResults(r?.results || []);
+      setShownCount(r?.shown_count ?? (r?.results?.length || 0));
+      setRawCount(r?.raw_count ?? 0);
       setScannerError(null);
     } catch (e) {
       setScannerError(e?.message || "Failed to reach relay");
     }
-  }, []);
+  }, [includeLowConf]);
 
   // Initial + light polling while a scan is in progress
   useEffect(() => {
@@ -72,7 +78,7 @@ export default function AISFeedScanner() {
     }, 2000);
     return () => clearInterval(pollRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.scan_status?.state]);
+  }, [status?.scan_status?.state, includeLowConf]);
 
   const startScan = useCallback(async () => {
     setLoading(true);
@@ -209,6 +215,47 @@ export default function AISFeedScanner() {
           </div>
         </div>
 
+        {/* Relay visible networks */}
+        {status?.networks && status.networks.length > 0 && (
+          <div className="p-3 rounded-md border border-white/5 bg-slate-950/40" data-testid="relay-networks-panel">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                Relay visible networks
+              </div>
+              {!status.auto_scan_supported && (
+                <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/30 text-[10px] uppercase">
+                  No usable LAN
+                </Badge>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {status.networks.map((n) => (
+                <div
+                  key={`${n.iface}-${n.network}`}
+                  className="flex items-center justify-between text-[11px] font-mono px-2 py-1 rounded bg-slate-900/50"
+                  data-testid={`network-${n.iface}-${n.network.replace('/', '_')}`}
+                >
+                  <span className="text-slate-200 truncate">
+                    <span className="text-slate-500">{n.iface}</span> {n.network}
+                  </span>
+                  <span className="flex items-center gap-1 flex-shrink-0">
+                    {n.is_loopback && <Badge className="bg-slate-800 text-slate-400 border-slate-600 text-[9px]">loopback</Badge>}
+                    {n.is_docker && <Badge className="bg-slate-800 text-amber-400 border-slate-600 text-[9px]">docker</Badge>}
+                    {n.is_172_block && !n.is_docker && <Badge className="bg-slate-800 text-amber-400 border-slate-600 text-[9px]">172/12</Badge>}
+                    {n.eligible_for_auto_scan && <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 text-[9px]">auto-scan</Badge>}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {!status.auto_scan_supported && (
+              <p className="mt-2 text-[11px] text-amber-300/90 leading-snug" data-testid="auto-scan-warning">
+                {status.auto_scan_hint ||
+                  "The scanner runs from the relay machine. It can only find Boat Beacon if the relay is on the same network or has a route to it."}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Scan controls */}
         <div className="flex items-end gap-3 flex-wrap">
           <div className="flex-1 min-w-[200px] space-y-1.5">
@@ -268,9 +315,28 @@ export default function AISFeedScanner() {
         )}
 
         {lastScan && (
-          <div className="text-[11px] text-slate-500">
-            Last scan: {fmtTime(lastScan.finished_at)} — {lastScan.candidates_count} candidate
-            {lastScan.candidates_count === 1 ? "" : "s"} on {lastScan.subnet || "local subnet"}
+          <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2 flex-wrap" data-testid="last-scan-meta">
+            <span>
+              Last scan: {fmtTime(lastScan.finished_at)}
+              {lastScan.subnet ? ` on ${lastScan.subnet}` : ""}
+              {" — "}
+              <span className="text-slate-400">
+                showing {shownCount}/{rawCount}
+              </span>
+              {status?.scan_status?.error && (
+                <span className="block text-amber-300 mt-0.5">{status.scan_status.error}</span>
+              )}
+            </span>
+            <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeLowConf}
+                onChange={(e) => setIncludeLowConf(e.target.checked)}
+                data-testid="scanner-low-conf-toggle"
+                className="accent-cyan-400"
+              />
+              Show low-confidence (socket_open only)
+            </label>
           </div>
         )}
 

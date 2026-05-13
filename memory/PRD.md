@@ -185,6 +185,18 @@ Audit + corrections requested in user prompt of 2026-02-12 ("audit and correct L
 - [x] UI: "No lockage history recorded" → **"No recorded lockages yet."**; baseline lockage averages now show a clear *"Baseline estimates — used until real lockages are observed"* explanation block.
 - [x] Tests: 14 new pytest cases (10 water-stations + 4 lockage-events) — all green.
 
+### Phase 8: Live AIS Cleanup + Windows Bridge Packaging ✅ (May 13, 2026)
+End-to-end live AIS path was verified (Boat Beacon LAN → `scripts/ais_relay.py` → GCP relay :6000 → backend). Two follow-on commits hardened the display side and shipped a non-technical user installer.
+
+- [x] **Auto-suppress demo vessels** when live AIS traffic is detected. `DEMO_VESSELS_MODE` env (`auto`/`on`/`off`, default `auto`). `/api/vessels` hides DEMO001/DEMO002 once `_record_live_ais_event()` fires.
+- [x] **Fixed `is_user_vessel` bug**: `/api/vessels` and `/api/admin/vessels` now pass `session_mmsi=None` → all vessels return `is_user_vessel=False`. Per-session highlighting still works through `/api/session/{mmsi}/vessels` and WebSocket subscribers.
+- [x] **Stale-vessel pruning**: new `stale_vessel_sweep_task` removes vessels older than `VESSEL_STALE_SECONDS` (default 600s, every 60s). Demo vessels excluded. New `POST /api/admin/vessels/clear-stale` for on-demand purge. Cleared leftover test MMSI `366967104`.
+- [x] **Filter MMSIs early**: blocked MMSIs (e.g. Boat Beacon UK test signal `2339005`) are now dropped before the "Parsed AIS vessel" info log.
+- [x] **`GET /api/admin/vessels/live-status`**: admin view of demo mode, last live AIS line received, vessel stale window.
+- [x] **Windows AIS Bridge package** under `scripts/windows_bridge/`: PyInstaller spec + `build_windows.bat` produce `RiverWatchAISBridge.exe`. INI-driven config (`collector`, `boat_beacon`, `logging`), `--status` / `--clear-cache` flags, NSSM-based service install (`install-service`/`uninstall-service`/`start-service`/`stop-service`). Full README with setup, NSSM service walkthrough, and troubleshooting. Reuses the verified `scripts/ais_relay.py` unmodified.
+- [x] Tests: 7 new vessel-display hygiene tests + 11 Windows-bridge wrapper tests — all green.
+
+
 ## Pending Features
 
 ### P0 - High Priority

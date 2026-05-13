@@ -1338,7 +1338,7 @@ async def admin_get_all_vessels(request: Request):
     
     vessels_list = []
     for mmsi, vessel in active_vessels.items():
-        v_dict = prepare_vessel_for_output(vessel, mmsi)
+        v_dict = prepare_vessel_for_output(vessel, None)
         vessels_list.append(v_dict)
     
     # Sort by river mile
@@ -1398,9 +1398,189 @@ async def admin_delete_vessel(request: Request, mmsi: str):
     return {"success": True, "message": f"Vessel {mmsi} removed from tracking"}
 
 
+# ---------------------------------------------------------------------------
+# Live-AIS / demo-vessel / stale-prune helpers
+# ---------------------------------------------------------------------------
+
+def _demo_mmsi_set() -> set:
+    """Set of MMSIs that belong to demo vessels."""
+    return {cfg["mmsi"] for cfg in DEMO_VESSELS.values()}
+
+
+def _is_demo_vessel(vessel, mmsi: str) -> bool:
+    """Return True if a vessel object/MMSI represents a demo vessel."""
+    if mmsi in _demo_mmsi_set():
+        return True
+    if isinstance(vessel, dict):
+        return bool(vessel.get("is_demo"))
+    return bool(getattr(vessel, "is_demo", False))
+
+
+def _record_live_ais_event(mmsi: str) -> None:
+    """Record that a real (non-demo, non-filtered) AIS vessel update arrived."""
+    if not mmsi or mmsi in _demo_mmsi_set():
+        return
+    live_ais_state["last_seen"] = datetime.now(timezone.utc)
+    live_ais_state["lines_received"] = int(live_ais_state.get("lines_received") or 0) + 1
+    live_ais_state["last_mmsi"] = mmsi
+
+
+def _has_live_ais_traffic() -> bool:
+    """Return True if any real AIS vessel exists in the active set OR has been seen recently."""
+    if live_ais_state.get("last_seen") is not None:
+        return True
+    demo_set = _demo_mmsi_set()
+    for m in active_vessels.keys():
+        if m in demo_set:
+            continue
+        if is_mmsi_blocked(m):
+            continue
+        return True
+    return False
+
+
+def _should_suppress_demo_vessels() -> bool:
+    """Resolve whether demo vessels should be hidden from /api/vessels right now."""
+    if DEMO_VESSELS_MODE == "off":
+        return True
+    if DEMO_VESSELS_MODE == "on":
+        return False
+    # auto: hide demo vessels as soon as real AIS traffic is available
+    return _has_live_ais_traffic()
+
+
+@api_router.get("/admin/vessels/live-status")
+async def admin_live_ais_status(request: Request):
+    """Return live-AIS state + demo suppression decision (admin only)."""
+    admin = await require_admin(request)
+    last_seen = live_ais_state.get("last_seen")
+    return {
+        "demo_mode": DEMO_VESSELS_MODE,
+        "demo_vessels_suppressed": _should_suppress_demo_vessels(),
+        "live_ais_seen": _has_live_ais_traffic(),
+        "live_ais_lines_received": int(live_ais_state.get("lines_received") or 0),
+        "live_ais_last_mmsi": live_ais_state.get("last_mmsi"),
+        "live_ais_last_seen": last_seen.isoformat() if last_seen else None,
+        "vessel_stale_seconds": VESSEL_STALE_SECONDS,
+        "requested_by": admin["email"],
+    }
+
+
+def _vessel_timestamp(vessel) -> Optional[datetime]:
+    """Best-effort timestamp for a vessel object (Pydantic model or dict)."""
+    ts = None
+    if hasattr(vessel, "timestamp"):
+        ts = getattr(vessel, "timestamp", None)
+    elif isinstance(vessel, dict):
+        ts = vessel.get("timestamp") or vessel.get("last_update")
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
+def _prune_stale_vessels(max_age_seconds: int = None,
+                        protect_mmsis: Optional[set] = None) -> List[str]:
+    """Remove vessels whose last update is older than ``max_age_seconds``.
+
+    Demo vessels are always skipped (they refresh themselves), and any MMSIs in
+    ``protect_mmsis`` are also retained.
+    Returns the list of removed MMSIs.
+    """
+    if max_age_seconds is None:
+        max_age_seconds = VESSEL_STALE_SECONDS
+    if max_age_seconds <= 0:
+        return []
+    protect = set(protect_mmsis or set()) | _demo_mmsi_set()
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+    removed: List[str] = []
+    for mmsi in list(active_vessels.keys()):
+        if mmsi in protect:
+            continue
+        ts = _vessel_timestamp(active_vessels[mmsi])
+        if ts is None:
+            # No timestamp = unknown age; treat as stale on first sweep to avoid
+            # leaking manually-injected test data forever.
+            removed.append(mmsi)
+            del active_vessels[mmsi]
+            continue
+        if ts < cutoff:
+            removed.append(mmsi)
+            del active_vessels[mmsi]
+    if removed:
+        logger.info(f"[STALE-PRUNE] Removed {len(removed)} stale vessel(s): {removed}")
+    return removed
+
+
+@api_router.post("/admin/vessels/clear-stale")
+async def admin_clear_stale_vessels(request: Request):
+    """Force-remove vessels older than the stale window (admin only)."""
+    admin = await require_admin(request)
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    max_age = int(body.get("max_age_seconds") or VESSEL_STALE_SECONDS)
+    removed = _prune_stale_vessels(max_age_seconds=max_age)
+    logger.info(f"[ADMIN] {admin['email']} cleared {len(removed)} stale vessels (max_age={max_age}s)")
+    return {
+        "success": True,
+        "removed": removed,
+        "removed_count": len(removed),
+        "max_age_seconds": max_age,
+    }
+
+
+async def stale_vessel_sweep_task():
+    """Background task that periodically removes stale vessels from active_vessels."""
+    if VESSEL_STALE_SECONDS <= 0 or VESSEL_STALE_SWEEP_SECONDS <= 0:
+        logger.info("Stale vessel sweep disabled (VESSEL_STALE_SECONDS<=0)")
+        return
+    logger.info(
+        f"Stale vessel sweep enabled: max_age={VESSEL_STALE_SECONDS}s, "
+        f"interval={VESSEL_STALE_SWEEP_SECONDS}s"
+    )
+    while True:
+        try:
+            await asyncio.sleep(VESSEL_STALE_SWEEP_SECONDS)
+            _prune_stale_vessels()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in stale_vessel_sweep_task: {e}")
+            await asyncio.sleep(VESSEL_STALE_SWEEP_SECONDS)
+
+
 # Demo vessel toggle state (in-memory, reset on server restart)
 demo_vessels_active = True
 demo_vessels_paused = {}  # {mmsi: True} - paused vessels won't auto-move
+
+# Demo vessel display mode: "auto" (hide when live AIS active), "on", "off".
+# Override via env RIVERWATCH_DEMO_VESSELS_MODE. Default: "auto".
+DEMO_VESSELS_MODE = (os.environ.get("RIVERWATCH_DEMO_VESSELS_MODE", "auto") or "auto").strip().lower()
+if DEMO_VESSELS_MODE not in ("auto", "on", "off"):
+    DEMO_VESSELS_MODE = "auto"
+
+# Tracks the most recent timestamp of a real (non-demo) AIS vessel update.
+# Used by /api/vessels to decide whether demo vessels should be suppressed.
+live_ais_state = {
+    "last_seen": None,        # datetime of latest live AIS line
+    "lines_received": 0,      # cumulative non-demo AIS updates since startup
+    "last_mmsi": None,
+}
+
+# Stale-vessel pruning window. Vessels older than this are removed from the
+# active set (with exceptions for demo vessels and the configured user vessel).
+VESSEL_STALE_SECONDS = int(os.environ.get("RIVERWATCH_VESSEL_STALE_SECONDS", "600"))
+# How often the stale-prune loop runs.
+VESSEL_STALE_SWEEP_SECONDS = int(os.environ.get("RIVERWATCH_VESSEL_STALE_SWEEP_SECONDS", "60"))
 
 # User vessel simulation state
 user_vessel_simulation = {}  # {mmsi: {enabled: bool, speed_knots: float, heading: str, river_mile: float}}
@@ -2252,6 +2432,12 @@ class AISConnectionManager:
         
         if vessel_data and vessel_data.get('mmsi'):
             mmsi_parsed = vessel_data['mmsi']
+            # Drop filtered/blocked MMSIs IMMEDIATELY after parsing (before logging
+            # or touching active_vessels). This keeps test/noise beacons like the
+            # Boat Beacon UK test signal (2339005) out of the active set and logs.
+            if is_mmsi_blocked(mmsi_parsed):
+                logger.debug(f"Dropped filtered MMSI {mmsi_parsed} (pre-store)")
+                return
             logger.info(f"Parsed AIS vessel: MMSI={mmsi_parsed}, lat={vessel_data.get('lat')}, lon={vessel_data.get('lon')}")
         elif vessel_data:
             logger.debug(f"Parsed AIS but no MMSI: {vessel_data}")
@@ -2261,7 +2447,8 @@ class AISConnectionManager:
         if vessel_data and vessel_data.get('mmsi'):
             mmsi_parsed = vessel_data['mmsi']
             
-            # Skip filtered/blocked MMSI
+            # Skip filtered/blocked MMSI (defense-in-depth; first check above
+            # already handled this path, but kept for safety).
             if is_mmsi_blocked(mmsi_parsed):
                 return
             
@@ -2324,6 +2511,10 @@ class AISConnectionManager:
             
             # Store vessel keyed by MMSI - completely isolated
             active_vessels[vessel.mmsi] = vessel
+            
+            # First real AIS vessel from the live feed → record the event so the
+            # /api/vessels endpoint can hide demo vessels in 'auto' mode.
+            _record_live_ais_event(vessel.mmsi)
             
             # Track vessel passage through locks
             await track_vessel_lock_passage(vessel.model_dump())
@@ -5086,14 +5277,24 @@ async def load_vessel_names_from_db():
 
 @api_router.get("/vessels")
 async def get_vessels():
-    """Get all tracked vessels, enriched with USACE lock queue data."""
+    """Get all tracked vessels, enriched with USACE lock queue data.
+
+    NOTE: This endpoint has no session context, so `is_user_vessel` is always
+    False here. Use `/api/session/{mmsi}/vessels` to get per-session highlighting.
+    """
     vessels = []
+    # Hide demo vessels when live AIS has been received (auto mode)
+    suppress_demo = _should_suppress_demo_vessels()
     for mmsi, vessel in active_vessels.items():
         # Skip filtered/blocked MMSI
         if is_mmsi_blocked(mmsi):
             continue
+        # Hide demo vessels once real AIS has started flowing
+        if suppress_demo and _is_demo_vessel(vessel, mmsi):
+            continue
         # Use centralized helper to ensure clean data output
-        v_dict = prepare_vessel_for_output(vessel, mmsi)
+        # IMPORTANT: pass None for session_mmsi so is_user_vessel=False for all.
+        v_dict = prepare_vessel_for_output(vessel, None)
         vessels.append(v_dict)
     return vessels
 
@@ -6036,6 +6237,9 @@ async def startup_event():
     # Start demo vessel simulation
     if DEMO_VESSELS_ENABLED:
         asyncio.create_task(simulate_demo_vessels())
+
+    # Periodic stale-vessel pruning (removes leftover test/injected MMSIs)
+    asyncio.create_task(stale_vessel_sweep_task())
 
 
 async def usace_refresh_task():

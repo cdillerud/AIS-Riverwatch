@@ -24,9 +24,9 @@ import os
 import signal
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Optional, Set
+from typing import Dict, Optional, Set
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -40,6 +40,12 @@ WS_HOST = os.environ.get("WS_HOST", "0.0.0.0")
 WS_PORT = int(os.environ.get("WS_PORT", "8088"))
 TCP_HOST = os.environ.get("TCP_HOST", "0.0.0.0")
 TCP_PORT = int(os.environ.get("TCP_PORT", "5353"))
+# Legacy push-ingest TCP port. scripts/ais_relay.py and other local
+# senders open a TCP connection here and write newline-delimited NMEA.
+INGEST_HOST = os.environ.get("INGEST_HOST", "0.0.0.0")
+INGEST_PORT = int(os.environ.get("INGEST_PORT", "6000"))
+INGEST_IDLE_TIMEOUT = float(os.environ.get("INGEST_IDLE_TIMEOUT", "120"))
+INGEST_TOKEN = os.environ.get("AIS_RELAY_TOKEN", "").strip() or None
 
 # ---------------------------------------------------------------------------
 # Globals
@@ -51,6 +57,15 @@ upstream_task: Optional[asyncio.Task] = None
 upstream_stop_event: Optional[asyncio.Event] = None
 scan_task: Optional[asyncio.Task] = None
 scan_lock = asyncio.Lock()
+
+# Push-ingest stats (mirrors the upstream block but for inbound pushers)
+push_stats: Dict[str, object] = {
+    "lines_received": 0,
+    "last_line_at": None,
+    "last_client": None,
+    "current_clients": 0,
+    "last_error": None,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +195,55 @@ async def start_fanout_server() -> asyncio.AbstractServer:
 
 
 # ---------------------------------------------------------------------------
+# Push-ingest TCP server (legacy local senders connect here on :6000)
+# ---------------------------------------------------------------------------
+
+async def _ingest_record_line(line: bytes, peer: object) -> None:
+    push_stats["lines_received"] = int(push_stats["lines_received"]) + 1  # type: ignore[arg-type]
+    push_stats["last_line_at"] = datetime.now(timezone.utc).isoformat()
+    push_stats["last_client"] = str(peer)
+    await _broadcast(line if line.endswith(b"\n") else line + b"\n")
+
+
+async def _handle_ingest_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    peer = writer.get_extra_info("peername")
+    logger.info("[ingest-tcp] sender connected from %s", peer)
+    push_stats["current_clients"] = int(push_stats["current_clients"]) + 1  # type: ignore[arg-type]
+    try:
+        while True:
+            try:
+                line = await asyncio.wait_for(reader.readline(), timeout=INGEST_IDLE_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning("[ingest-tcp] idle timeout from %s, closing", peer)
+                break
+            if not line:
+                break
+            await _ingest_record_line(line, peer)
+    except Exception as e:
+        logger.warning("[ingest-tcp] sender %s error: %s", peer, e)
+        push_stats["last_error"] = f"{type(e).__name__}: {e}"
+    finally:
+        push_stats["current_clients"] = max(0, int(push_stats["current_clients"]) - 1)  # type: ignore[arg-type]
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+        logger.info("[ingest-tcp] sender %s disconnected", peer)
+
+
+async def start_ingest_server() -> asyncio.AbstractServer:
+    server = await asyncio.start_server(_handle_ingest_client, INGEST_HOST, INGEST_PORT)
+    logger.info(
+        "[ingest-tcp] listening on %s:%s (legacy push, token=%s)",
+        INGEST_HOST,
+        INGEST_PORT,
+        "set" if INGEST_TOKEN else "unset",
+    )
+    return server
+
+
+# ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
 
@@ -200,6 +264,7 @@ class SelectRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     fanout_server = await start_fanout_server()
+    ingest_server = await start_ingest_server()
     # If a feed was previously selected, resume its upstream client.
     sel = state.get_selected_feed()
     if sel:
@@ -208,14 +273,23 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await stop_upstream()
-        fanout_server.close()
-        try:
-            await fanout_server.wait_closed()
-        except Exception:
-            pass
+        for srv in (fanout_server, ingest_server):
+            srv.close()
+            try:
+                await srv.wait_closed()
+            except Exception:
+                pass
 
 
-app = FastAPI(title="River Watch AIS Push Relay", version="1.0", lifespan=lifespan)
+app = FastAPI(title="River Watch AIS Push Relay", version="1.1", lifespan=lifespan)
+
+
+def _current_mode() -> str:
+    if int(push_stats["current_clients"]) > 0 or push_stats["last_line_at"]:  # type: ignore[arg-type]
+        return "push"
+    if state.get_selected_feed() and state.snapshot()["upstream"].get("connected"):
+        return "pull"
+    return "idle"
 
 
 @app.get("/health")
@@ -223,11 +297,57 @@ async def health():
     snap = state.snapshot()
     return {
         "status": "ok",
-        "fanout_clients": len(fanout_clients),
+        "mode": _current_mode(),
+        "push_ingest": {
+            "lines_received": push_stats["lines_received"],
+            "last_line_at": push_stats["last_line_at"],
+            "last_client": push_stats["last_client"],
+            "current_clients": push_stats["current_clients"],
+            "ingest_tcp": f"{INGEST_HOST}:{INGEST_PORT}",
+            "token_required": INGEST_TOKEN is not None,
+            "last_error": push_stats["last_error"],
+        },
         "upstream": snap["upstream"],
+        "fanout_clients": len(fanout_clients),
         "selected_feed": snap["selected_feed"],
         "scan_status": snap["scan_status"]["state"],
     }
+
+
+# --- HTTP ingest (new, optional) ------------------------------------------
+
+class HTTPIngestPayload(BaseModel):
+    lines: Optional[list] = None
+    text: Optional[str] = None
+
+
+@app.post("/ingest/nmea")
+async def http_ingest(
+    payload: HTTPIngestPayload,
+    x_relay_token: Optional[str] = Header(default=None, alias="X-Relay-Token"),
+):
+    """
+    HTTP push endpoint for senders that prefer JSON over a raw TCP socket.
+    Body shape (any of):
+        {"lines": ["!AIVDM,1,...", "$GPRMC,...", ...]}
+        {"text": "!AIVDM,...\\n$GPRMC,..."}
+
+    Auth: when AIS_RELAY_TOKEN is set, callers must include X-Relay-Token
+    header. When unset the endpoint accepts unauthenticated pushes (LAN-only
+    use case).
+    """
+    if INGEST_TOKEN and x_relay_token != INGEST_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid relay token")
+    lines: list = []
+    if payload.lines:
+        lines.extend([str(line) for line in payload.lines])
+    if payload.text:
+        lines.extend([line for line in payload.text.splitlines() if line.strip()])
+    if not lines:
+        raise HTTPException(status_code=400, detail="No NMEA lines supplied")
+    for line in lines:
+        await _ingest_record_line(line.encode("ascii", errors="ignore"), "http-ingest")
+    return {"status": "ok", "lines_accepted": len(lines)}
 
 
 @app.get("/scan/status")
@@ -247,6 +367,16 @@ async def scan_status():
             None if has_usable
             else "Relay only sees Docker/loopback interfaces. Provide a subnet override or run the relay on the same LAN as Boat Beacon."
         ),
+        "mode": _current_mode(),
+        "push_ingest": {
+            "lines_received": push_stats["lines_received"],
+            "last_line_at": push_stats["last_line_at"],
+            "last_client": push_stats["last_client"],
+            "current_clients": push_stats["current_clients"],
+            "ingest_tcp": f"{INGEST_HOST}:{INGEST_PORT}",
+            "token_required": INGEST_TOKEN is not None,
+            "last_error": push_stats["last_error"],
+        },
     }
 
 

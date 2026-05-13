@@ -134,6 +134,8 @@ export default function AISFeedScanner() {
 
   const selected = status?.selected_feed;
   const upstream = status?.upstream;
+  const pushStats = status?.push_ingest;
+  const mode = status?.mode || "idle";
   const scanState = status?.scan_status?.state || "idle";
   const lastScan = status?.last_scan;
 
@@ -145,12 +147,56 @@ export default function AISFeedScanner() {
             <Radar className="w-4 h-4 text-cyan-400" />
             AIS Feed Scanner
           </span>
-          <Badge className="bg-cyan-500/10 text-cyan-300 border-cyan-500/30 text-[10px]">
-            Boat Beacon discovery
-          </Badge>
+          <span className="flex items-center gap-2">
+            <Badge
+              className={
+                mode === "push"
+                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 text-[10px] uppercase"
+                  : mode === "pull"
+                  ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30 text-[10px] uppercase"
+                  : "bg-slate-700 text-slate-400 border-slate-500/40 text-[10px] uppercase"
+              }
+              data-testid="scanner-mode-badge"
+            >
+              {mode === "push" ? "push mode" : mode === "pull" ? "scanner/pull" : "idle"}
+            </Badge>
+            <Badge className="bg-cyan-500/10 text-cyan-300 border-cyan-500/30 text-[10px]">
+              Boat Beacon discovery
+            </Badge>
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Explainer */}
+        <p className="text-[11px] text-slate-400 leading-snug" data-testid="scanner-explainer">
+          The scanner runs from the relay machine. If this relay is running in GCP and Boat Beacon
+          is on a private LAN, use <span className="text-cyan-300">push relay mode</span> from the
+          Boat Beacon network (e.g. <span className="font-mono">scripts/ais_relay.py</span>) - the
+          relay accepts NMEA on its TCP <span className="font-mono">:6000</span> ingest port.
+        </p>
+
+        {/* Push-ingest health (visible whenever any line has arrived) */}
+        {pushStats && (pushStats.lines_received > 0 || pushStats.current_clients > 0) && (
+          <div className="p-3 rounded-md border border-emerald-500/30 bg-emerald-500/5" data-testid="push-ingest-panel">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="text-[10px] uppercase tracking-wider text-emerald-300">
+                Push ingest active
+              </div>
+              <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] uppercase">
+                {pushStats.current_clients} sender{pushStats.current_clients === 1 ? "" : "s"}
+              </Badge>
+            </div>
+            <div className="text-[11px] text-slate-300 mt-1 font-mono">
+              {pushStats.lines_received} lines received
+              {pushStats.last_line_at && (
+                <span className="text-slate-500"> · last {fmtTime(pushStats.last_line_at)}</span>
+              )}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
+              Endpoint: {pushStats.ingest_tcp} {pushStats.token_required ? "(token required)" : "(no token required)"}
+            </div>
+          </div>
+        )}
         {/* Currently selected feed + upstream health */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="p-3 rounded-md border border-white/5 bg-slate-950/50">

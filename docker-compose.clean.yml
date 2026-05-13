@@ -17,11 +17,15 @@ services:
       - WS_PORT=8088
       - TCP_HOST=0.0.0.0
       - TCP_PORT=5353
+      - INGEST_HOST=0.0.0.0
+      - INGEST_PORT=6000
+      - INGEST_IDLE_TIMEOUT=120
       - STATE_PATH=/data/state.json
     volumes:
       - ais_relay_state:/data
     ports:
       - "8088:8088"
+      - "6000:6000"
     restart: unless-stopped
 
 

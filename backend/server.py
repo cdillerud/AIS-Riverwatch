@@ -5057,6 +5057,212 @@ async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minute
     return await get_session_race_analysis(mmsi, lock_id, buffer_minutes)
 
 
+# =============================================================================
+# TRIP PLAN - Chain Race Analysis Across Multiple Locks Ahead
+# =============================================================================
+@api_router.get("/session/{session_mmsi}/trip-plan")
+async def get_session_trip_plan(
+    session_mmsi: str,
+    destination_rm: Optional[float] = None,
+    buffer_minutes: int = 20,
+    max_locks: int = 5,
+):
+    """
+    Compute a multi-lock trip plan for a session's vessel.
+
+    For each lock the user will encounter (in their heading direction), this
+    returns the race-to-beat status against the most threatening commercial
+    tow targeting that same lock.
+
+    Query params:
+    - destination_rm: Optional river mile to stop the chain at (otherwise
+      uses end of river in heading direction).
+    - buffer_minutes: Minutes of buffer required before a competing tow.
+    - max_locks: Max number of locks to include in the chain (1-15).
+
+    Status values per leg:
+    - "clear":     no threatening vessel within 100 mi of the lock
+    - "on_pace":   tow detected but user already on pace at current speed
+    - "speed_up":  beatable but user must increase speed (still <= 25 mph)
+    - "cant_beat": required speed exceeds 25 mph max
+    - "no_data":   insufficient info (no speed/heading) to compute
+    """
+    session_mmsi = str(session_mmsi).strip()
+    if not session_mmsi:
+        raise HTTPException(status_code=400, detail="Session MMSI required")
+
+    max_locks = max(1, min(int(max_locks or 5), 15))
+    MAX_THREAT_DISTANCE = 100.0
+    USER_MAX_MPH = 25.0
+
+    # Find the user vessel
+    if session_mmsi not in active_vessels:
+        return {
+            "session_mmsi": session_mmsi,
+            "user_vessel": None,
+            "heading": None,
+            "destination_rm": destination_rm,
+            "legs": [],
+            "summary": {
+                "total_distance_mi": 0,
+                "cumulative_eta_minutes": None,
+                "legs_count": 0,
+                "cant_beat_count": 0,
+                "speed_up_count": 0,
+                "clear_count": 0,
+                "overall_status": "no_user",
+            },
+        }
+
+    user_vessel = prepare_vessel_for_output(active_vessels[session_mmsi], session_mmsi)
+    user_rm = user_vessel.get('river_mile') or estimate_river_mile(user_vessel.get('lat'), user_vessel.get('lon'))
+    user_speed_knots = user_vessel.get('speed') or 0
+    user_speed_mph = user_speed_knots * 1.15078
+    user_heading = user_vessel.get('heading') or determine_heading(user_speed_knots, user_vessel.get('course') or 0)
+
+    # Build ordered chain of locks ahead of the user in heading direction.
+    locks_sorted = sorted(LOCKS.items(), key=lambda kv: kv[1]['river_mile'])
+    chain: List[tuple] = []  # list of (lock_id, lock_dict)
+    if user_heading == 'northbound':
+        # River miles increase northbound. Take locks with RM > user_rm in ascending order.
+        for lid, ldata in locks_sorted:
+            if ldata['river_mile'] > (user_rm or 0):
+                if destination_rm is not None and ldata['river_mile'] > destination_rm:
+                    break
+                chain.append((lid, ldata))
+    elif user_heading == 'southbound':
+        # River miles decrease southbound. Take locks with RM < user_rm in descending order.
+        for lid, ldata in reversed(locks_sorted):
+            if ldata['river_mile'] < (user_rm or 0):
+                if destination_rm is not None and ldata['river_mile'] < destination_rm:
+                    break
+                chain.append((lid, ldata))
+    else:
+        # Stationary or unknown - no chain
+        chain = []
+
+    chain = chain[:max_locks]
+
+    # Build per-leg analysis
+    legs = []
+    cumulative_eta = 0.0 if user_speed_mph > 0 else None
+    cant_beat_count = 0
+    speed_up_count = 0
+    clear_count = 0
+    last_rm = user_rm
+
+    for lid, ldata in chain:
+        lock_rm = ldata['river_mile']
+        leg_distance = round(abs((last_rm or lock_rm) - lock_rm), 1)
+
+        user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm) if user_rm else None
+
+        # Find threatening competitor for THIS lock (bi-directional)
+        threat = None
+        threat_eta = None
+        required_speed = None
+        for mmsi, vessel in active_vessels.items():
+            if mmsi == session_mmsi:
+                continue
+            if hasattr(vessel, 'river_mile'):
+                vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
+                vessel_speed = vessel.speed
+                vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course)
+            else:
+                vessel_rm = vessel.get('river_mile') or estimate_river_mile(vessel.get('lat'), vessel.get('lon'))
+                vessel_speed = vessel.get('speed', 0)
+                vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0))
+
+            eta = calculate_eta_to_lock(vessel_rm, vessel_speed, vessel_heading, lock_rm)
+            if eta is None or eta <= 0:
+                continue
+
+            # Ignore competitors too far from the lock
+            if vessel_rm is not None and abs(vessel_rm - lock_rm) > MAX_THREAT_DISTANCE:
+                continue
+
+            # Earliest competitor wins; user needs to arrive buffer_minutes before them
+            if user_eta is None or eta < user_eta + buffer_minutes:
+                if threat_eta is None or eta < threat_eta:
+                    v_dict = prepare_vessel_for_output(vessel, mmsi)
+                    v_dict['eta_minutes'] = eta
+                    v_dict['distance_to_lock'] = round(abs(vessel_rm - lock_rm), 1) if vessel_rm else None
+                    threat = v_dict
+                    threat_eta = eta
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, eta, buffer_minutes)
+
+        # Determine status
+        if user_rm is None or user_speed_knots < 0.1 or user_heading not in ('northbound', 'southbound'):
+            status = 'no_data'
+        elif threat is None:
+            status = 'clear'
+            clear_count += 1
+        elif required_speed is None:
+            # Can't compute required speed - treat as can't beat
+            status = 'cant_beat'
+            cant_beat_count += 1
+        elif required_speed > USER_MAX_MPH:
+            status = 'cant_beat'
+            cant_beat_count += 1
+        elif required_speed > user_speed_mph + 0.5:
+            status = 'speed_up'
+            speed_up_count += 1
+        else:
+            status = 'on_pace'
+            clear_count += 1
+
+        legs.append({
+            "lock_id": lid,
+            "lock_name": ldata['name'],
+            "lock_rm": lock_rm,
+            "leg_distance_mi": leg_distance,
+            "user_eta_minutes": user_eta,
+            "threatening_vessel": threat,
+            "required_speed_mph": required_speed,
+            "status": status,
+            "buffer_minutes": buffer_minutes,
+        })
+
+        if cumulative_eta is not None and user_eta is not None:
+            cumulative_eta = user_eta  # Each user_eta already from current position
+        last_rm = lock_rm
+
+    # Total distance is from user position to the final lock in the chain (if any)
+    total_distance = 0.0
+    if chain and user_rm is not None:
+        total_distance = round(abs(chain[-1][1]['river_mile'] - user_rm), 1)
+
+    # Overall status: worst of the chain
+    if cant_beat_count > 0:
+        overall = 'cant_beat'
+    elif speed_up_count > 0:
+        overall = 'speed_up'
+    elif clear_count > 0:
+        overall = 'clear'
+    else:
+        overall = 'no_data'
+
+    return {
+        "session_mmsi": session_mmsi,
+        "user_vessel": user_vessel,
+        "user_rm": user_rm,
+        "user_speed_mph": round(user_speed_mph, 1),
+        "heading": user_heading,
+        "destination_rm": destination_rm,
+        "legs": legs,
+        "summary": {
+            "total_distance_mi": total_distance,
+            "cumulative_eta_minutes": legs[-1]["user_eta_minutes"] if legs else None,
+            "legs_count": len(legs),
+            "cant_beat_count": cant_beat_count,
+            "speed_up_count": speed_up_count,
+            "clear_count": clear_count,
+            "overall_status": overall,
+            "max_speed_mph": USER_MAX_MPH,
+        },
+    }
+
+
 @api_router.post("/set-user-mmsi")
 async def set_user_mmsi_legacy(data: dict):
     """

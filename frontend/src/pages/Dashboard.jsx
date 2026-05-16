@@ -33,6 +33,7 @@ import VesselDetailModal from "@/components/VesselDetailModal";
 import LockDetailModal from "@/components/LockDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
 import Speedometer from "@/components/Speedometer";
+import TripPlanPanel from "@/components/TripPlanPanel";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
 import { useAuth } from "@/context/AuthContext";
 
@@ -1512,7 +1513,11 @@ export default function Dashboard({
                 compact={true}
                 showVesselNames={userSettings.show_vessel_names !== false}
               />
-              
+
+              {!isTrafficWatch && userMmsi && (
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={4} bufferMinutes={20} compact={true} />
+              )}
+
               {userVessel && (
                 <Card className="glass-panel border-cyan-500/30">
                   <CardContent className="p-3">

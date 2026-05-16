@@ -7,7 +7,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://lock-timing-demo.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://mississippi-kiosk.preview.emergentagent.com').rstrip('/')
 TEST_MMSI = "123456789"
 
 class TestUserVesselSimulation:

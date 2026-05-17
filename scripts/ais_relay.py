@@ -38,7 +38,7 @@ import json
 # ----- Configuration -----------------------------------------------------------
 BOAT_BEACON_IP   = os.environ.get("BOAT_BEACON_IP", "192.168.0.25")
 BOAT_BEACON_PORT = int(os.environ.get("BOAT_BEACON_PORT", "5353"))
-VM_URL           = os.environ.get("VM_URL", "http://136.116.165.255:8001").rstrip("/")
+VM_URL           = os.environ.get("VM_URL", "http://34.172.47.153").rstrip("/")
 USER_MMSI        = os.environ.get("USER_MMSI", "")
 BOAT_NAME        = os.environ.get("BOAT_NAME", "")
 BATCH_SECONDS    = float(os.environ.get("BATCH_SECONDS", "1.0"))

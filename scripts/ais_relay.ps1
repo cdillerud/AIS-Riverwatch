@@ -1,118 +1,154 @@
 <#
 .SYNOPSIS
-    River Watch NMEA Relay - TCP forwarder.
+    River Watch NMEA Relay - HTTPS push (via nginx on port 80).
 
 .DESCRIPTION
-    Reads NMEA from Boat Beacon's TCP server on the LAN and pushes the raw
-    bytes straight into the ais-relay container's :6000 ingest port on the
-    GCP VM. This matches the architecture shown in the dashboard's
-    "AIS Feed Scanner" panel: push-relay mode.
-
-    Boat Beacon (LAN)   192.168.0.25:5353
-            ||
-            \/   pure TCP forward, no parsing
-    ais-relay container 136.116.165.255:6000
-            ||
-            \/
-    backend container  ais-relay:5353 (internal)
-            ||
-            \/
-    dashboard
+    Reads NMEA from Boat Beacon's TCP server on the LAN and POSTs the lines
+    to the VM's nginx-proxied /api/ais/ingest endpoint. Uses port 80, which
+    is already open on the GCP firewall - no firewall changes needed.
 
 .PARAMETER BoatBeaconIp     LAN IP of Boat Beacon. Default: 192.168.0.25
-.PARAMETER BoatBeaconPort   Boat Beacon TCP port.   Default: 5353
-.PARAMETER VmHost           Public VM hostname/IP.  Default: 136.116.165.255
-.PARAMETER VmPort           Relay ingest TCP port.  Default: 6000
+.PARAMETER BoatBeaconPort   Boat Beacon TCP port. Default: 5353
+.PARAMETER VmUrl            Base URL of your VM. Default: http://34.172.47.153
+.PARAMETER BatchSeconds     Flush interval (seconds). Default: 1
+.PARAMETER MaxBatchLines    Max lines per POST. Default: 200
 #>
 [CmdletBinding()]
 param(
     [string]$BoatBeaconIp   = $(if ($env:BOAT_BEACON_IP)   { $env:BOAT_BEACON_IP }   else { "192.168.0.25" }),
     [int]   $BoatBeaconPort = $(if ($env:BOAT_BEACON_PORT) { [int]$env:BOAT_BEACON_PORT } else { 5353 }),
-    [string]$VmHost         = $(if ($env:VM_HOST)          { $env:VM_HOST }          else { "136.116.165.255" }),
-    [int]   $VmPort         = $(if ($env:VM_PORT)          { [int]$env:VM_PORT }     else { 6000 })
+    [string]$VmUrl          = $(if ($env:VM_URL)           { $env:VM_URL }           else { "http://34.172.47.153" }),
+    [double]$BatchSeconds   = $(if ($env:BATCH_SECONDS)    { [double]$env:BATCH_SECONDS } else { 1.0 }),
+    [int]   $MaxBatchLines  = $(if ($env:MAX_BATCH_LINES)  { [int]$env:MAX_BATCH_LINES }  else { 200 })
 )
 
 $ErrorActionPreference = "Stop"
+$VmUrl = $VmUrl.TrimEnd('/')
+$IngestUrl = "$VmUrl/api/ais/ingest"
 
 function Write-Log([string]$msg) {
     Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] " + $msg)
 }
 
 Write-Log ("=" * 60)
-Write-Log "River Watch NMEA Relay (TCP forwarder)"
+Write-Log "River Watch NMEA Relay (HTTPS push)"
 Write-Log ("=" * 60)
 Write-Log "  Boat Beacon : ${BoatBeaconIp}:${BoatBeaconPort}"
-Write-Log "  Ingest port : ${VmHost}:${VmPort}"
+Write-Log "  VM ingest   : $IngestUrl"
 Write-Log ("=" * 60)
 Write-Log "Press Ctrl+C to stop."
 Write-Log ""
 
-$stats = [pscustomobject]@{ Bytes = 0; Lines = 0; Errors = 0; Start = (Get-Date); LastLine = $null }
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
-while ($true) {
-    $bbClient = $null; $bbStream = $null; $bbReader = $null
-    $vmClient = $null; $vmStream = $null; $vmWriter = $null
+$buffer = New-Object System.Collections.Generic.List[string]
+$lock   = New-Object Object
+$stats  = [pscustomobject]@{
+    LinesRead = 0; BatchesSent = 0; LinesSent = 0; Errors = 0
+    LastDataTime = $null; LastPostTime = $null; StartTime = (Get-Date)
+}
+
+function Send-Batch([System.Collections.Generic.List[string]]$lines) {
+    $body = @{ lines = @($lines) } | ConvertTo-Json -Compress
     try {
-        Write-Log "Connecting to Boat Beacon @ ${BoatBeaconIp}:${BoatBeaconPort} ..."
-        $bbClient = New-Object System.Net.Sockets.TcpClient
-        $bbClient.ReceiveTimeout = 30000
-        $bbClient.SendTimeout    = 10000
-        $iar = $bbClient.BeginConnect($BoatBeaconIp, $BoatBeaconPort, $null, $null)
-        if (-not $iar.AsyncWaitHandle.WaitOne(10000)) { throw "Boat Beacon connect timeout" }
-        $bbClient.EndConnect($iar)
-        $bbStream = $bbClient.GetStream()
-        $bbStream.ReadTimeout = 30000
-        $bbReader = New-Object System.IO.StreamReader($bbStream, [System.Text.Encoding]::ASCII)
-        Write-Log "Boat Beacon connected."
+        $resp = Invoke-RestMethod -Uri $IngestUrl -Method Post `
+            -ContentType "application/json" -Body $body -TimeoutSec 15
+        $stats.BatchesSent++
+        $stats.LinesSent += $lines.Count
+        $stats.LastPostTime = Get-Date
+        if ($stats.BatchesSent -le 3 -or ($stats.BatchesSent % 30) -eq 0) {
+            Write-Log ("POST -> 200  accepted={0}/{1}  total_sent={2}" -f $resp.accepted, $resp.received, $stats.LinesSent)
+        }
+        return $true
+    } catch {
+        $stats.Errors++
+        Write-Log ("POST FAILED: " + $_.Exception.Message)
+        return $false
+    }
+}
 
-        Write-Log "Connecting to VM ingest @ ${VmHost}:${VmPort} ..."
-        $vmClient = New-Object System.Net.Sockets.TcpClient
-        $vmClient.SendTimeout = 15000
-        $iar = $vmClient.BeginConnect($VmHost, $VmPort, $null, $null)
-        if (-not $iar.AsyncWaitHandle.WaitOne(10000)) { throw "VM connect timeout (is :$VmPort open on $VmHost?)" }
-        $vmClient.EndConnect($iar)
-        $vmStream = $vmClient.GetStream()
-        $vmWriter = New-Object System.IO.StreamWriter($vmStream, [System.Text.Encoding]::ASCII)
-        $vmWriter.AutoFlush = $true
-        Write-Log "VM ingest connected. Forwarding NMEA..."
+$client = $null; $stream = $null; $reader = $null
+$lastFlush = Get-Date
 
-        $lastStatus = Get-Date
+try {
+    while ($true) {
+        if (-not $client -or -not $client.Connected) {
+            try {
+                Write-Log "Connecting to Boat Beacon @ ${BoatBeaconIp}:${BoatBeaconPort} ..."
+                $client = New-Object System.Net.Sockets.TcpClient
+                $client.ReceiveTimeout = 30000
+                $client.SendTimeout    = 10000
+                $iar = $client.BeginConnect($BoatBeaconIp, $BoatBeaconPort, $null, $null)
+                if (-not $iar.AsyncWaitHandle.WaitOne(10000)) { throw "Boat Beacon connect timeout after 10s" }
+                $client.EndConnect($iar)
+                $stream = $client.GetStream()
+                $stream.ReadTimeout = 30000
+                $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::ASCII)
+                Write-Log "Boat Beacon connected. Streaming NMEA..."
+            } catch {
+                $stats.Errors++
+                Write-Log ("Boat Beacon connect failed: " + $_.Exception.Message + "  - retrying in 5s")
+                Start-Sleep -Seconds 5
+                continue
+            }
+        }
 
-        while ($bbClient.Connected -and $vmClient.Connected) {
-            $line = $bbReader.ReadLine()
+        try {
+            $line = $reader.ReadLine()
             if ($null -eq $line) {
                 Write-Log "Boat Beacon closed the connection."
-                break
+                try { $client.Close() } catch {}
+                $client = $null
+                Start-Sleep -Seconds 2
+                continue
             }
             $line = $line.Trim()
-            if ($line.Length -eq 0) { continue }
-
-            $vmWriter.WriteLine($line)
-            $stats.Lines++
-            $stats.Bytes += $line.Length + 2
-            $stats.LastLine = $line
-
-            if ($stats.Lines -le 5) {
-                Write-Log ("FWD: " + $line.Substring(0, [Math]::Min(90, $line.Length)))
+            if ($line.Length -gt 0) {
+                [System.Threading.Monitor]::Enter($lock)
+                try {
+                    $buffer.Add($line) | Out-Null
+                    $stats.LinesRead++
+                    $stats.LastDataTime = Get-Date
+                    if ($stats.LinesRead -le 5) {
+                        Write-Log ("NMEA: " + $line.Substring(0, [Math]::Min(90, $line.Length)))
+                    }
+                } finally { [System.Threading.Monitor]::Exit($lock) }
             }
+        } catch [System.IO.IOException] {
+            $stats.Errors++
+            Write-Log ("Read error: " + $_.Exception.Message + " - reconnecting")
+            try { $client.Close() } catch {}
+            $client = $null
+            Start-Sleep -Seconds 2
+            continue
+        }
 
-            $age = ((Get-Date) - $lastStatus).TotalSeconds
-            if ($age -ge 15) {
-                $uptime = (Get-Date) - $stats.Start
-                Write-Log ("status uptime={0:hh\:mm\:ss} lines={1} bytes={2}" -f $uptime, $stats.Lines, $stats.Bytes)
-                $lastStatus = Get-Date
+        $age = ((Get-Date) - $lastFlush).TotalSeconds
+        if ($age -ge $BatchSeconds) {
+            $toSend = $null
+            [System.Threading.Monitor]::Enter($lock)
+            try {
+                if ($buffer.Count -gt 0) {
+                    $take = [Math]::Min($buffer.Count, $MaxBatchLines)
+                    $toSend = New-Object System.Collections.Generic.List[string]
+                    for ($i = 0; $i -lt $take; $i++) { $toSend.Add($buffer[$i]) | Out-Null }
+                    $buffer.RemoveRange(0, $take)
+                }
+            } finally { [System.Threading.Monitor]::Exit($lock) }
+
+            if ($toSend -and $toSend.Count -gt 0) {
+                $ok = Send-Batch $toSend
+                if (-not $ok) {
+                    [System.Threading.Monitor]::Enter($lock)
+                    try { $buffer.InsertRange(0, $toSend) } finally { [System.Threading.Monitor]::Exit($lock) }
+                    Start-Sleep -Seconds 2
+                }
             }
+            $lastFlush = Get-Date
         }
     }
-    catch {
-        $stats.Errors++
-        Write-Log ("ERROR: " + $_.Exception.Message)
-    }
-    finally {
-        foreach ($d in @($bbReader, $bbStream, $bbClient, $vmWriter, $vmStream, $vmClient)) {
-            if ($d) { try { $d.Dispose() } catch {} }
-        }
-    }
-    Write-Log "Reconnecting in 5s..."
-    Start-Sleep -Seconds 5
+} finally {
+    foreach ($d in @($reader, $stream, $client)) { if ($d) { try { $d.Dispose() } catch {} } }
+    Write-Log ("Relay stopped. read={0} sent={1} batches={2} errors={3}" -f `
+        $stats.LinesRead, $stats.LinesSent, $stats.BatchesSent, $stats.Errors)
 }

@@ -4943,7 +4943,13 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
     for mmsi, vessel in active_vessels.items():
         if mmsi == session_mmsi:
             continue
-        
+
+        # Skip other users' simulated vessels (orphan "Your Vessel" entries from
+        # prior sessions). Demo tows are is_demo=True without is_simulated and
+        # remain eligible as competitors.
+        if isinstance(vessel, dict) and vessel.get('is_simulated') and vessel.get('is_user_vessel'):
+            continue
+
         # Handle both Pydantic models and dicts (demo vessels are dicts)
         if hasattr(vessel, 'river_mile'):
             # Pydantic model

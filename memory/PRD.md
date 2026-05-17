@@ -141,6 +141,19 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 - [x] Test file created: `/app/backend/tests/test_user_vessel_simulation.py`
 - [x] **Quick Test button** added - one-click preset (RM 820, 8 kts, southbound) for instant testing
 
+### Trip Plan — Multi-Lock Chain Race Analysis ✅ (February 13, 2026)
+- [x] **Backend**: `GET /api/session/{mmsi}/trip-plan` returns ordered chain of upcoming locks
+  - For each lock in user's heading direction: user_eta_minutes, threatening_vessel, required_speed_mph, leg status
+  - Per-leg status values: clear / on_pace / speed_up / cant_beat / no_data
+  - Summary: legs_count, total_distance_mi, cumulative_eta_minutes, overall_status (worst-of-chain)
+  - Query params: `destination_rm`, `buffer_minutes` (default 20), `max_locks` (default 5, max 15)
+- [x] **Frontend**: `TripPlanPanel.jsx` component with summary tiles, heading badge, per-leg status cards
+  - Auto-refreshes every 30 seconds + manual refresh button
+  - Renders on Dashboard desktop sidebar (vessel_owner only, between Lock Timing & Nearby Vessels)
+  - Also renders on Dashboard mobile "race" tab
+- [x] **Filter fix**: Both Trip Plan and Race Analysis now skip orphan user-simulated vessels (vessels with is_simulated && is_user_vessel) so prior test sessions don't appear as threats. Demo tows (is_demo only) remain eligible.
+- [x] Backend tests: `/app/backend/tests/test_trip_plan.py` (8/8 pass)
+
 ### UI/UX Improvements ✅
 - [x] Nearby Vessels sorted by River Mile (descending)
 - [x] Removed Locks/Raw tabs, moved Raw Data to Settings

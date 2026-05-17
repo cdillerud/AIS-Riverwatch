@@ -4799,6 +4799,73 @@ async def start_connection(config: ConnectionConfig):
     )
     return {"success": True, "message": f"Connection started to {config.ip_address}:{config.port}"}
 
+
+# =============================================================================
+# NMEA INGEST ENDPOINT (push-based relay)
+# =============================================================================
+# Lets a local relay script (e.g. /app/scripts/ais_relay.py) POST raw NMEA
+# lines over plain HTTPS. The VM's cloud backend cannot dial back into a
+# user's LAN (private RFC1918), so the relay pushes here instead.
+#
+# Request body:
+#   {
+#     "user_mmsi": "367123450",
+#     "boat_name": "MY BOAT",          (optional)
+#     "lines": ["$GPRMC,...", "!AIVDM,...", ...]
+#   }
+#
+# Response: {"accepted": N, "echoed": M}
+@api_router.post("/ais/ingest")
+async def ingest_nmea(payload: dict):
+    """Accept a batch of raw NMEA lines from a local relay and process them
+    through the same pipeline used by the live TCP feed."""
+    lines = payload.get("lines") or []
+    if not isinstance(lines, list):
+        raise HTTPException(status_code=400, detail="`lines` must be a list of NMEA strings")
+
+    user_mmsi = str(payload.get("user_mmsi") or "").strip()
+    boat_name = str(payload.get("boat_name") or "").strip()
+
+    # Mark the manager as "connected" via push so /api/connection/status
+    # and the UI reflect a live feed even without a TCP dial-in.
+    if not ais_manager._config or ais_manager._config.get("user_mmsi") != user_mmsi:
+        ais_manager._config = {
+            "ip_address": "push://relay",
+            "port": 0,
+            "user_mmsi": user_mmsi,
+            "boat_name": boat_name,
+        }
+    ais_manager._connected = True
+    ais_manager._last_data_time = datetime.now(timezone.utc)
+    if user_mmsi:
+        try:
+            session_manager.create_session(user_mmsi)
+        except Exception:
+            pass
+        if boat_name:
+            vessel_static_cache[user_mmsi] = {"name": boat_name, "is_user": True}
+
+    accepted = 0
+    for raw in lines:
+        if not isinstance(raw, str):
+            continue
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            await ais_manager._process_line(line)
+            accepted += 1
+        except Exception as e:
+            logger.warning(f"ingest_nmea: failed to process line: {e}")
+
+    return {
+        "accepted": accepted,
+        "received": len(lines),
+        "subscriber_count": ais_manager.subscriber_count,
+        "last_data_time": ais_manager._last_data_time.isoformat() if ais_manager._last_data_time else None,
+    }
+
+
 @api_router.get("/vessel-cache")
 async def get_vessel_cache():
     """Get cached vessel static data (names, dimensions, etc.)"""

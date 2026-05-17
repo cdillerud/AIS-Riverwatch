@@ -1,210 +1,225 @@
 #!/usr/bin/env python3
 """
-AIS Relay Script
-Connects to Boat Beacon and forwards NMEA data to the collector server.
+AIS Relay (HTTP-POST mode)
+==========================
+
+Connects to Boat Beacon's NMEA TCP server on your LAN and POSTs the raw
+lines to the River Watch VM over plain HTTPS. No router port-forward,
+no static IP, no TCP listener on the VM — just outbound HTTPS.
+
+Run this on ANY machine that:
+  - is on the same Wi-Fi as Boat Beacon (so it can reach 192.168.0.25:5353)
+  - has internet access (so it can reach the VM over HTTPS)
 
 Usage:
     python3 ais_relay.py
 
-Configuration (edit below or use environment variables):
+Configure via env vars (all optional, defaults shown):
     BOAT_BEACON_IP=192.168.0.25
     BOAT_BEACON_PORT=5353
-    COLLECTOR_IP=136.116.165.255
-    COLLECTOR_PORT=6000
+    VM_URL=https://mississippi-kiosk.preview.emergentagent.com
+    USER_MMSI=                       # your vessel's MMSI (required for GPS to be attributed)
+    BOAT_NAME=                       # your vessel's display name (optional)
+    BATCH_SECONDS=1.0                # how often to flush to the VM
+    MAX_BATCH_LINES=200              # cap per POST
 """
 
-import socket
-import time
-import sys
 import os
+import sys
+import time
+import socket
 import signal
 import threading
 from datetime import datetime
+from urllib import request as urlrequest
+from urllib import error as urlerror
+import json
 
-# Configuration - edit these or set environment variables
-BOAT_BEACON_IP = os.environ.get("BOAT_BEACON_IP", "192.168.0.25")
+# ----- Configuration -----------------------------------------------------------
+BOAT_BEACON_IP   = os.environ.get("BOAT_BEACON_IP", "192.168.0.25")
 BOAT_BEACON_PORT = int(os.environ.get("BOAT_BEACON_PORT", "5353"))
-COLLECTOR_IP = os.environ.get("COLLECTOR_IP", "136.116.165.255")
-COLLECTOR_PORT = int(os.environ.get("COLLECTOR_PORT", "6000"))
+VM_URL           = os.environ.get("VM_URL", "https://mississippi-kiosk.preview.emergentagent.com").rstrip("/")
+USER_MMSI        = os.environ.get("USER_MMSI", "")
+BOAT_NAME        = os.environ.get("BOAT_NAME", "")
+BATCH_SECONDS    = float(os.environ.get("BATCH_SECONDS", "1.0"))
+MAX_BATCH_LINES  = int(os.environ.get("MAX_BATCH_LINES", "200"))
+RECONNECT_DELAY  = 5     # seconds between Boat Beacon reconnect attempts
 
-# Reconnect settings
-RECONNECT_DELAY = 5  # seconds
+INGEST_URL = f"{VM_URL}/api/ais/ingest"
 
-# Stats
+# ----- State -------------------------------------------------------------------
+_lines_lock = threading.Lock()
+_pending_lines: list[str] = []
+running = True
 stats = {
-    "lines_relayed": 0,
-    "bytes_relayed": 0,
-    "start_time": None,
+    "lines_read": 0,
+    "batches_sent": 0,
+    "lines_sent": 0,
+    "errors": 0,
     "last_data_time": None,
-    "errors": 0
+    "last_post_time": None,
+    "start_time": None,
 }
 
-running = True
 
-def signal_handler(sig, frame):
+def log(msg: str) -> None:
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
+
+
+def _shutdown(*_):
     global running
-    print("\n[RELAY] Shutting down...")
+    log("Shutting down…")
     running = False
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
 
 
-def log(msg):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {msg}")
+signal.signal(signal.SIGINT, _shutdown)
+signal.signal(signal.SIGTERM, _shutdown)
 
 
-def connect_to_boat_beacon():
-    """Connect to Boat Beacon TCP server."""
+# ----- Reader: pulls lines from Boat Beacon -----------------------------------
+def reader_loop():
+    """Connect to Boat Beacon TCP and append every NMEA line to the buffer."""
+    global running
     while running:
+        sock = None
         try:
-            log(f"Connecting to Boat Beacon at {BOAT_BEACON_IP}:{BOAT_BEACON_PORT}...")
+            log(f"Connecting to Boat Beacon @ {BOAT_BEACON_IP}:{BOAT_BEACON_PORT} …")
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(10)
             sock.connect((BOAT_BEACON_IP, BOAT_BEACON_PORT))
-            sock.settimeout(30)  # Timeout for reads
-            log(f"Connected to Boat Beacon!")
-            return sock
-        except socket.error as e:
-            log(f"ERROR: Cannot connect to Boat Beacon: {e}")
-            stats["errors"] += 1
-            log(f"Retrying in {RECONNECT_DELAY} seconds...")
-            time.sleep(RECONNECT_DELAY)
-    return None
+            sock.settimeout(30)
+            log("Boat Beacon connected. Streaming NMEA…")
 
-
-def connect_to_collector():
-    """Connect to the collector server."""
-    while running:
-        try:
-            log(f"Connecting to Collector at {COLLECTOR_IP}:{COLLECTOR_PORT}...")
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)
-            sock.connect((COLLECTOR_IP, COLLECTOR_PORT))
-            sock.settimeout(None)  # No timeout for sending
-            log(f"Connected to Collector!")
-            return sock
-        except socket.error as e:
-            log(f"ERROR: Cannot connect to Collector: {e}")
-            stats["errors"] += 1
-            log(f"Retrying in {RECONNECT_DELAY} seconds...")
-            time.sleep(RECONNECT_DELAY)
-    return None
-
-
-def relay_data():
-    """Main relay loop."""
-    global running
-    stats["start_time"] = datetime.now()
-    
-    while running:
-        boat_beacon_sock = None
-        collector_sock = None
-        
-        try:
-            # Connect to both endpoints
-            boat_beacon_sock = connect_to_boat_beacon()
-            if not boat_beacon_sock:
-                continue
-                
-            collector_sock = connect_to_collector()
-            if not collector_sock:
-                boat_beacon_sock.close()
-                continue
-            
-            log("Relay active - forwarding NMEA data...")
-            buffer = ""
-            
+            buf = ""
             while running:
                 try:
-                    # Receive data from Boat Beacon
-                    data = boat_beacon_sock.recv(4096)
-                    if not data:
-                        log("Boat Beacon connection closed")
-                        break
-                    
-                    # Decode and process
-                    buffer += data.decode("ascii", errors="ignore")
-                    
-                    # Process complete lines
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        line = line.strip()
-                        if line:
-                            # Forward to collector
-                            try:
-                                collector_sock.sendall((line + "\n").encode("ascii"))
-                                stats["lines_relayed"] += 1
-                                stats["bytes_relayed"] += len(line)
-                                stats["last_data_time"] = datetime.now()
-                                
-                                # Print every 100th line to show activity
-                                if stats["lines_relayed"] % 100 == 0:
-                                    log(f"Relayed {stats['lines_relayed']} lines ({stats['bytes_relayed']} bytes)")
-                                
-                                # Print first few lines to confirm data flow
-                                if stats["lines_relayed"] <= 5:
-                                    log(f"DATA: {line[:80]}...")
-                                    
-                            except socket.error as e:
-                                log(f"ERROR sending to collector: {e}")
-                                stats["errors"] += 1
-                                raise
-                                
+                    chunk = sock.recv(4096)
                 except socket.timeout:
-                    log("WARNING: No data from Boat Beacon for 30 seconds")
+                    log("No data from Boat Beacon for 30s — still waiting…")
                     continue
-                    
-        except socket.error as e:
-            log(f"Connection error: {e}")
+                if not chunk:
+                    log("Boat Beacon closed the connection.")
+                    break
+                buf += chunk.decode("ascii", errors="ignore")
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    with _lines_lock:
+                        _pending_lines.append(line)
+                        stats["lines_read"] += 1
+                        stats["last_data_time"] = datetime.now()
+                        if stats["lines_read"] <= 5:
+                            log(f"NMEA: {line[:90]}")
+                        elif stats["lines_read"] % 200 == 0:
+                            log(f"Read {stats['lines_read']} lines so far")
+        except Exception as e:
             stats["errors"] += 1
-            
+            log(f"Boat Beacon error: {e}")
         finally:
-            if boat_beacon_sock:
+            if sock:
                 try:
-                    boat_beacon_sock.close()
-                except:
+                    sock.close()
+                except Exception:
                     pass
-            if collector_sock:
-                try:
-                    collector_sock.close()
-                except:
-                    pass
-        
+
         if running:
-            log(f"Reconnecting in {RECONNECT_DELAY} seconds...")
+            log(f"Reconnecting to Boat Beacon in {RECONNECT_DELAY}s…")
             time.sleep(RECONNECT_DELAY)
 
 
-def print_stats():
-    """Print relay statistics."""
-    if stats["start_time"]:
-        runtime = datetime.now() - stats["start_time"]
-        log(f"=== Relay Stats ===")
-        log(f"  Runtime: {runtime}")
-        log(f"  Lines relayed: {stats['lines_relayed']}")
-        log(f"  Bytes relayed: {stats['bytes_relayed']}")
-        log(f"  Errors: {stats['errors']}")
-        if stats["last_data_time"]:
-            log(f"  Last data: {stats['last_data_time']}")
-
-
-if __name__ == "__main__":
-    log("=" * 50)
-    log("AIS NMEA Relay Starting")
-    log("=" * 50)
-    log(f"  Boat Beacon: {BOAT_BEACON_IP}:{BOAT_BEACON_PORT}")
-    log(f"  Collector:   {COLLECTOR_IP}:{COLLECTOR_PORT}")
-    log("=" * 50)
-    log("Press Ctrl+C to stop")
-    log("")
-    
+# ----- Sender: flushes the buffer to the VM over HTTPS ------------------------
+def _post_batch(lines: list[str]) -> bool:
+    body = json.dumps({
+        "user_mmsi": USER_MMSI,
+        "boat_name": BOAT_NAME,
+        "lines": lines,
+    }).encode("utf-8")
+    req = urlrequest.Request(
+        INGEST_URL,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
-        relay_data()
+        with urlrequest.urlopen(req, timeout=15) as resp:
+            payload = resp.read(2048).decode("utf-8", errors="ignore")
+            if resp.status == 200:
+                if stats["batches_sent"] < 3 or stats["batches_sent"] % 60 == 0:
+                    log(f"POST {INGEST_URL} → 200 ({len(lines)} lines) {payload[:120]}")
+                return True
+            log(f"POST {INGEST_URL} → HTTP {resp.status}: {payload[:200]}")
+            return False
+    except urlerror.HTTPError as e:
+        log(f"HTTPError {e.code} from VM: {e.read()[:200] if e.fp else ''}")
+    except urlerror.URLError as e:
+        log(f"Cannot reach VM: {e.reason}")
+    except Exception as e:
+        log(f"POST failed: {e}")
+    return False
+
+
+def sender_loop():
+    """Every BATCH_SECONDS, drain pending lines and POST them to the VM."""
+    while running:
+        time.sleep(BATCH_SECONDS)
+        with _lines_lock:
+            if not _pending_lines:
+                continue
+            batch = _pending_lines[:MAX_BATCH_LINES]
+            del _pending_lines[: len(batch)]
+
+        ok = _post_batch(batch)
+        if ok:
+            stats["batches_sent"] += 1
+            stats["lines_sent"] += len(batch)
+            stats["last_post_time"] = datetime.now()
+        else:
+            stats["errors"] += 1
+            # Put the batch back at the front so we don't lose data
+            with _lines_lock:
+                _pending_lines[:0] = batch
+            # Brief back-off so we don't hammer a broken VM
+            time.sleep(2)
+
+
+def main():
+    log("=" * 56)
+    log("AIS NMEA Relay → HTTP POST")
+    log("=" * 56)
+    log(f"  Boat Beacon : {BOAT_BEACON_IP}:{BOAT_BEACON_PORT}")
+    log(f"  VM ingest   : {INGEST_URL}")
+    log(f"  USER_MMSI   : {USER_MMSI or '(unset – set USER_MMSI for GPS attribution)'}")
+    log(f"  BOAT_NAME   : {BOAT_NAME or '(unset)'}")
+    log(f"  Batch       : every {BATCH_SECONDS}s, up to {MAX_BATCH_LINES} lines")
+    log("=" * 56)
+    log("Press Ctrl+C to stop.")
+    log("")
+
+    stats["start_time"] = datetime.now()
+    t_reader = threading.Thread(target=reader_loop, daemon=True, name="reader")
+    t_sender = threading.Thread(target=sender_loop, daemon=True, name="sender")
+    t_reader.start()
+    t_sender.start()
+
+    try:
+        while running:
+            time.sleep(15)
+            uptime = datetime.now() - stats["start_time"]
+            last_data = stats["last_data_time"].strftime("%H:%M:%S") if stats["last_data_time"] else "—"
+            last_post = stats["last_post_time"].strftime("%H:%M:%S") if stats["last_post_time"] else "—"
+            log(
+                f"status uptime={uptime} read={stats['lines_read']} "
+                f"sent={stats['lines_sent']} batches={stats['batches_sent']} "
+                f"errors={stats['errors']} last_nmea={last_data} last_post={last_post}"
+            )
     except KeyboardInterrupt:
         pass
     finally:
-        print_stats()
         log("Relay stopped.")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

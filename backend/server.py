@@ -4869,20 +4869,141 @@ async def get_vessel_cache():
     }
 
 
-# Serve the one-click Windows relay launcher so users can fetch it with
-# a single PowerShell command. See /app/scripts/RIVERWATCH.bat.
-from fastapi.responses import FileResponse as _FileResponse  # noqa: E402
+# Serve the one-click Windows relay launcher. We bake the script's
+# base64 contents into this file so it works inside the backend container
+# without needing the scripts/ directory mounted.
+from fastapi.responses import FileResponse as _FileResponse, Response as _Response  # noqa: E402
+import base64 as _b64  # noqa: E402
+
+def _generate_relay_bat(vm_url: str) -> bytes:
+    """Build RIVERWATCH.bat dynamically with the requested VM URL baked in.
+    The embedded PowerShell relay is the HTTPS-push version."""
+    ps1 = """[CmdletBinding()]
+param(
+    [string]$BoatBeaconIp   = $(if ($env:BOAT_BEACON_IP)   { $env:BOAT_BEACON_IP }   else { "192.168.0.25" }),
+    [int]   $BoatBeaconPort = $(if ($env:BOAT_BEACON_PORT) { [int]$env:BOAT_BEACON_PORT } else { 5353 }),
+    [string]$VmUrl          = $(if ($env:VM_URL)           { $env:VM_URL }           else { "__VM_URL__" }),
+    [double]$BatchSeconds   = 1.0,
+    [int]   $MaxBatchLines  = 200
+)
+$ErrorActionPreference = "Stop"
+$VmUrl = $VmUrl.TrimEnd('/')
+$IngestUrl = "$VmUrl/api/ais/ingest"
+function Write-Log([string]$msg) { Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] " + $msg) }
+Write-Log "River Watch NMEA Relay -> $IngestUrl"
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+$buffer = New-Object System.Collections.Generic.List[string]
+$lock = New-Object Object
+$stats = [pscustomobject]@{ LinesRead=0; LinesSent=0; BatchesSent=0; Errors=0 }
+function Send-Batch([System.Collections.Generic.List[string]]$lines) {
+    $body = @{ lines = @($lines) } | ConvertTo-Json -Compress
+    try {
+        $resp = Invoke-RestMethod -Uri $IngestUrl -Method Post -ContentType "application/json" -Body $body -TimeoutSec 15
+        $stats.BatchesSent++; $stats.LinesSent += $lines.Count
+        if ($stats.BatchesSent -le 3 -or ($stats.BatchesSent % 30) -eq 0) {
+            Write-Log ("POST -> 200  accepted={0}/{1}  total_sent={2}" -f $resp.accepted, $resp.received, $stats.LinesSent)
+        }
+        return $true
+    } catch { $stats.Errors++; Write-Log ("POST FAILED: " + $_.Exception.Message); return $false }
+}
+$client = $null; $stream = $null; $reader = $null
+$lastFlush = Get-Date
+try {
+    while ($true) {
+        if (-not $client -or -not $client.Connected) {
+            try {
+                Write-Log "Connecting to Boat Beacon @ ${BoatBeaconIp}:${BoatBeaconPort} ..."
+                $client = New-Object System.Net.Sockets.TcpClient
+                $client.ReceiveTimeout = 30000; $client.SendTimeout = 10000
+                $iar = $client.BeginConnect($BoatBeaconIp, $BoatBeaconPort, $null, $null)
+                if (-not $iar.AsyncWaitHandle.WaitOne(10000)) { throw "Boat Beacon connect timeout" }
+                $client.EndConnect($iar)
+                $stream = $client.GetStream(); $stream.ReadTimeout = 30000
+                $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::ASCII)
+                Write-Log "Boat Beacon connected. Streaming NMEA..."
+            } catch { $stats.Errors++; Write-Log ("Connect failed: " + $_.Exception.Message + " - retry 5s"); Start-Sleep 5; continue }
+        }
+        try {
+            $line = $reader.ReadLine()
+            if ($null -eq $line) { Write-Log "Boat Beacon closed connection."; try { $client.Close() } catch {}; $client = $null; Start-Sleep 2; continue }
+            $line = $line.Trim()
+            if ($line.Length -gt 0) {
+                [System.Threading.Monitor]::Enter($lock); try { $buffer.Add($line) | Out-Null; $stats.LinesRead++ } finally { [System.Threading.Monitor]::Exit($lock) }
+                if ($stats.LinesRead -le 5) { Write-Log ("NMEA: " + $line.Substring(0, [Math]::Min(90, $line.Length))) }
+            }
+        } catch [System.IO.IOException] { $stats.Errors++; Write-Log ("Read error: " + $_.Exception.Message); try { $client.Close() } catch {}; $client = $null; Start-Sleep 2; continue }
+        $age = ((Get-Date) - $lastFlush).TotalSeconds
+        if ($age -ge $BatchSeconds) {
+            $toSend = $null
+            [System.Threading.Monitor]::Enter($lock)
+            try {
+                if ($buffer.Count -gt 0) {
+                    $take = [Math]::Min($buffer.Count, $MaxBatchLines)
+                    $toSend = New-Object System.Collections.Generic.List[string]
+                    for ($i = 0; $i -lt $take; $i++) { $toSend.Add($buffer[$i]) | Out-Null }
+                    $buffer.RemoveRange(0, $take)
+                }
+            } finally { [System.Threading.Monitor]::Exit($lock) }
+            if ($toSend -and $toSend.Count -gt 0) {
+                if (-not (Send-Batch $toSend)) {
+                    [System.Threading.Monitor]::Enter($lock); try { $buffer.InsertRange(0, $toSend) } finally { [System.Threading.Monitor]::Exit($lock) }
+                    Start-Sleep 2
+                }
+            }
+            $lastFlush = Get-Date
+        }
+    }
+} finally {
+    foreach ($d in @($reader, $stream, $client)) { if ($d) { try { $d.Dispose() } catch {} } }
+}
+""".replace("__VM_URL__", vm_url)
+
+    b64 = _b64.b64encode(ps1.encode("utf-8")).decode("ascii")
+    chunks = [b64[i:i+200] for i in range(0, len(b64), 200)]
+    echo_lines = "\r\n".join([f"echo {c}" for c in chunks])
+
+    bat = (
+        "@echo off\r\n"
+        f'set "VM_URL={vm_url}"\r\n'
+        'set "BOAT_BEACON_IP=192.168.0.25"\r\n'
+        'set "BOAT_BEACON_PORT=5353"\r\n'
+        "setlocal enabledelayedexpansion\r\n"
+        "title River Watch Relay\r\n"
+        "echo ================================================================\r\n"
+        "echo   River Watch Relay (HTTPS push)\r\n"
+        "echo   Beacon : %BOAT_BEACON_IP%:%BOAT_BEACON_PORT%\r\n"
+        "echo   VM URL : %VM_URL%\r\n"
+        "echo ================================================================\r\n"
+        'set "RELAY_PS1=%TEMP%\\riverwatch-relay.ps1"\r\n'
+        'set "RELAY_B64=%TEMP%\\riverwatch-relay.b64"\r\n'
+        '> "%RELAY_B64%" (\r\n'
+        "echo -----BEGIN CERTIFICATE-----\r\n"
+        f"{echo_lines}\r\n"
+        "echo -----END CERTIFICATE-----\r\n"
+        ")\r\n"
+        'certutil -decode -f "%RELAY_B64%" "%RELAY_PS1%" >nul\r\n'
+        'if not exist "%RELAY_PS1%" ( echo ERROR: failed to write relay script. & pause & exit /b 1 )\r\n'
+        'powershell -NoProfile -ExecutionPolicy Bypass -File "%RELAY_PS1%" '
+        '-BoatBeaconIp "%BOAT_BEACON_IP%" -BoatBeaconPort %BOAT_BEACON_PORT% -VmUrl "%VM_URL%"\r\n'
+        "echo Relay exited. Press any key.\r\n"
+        "pause >nul\r\n"
+        "endlocal\r\n"
+    )
+    return bat.encode("utf-8")
+
 
 @api_router.get("/relay/download")
-async def download_relay_bat():
-    """Return the RIVERWATCH.bat one-click relay launcher."""
-    path = "/app/scripts/RIVERWATCH.bat"
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Relay launcher not found on server")
-    return _FileResponse(
-        path,
+async def download_relay_bat(request: Request):
+    """Return a freshly-generated RIVERWATCH.bat that points at THIS VM."""
+    # Use the Host header so the .bat always targets whatever URL the client used
+    host = request.headers.get("host") or "127.0.0.1"
+    scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else "http"
+    vm_url = f"{scheme}://{host}"
+    content = _generate_relay_bat(vm_url)
+    return _Response(
+        content=content,
         media_type="application/octet-stream",
-        filename="RIVERWATCH.bat",
+        headers={"Content-Disposition": 'attachment; filename="RIVERWATCH.bat"'},
     )
 
 

@@ -111,6 +111,24 @@ export default function TripsPage() {
     setEditing(trip);
   };
 
+  const loadTrip = (trip) => {
+    try {
+      localStorage.setItem("activeTrip", JSON.stringify({
+        trip_id: trip.trip_id,
+        name: trip.name,
+        start_rm: trip.start_rm,
+        end_rm: trip.end_rm,
+        heading: trip.heading,
+        departure_time: trip.departure_time,
+        notes: trip.notes,
+      }));
+      toast.success(`Loaded "${trip.name}" — opening Dashboard`);
+      setTimeout(() => navigate("/dashboard"), 400);
+    } catch (e) {
+      toast.error("Couldn't load trip: " + e.message);
+    }
+  };
+
   const handleSave = async () => {
     if (!form.name.trim()) {
       toast.error("Trip name is required");
@@ -277,6 +295,15 @@ export default function TripsPage() {
                       )}
                     </div>
                     <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        onClick={() => loadTrip(t)}
+                        data-testid={`trip-load-${t.trip_id}`}
+                        className="bg-cyan-600 hover:bg-cyan-500"
+                      >
+                        <Navigation className="w-3.5 h-3.5 mr-1" />
+                        Use
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"

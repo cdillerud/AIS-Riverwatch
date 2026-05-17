@@ -75,15 +75,26 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [activeTrip, setActiveTrip] = useState(() => {
+    try {
+      const raw = localStorage.getItem("activeTrip");
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
 
   const fetchPlan = useCallback(async () => {
     if (!userMmsi) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${API}/session/${userMmsi}/trip-plan?max_locks=${maxLocks}&buffer_minutes=${bufferMinutes}`
-      );
+      const params = new URLSearchParams({
+        max_locks: String(maxLocks),
+        buffer_minutes: String(bufferMinutes),
+      });
+      if (activeTrip && activeTrip.end_rm != null) {
+        params.set("destination_rm", String(activeTrip.end_rm));
+      }
+      const res = await fetch(`${API}/session/${userMmsi}/trip-plan?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setPlan(data);
@@ -92,7 +103,12 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
     } finally {
       setLoading(false);
     }
-  }, [userMmsi, maxLocks, bufferMinutes]);
+  }, [userMmsi, maxLocks, bufferMinutes, activeTrip]);
+
+  const clearActiveTrip = () => {
+    localStorage.removeItem("activeTrip");
+    setActiveTrip(null);
+  };
 
   useEffect(() => {
     fetchPlan();
@@ -132,6 +148,27 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
       </CardHeader>
 
       <CardContent className="p-4 space-y-3">
+        {activeTrip && (
+          <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-cyan-900/30 border border-cyan-700/50" data-testid="trip-plan-active-trip-banner">
+            <div className="min-w-0 text-xs">
+              <span className="text-cyan-300 uppercase tracking-wide">Trip:</span>{" "}
+              <span className="text-white font-semibold truncate">{activeTrip.name}</span>
+              {activeTrip.end_rm != null && (
+                <span className="text-slate-400"> · to RM {activeTrip.end_rm}</span>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearActiveTrip}
+              className="h-6 text-xs text-slate-300 hover:text-white"
+              data-testid="trip-plan-clear-trip-btn"
+            >
+              Clear
+            </Button>
+          </div>
+        )}
+
         {!userMmsi && (
           <div className="text-center py-6 text-sm text-slate-400" data-testid="trip-plan-no-user">
             <Anchor className="w-6 h-6 mx-auto mb-2 text-slate-500" />

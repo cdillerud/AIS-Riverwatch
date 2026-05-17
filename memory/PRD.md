@@ -365,3 +365,10 @@ Remaining (Phase 3 - Code Consolidation):
 - Lockage Times: 10 minutes
 - Traffic Summary: 30 seconds
 - Auto Soft-Refresh: 15 minutes
+
+
+## Changelog
+- **2026-02-17**: Fixed Lock Detail Modal "River Conditions" regression. The USGS gauge section was conditionally rendered only when both `waterConditions` and `waterConditions.conditions` were truthy, causing the whole card to silently disappear if the API call was slow or returned an error. The card now always renders inside the modal with a `LOADING…` badge while data is fetched and a `NO GAUGE` badge plus a friendly explanation when the upstream USGS feed is unavailable. The actual gauge UI (Water Level, Water Temp, Current, Flood Stage thresholds, 48-hour forecast) is unchanged when data is available.
+  - File: `frontend/src/components/LockDetailModal.jsx`
+  - Data-testid added: `river-conditions-card`, `river-conditions-empty`
+  - Verified end-to-end on preview environment with logged-in vessel-owner account (Lock 2 shows MAJOR FLOOD, 25.7 ft water level, USGS gauge at Prescott, WI).

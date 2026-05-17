@@ -208,19 +208,27 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                   </CardContent>
                 </Card>
 
-                {/* Water Conditions from USGS */}
-                {waterConditions && waterConditions.conditions && (
-                  <Card className="bg-gradient-to-br from-blue-900/30 to-slate-800/50 border-blue-500/30">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="font-semibold text-white flex items-center gap-2">
-                          <Activity className="w-4 h-4 text-blue-400" />
-                          River Conditions
-                        </h3>
+                {/* Water Conditions from USGS - always render so users see status if data is missing */}
+                <Card data-testid="river-conditions-card" className="bg-gradient-to-br from-blue-900/30 to-slate-800/50 border-blue-500/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-white flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-blue-400" />
+                        River Conditions
+                      </h3>
+                      {waterConditions?.conditions ? (
                         <Badge className={getFloodStageColor(waterConditions.conditions.flood_stage)}>
                           {getFloodStageLabel(waterConditions.conditions.flood_stage)}
                         </Badge>
-                      </div>
+                      ) : (
+                        <Badge className="bg-slate-700/50 text-slate-400 border-slate-500/40">
+                          {waterConditions?.error ? "NO GAUGE" : "LOADING…"}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {waterConditions?.conditions ? (
+                      <>
                       
                       <div className="grid grid-cols-3 gap-3">
                         {/* Water Level */}
@@ -281,9 +289,16 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                           </div>
                         </div>
                       )}
-                    </CardContent>
-                  </Card>
-                )}
+                      </>
+                    ) : (
+                      <div data-testid="river-conditions-empty" className="py-4 text-center text-sm text-slate-400">
+                        {waterConditions?.error
+                          ? `Gauge data unavailable: ${waterConditions.error}`
+                          : "Fetching latest gauge readings from USGS…"}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
                 {/* Currently Locking */}
                 {lockDetails.vessels_locking?.length > 0 && (

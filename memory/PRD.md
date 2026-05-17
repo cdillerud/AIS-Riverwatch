@@ -372,3 +372,8 @@ Remaining (Phase 3 - Code Consolidation):
   - File: `frontend/src/components/LockDetailModal.jsx`
   - Data-testid added: `river-conditions-card`, `river-conditions-empty`
   - Verified end-to-end on preview environment with logged-in vessel-owner account (Lock 2 shows MAJOR FLOOD, 25.7 ft water level, USGS gauge at Prescott, WI).
+
+
+- **2026-02-17 (P0 #2)**: Replaced the broken "share one upstream USGS gauge across multiple locks" config with a true per-lock NWS hydrograph gauge mapping (`config.LOCK_GAUGES`). Each lock now uses its own NWS NWSLI forecast point with its own action/flood/moderate/major thresholds straight from NCRFC. Backend added `fetch_nws_gauge_data(nwsli)` that queries the NWS National Water Prediction Service (`https://api.water.noaa.gov/nwps/v1/gauges/{nwsli}`) for observed stage + flood category + forecast. Mixed-datum gauges supported: locks 5, 5A, 6, 7, 8, 9 use elevation-above-sea-level thresholds; the rest use stage-above-datum. Response now includes a `datum` field so the UI labels the gauge correctly ("elev. ft MSL" vs. "X mi from lock"). Lock 2 (Hastings) now reports HSTM5 13/15/17/18 ft thresholds instead of Prescott's 12/16/18/21.
+  - Files: `backend/config.py`, `backend/server.py`, `frontend/src/components/LockDetailModal.jsx`
+  - Verified live on preview: Lock 2 -> NORMAL @ 5.5 ft (HSTM5); Lock 5 -> NORMAL @ 651.5 ft MSL (MSCM5).

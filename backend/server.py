@@ -45,7 +45,7 @@ import hashlib
 import secrets
 
 # Import from new modular structure (for reusable logic)
-from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
+from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
 from services.navigation_service import (
     estimate_river_mile as _estimate_river_mile,
     river_mile_to_coords as _river_mile_to_coords,
@@ -4263,6 +4263,96 @@ usgs_cache = {}
 usgs_cache_time = {}
 USGS_CACHE_DURATION = 900  # 15 minutes
 
+# Cache for NWS NWPS hydrograph data (refreshes every 15 minutes)
+nws_cache: dict = {}
+nws_cache_time: dict = {}
+NWS_CACHE_DURATION = 900
+
+async def fetch_nws_gauge_data(nwsli: str) -> dict:
+    """
+    Fetch observed stage + forecast + per-gauge flood categories from the
+    NWS National Water Prediction Service (NWPS) for a given NWSLI gauge ID.
+    """
+    cache_key = f"nws_{nwsli}"
+    now = datetime.now(timezone.utc)
+
+    cached_at = nws_cache_time.get(cache_key)
+    if cached_at and (now - cached_at).total_seconds() < NWS_CACHE_DURATION:
+        return nws_cache[cache_key]
+
+    result = {
+        "nwsli": nwsli,
+        "name": None,
+        "stage": None,
+        "stage_unit": "ft",
+        "flood_category": "normal",
+        "forecast": None,
+        "categories": {},
+        "error": None,
+    }
+
+    try:
+        url = f"https://api.water.noaa.gov/nwps/v1/gauges/{nwsli}"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                result["error"] = f"NWS HTTP {response.status_code}"
+            else:
+                payload = response.json()
+                result["name"] = payload.get("name")
+                observed = (payload.get("status") or {}).get("observed") or {}
+                if observed.get("primary") is not None:
+                    try:
+                        result["stage"] = round(float(observed["primary"]), 2)
+                    except (TypeError, ValueError):
+                        pass
+                if observed.get("primaryUnit"):
+                    result["stage_unit"] = observed["primaryUnit"]
+                if observed.get("floodCategory"):
+                    cat = observed["floodCategory"]
+                    # NWPS uses "no_flooding", "action", "minor", "moderate", "major"
+                    mapping = {
+                        "no_flooding": "normal",
+                        "action": "action",
+                        "minor": "flood",
+                        "moderate": "moderate",
+                        "major": "major",
+                    }
+                    result["flood_category"] = mapping.get(cat, cat)
+
+                flood = payload.get("flood") or {}
+                cats = flood.get("categories") or {}
+                # Normalize NWPS naming -> our names
+                for nws_key, our_key in (("action", "action"), ("minor", "flood"),
+                                          ("moderate", "moderate"), ("major", "major")):
+                    stage_val = (cats.get(nws_key) or {}).get("stage")
+                    if stage_val is not None and stage_val != -9999:
+                        result["categories"][our_key] = stage_val
+
+                # Build short forecast (next ~6 points)
+                fc_payload = payload.get("forecast") or {}
+                fc_data = fc_payload.get("data") if isinstance(fc_payload, dict) else None
+                if isinstance(fc_data, list):
+                    forecast_points = []
+                    for point in fc_data[:6]:
+                        try:
+                            forecast_points.append({
+                                "time": point.get("validTime"),
+                                "stage_ft": float(point.get("primary")),
+                            })
+                        except (TypeError, ValueError):
+                            continue
+                    if forecast_points:
+                        result["forecast"] = forecast_points
+    except Exception as e:
+        logger.error(f"Error fetching NWS data for {nwsli}: {e}")
+        result["error"] = str(e)
+
+    nws_cache[cache_key] = result
+    nws_cache_time[cache_key] = now
+    return result
+
+
 async def fetch_usgs_water_data(site_id: str) -> dict:
     """
     Fetch real-time water conditions from USGS Water Services API.
@@ -4408,73 +4498,124 @@ async def fetch_usgs_water_data(site_id: str) -> dict:
 async def get_water_conditions_for_lock(lock_id: str):
     """
     Get water conditions (level, temp, current) for a specific lock.
-    Uses data from the nearest USGS gauge station.
+
+    Uses the lock's own NWS hydrograph gauge for water level + per-lock flood
+    thresholds (since every lock has its own flood profile). USGS is queried
+    as a supplement for water temperature and discharge.
     """
     if lock_id not in LOCKS:
         raise HTTPException(status_code=404, detail="Invalid lock ID")
-    
-    if lock_id not in USGS_GAUGES:
+
+    lock_info = LOCKS[lock_id]
+    lock_cfg = LOCK_GAUGES.get(lock_id)
+    legacy_usgs = USGS_GAUGES.get(lock_id)
+
+    # No mapping at all for this lock -> bail out cleanly
+    if not lock_cfg and not legacy_usgs:
         return {
             "lock_id": lock_id,
             "error": "No gauge data available for this lock"
         }
-    
-    gauge_info = USGS_GAUGES[lock_id]
-    lock_info = LOCKS[lock_id]
-    
-    # Fetch water data
-    water_data = await fetch_usgs_water_data(gauge_info['site_id'])
-    
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # --- NWS hydrograph (authoritative per-lock stage + flood category) ---
+    nws_data: dict = {}
+    if lock_cfg:
+        nws_data = await fetch_nws_gauge_data(lock_cfg["nwsli"])
+
+    primary_stage = nws_data.get("stage")
+    flood_category = nws_data.get("flood_category") or "normal"
+    forecast = nws_data.get("forecast")
+
+    # --- USGS supplement for water temp + discharge (NWS doesn't carry these) ---
+    usgs_site = (lock_cfg or {}).get("usgs") or (legacy_usgs or {}).get("site_id")
+    usgs_data: dict = {}
+    if usgs_site:
+        usgs_data = await fetch_usgs_water_data(usgs_site)
+        # Fallback: if NWS gave us no stage, fall back to USGS gage height
+        if primary_stage is None:
+            primary_stage = usgs_data.get("gage_height_ft")
+
+    # Per-lock flood thresholds from config (authoritative NCRFC values)
+    if lock_cfg:
+        stages = lock_cfg["stages"]
+        datum = lock_cfg["datum"]
+        gauge_name = nws_data.get("name") or lock_cfg["name"]
+    else:
+        stages = FLOOD_STAGES.get(legacy_usgs["site_id"], {})
+        datum = "stage"
+        gauge_name = legacy_usgs["name"]
+
+    # If NWS didn't categorize, classify locally against the per-lock thresholds
+    if flood_category == "normal" and primary_stage is not None and stages:
+        if primary_stage >= stages.get("major", float("inf")):
+            flood_category = "major"
+        elif primary_stage >= stages.get("moderate", float("inf")):
+            flood_category = "moderate"
+        elif primary_stage >= stages.get("flood", float("inf")):
+            flood_category = "flood"
+        elif primary_stage >= stages.get("action", float("inf")):
+            flood_category = "action"
+
+    # NWS NWPS uses "minor" for what we historically called "flood"
+    if flood_category == "minor":
+        flood_category = "flood"
+
     return {
         "lock_id": lock_id,
-        "lock_name": lock_info['name'],
-        "lock_river_mile": lock_info['river_mile'],
+        "lock_name": lock_info["name"],
+        "lock_river_mile": lock_info["river_mile"],
         "gauge": {
-            "site_id": gauge_info['site_id'],
-            "name": gauge_info['name'],
-            "river_mile": gauge_info['river_mile'],
-            "distance_from_lock": abs(lock_info['river_mile'] - gauge_info['river_mile'])
+            "nwsli": (lock_cfg or {}).get("nwsli"),
+            "site_id": usgs_site,
+            "name": gauge_name,
+            "datum": datum,                       # "stage" or "elevation"
+            "distance_from_lock": 0.0,            # gauge is at this lock
         },
         "conditions": {
-            "timestamp": water_data.get('timestamp'),
-            "gage_height_ft": water_data.get('gage_height_ft'),
-            "water_temp_f": water_data.get('water_temp_f'),
-            "water_temp_c": water_data.get('water_temp_c'),
-            "discharge_cfs": water_data.get('discharge_cfs'),
-            "current_speed_mph": water_data.get('current_speed_mph'),
-            "flood_stage": water_data.get('flood_stage'),
+            "timestamp": timestamp,
+            "gage_height_ft": primary_stage,
+            "water_temp_f": usgs_data.get("water_temp_f"),
+            "water_temp_c": usgs_data.get("water_temp_c"),
+            "discharge_cfs": usgs_data.get("discharge_cfs"),
+            "current_speed_mph": usgs_data.get("current_speed_mph"),
+            "flood_stage": flood_category,
+            "datum": datum,
         },
-        "flood_stages": FLOOD_STAGES.get(gauge_info['site_id'], {}),
-        "forecast": water_data.get('forecast'),
-        "error": water_data.get('error')
+        "flood_stages": stages,
+        "forecast": forecast or usgs_data.get("forecast"),
+        "error": nws_data.get("error") or usgs_data.get("error"),
     }
 
 
 @api_router.get("/water-conditions")
 async def get_all_water_conditions():
-    """Get water conditions for all locks with available gauges."""
+    """Get water conditions for all locks using each lock's own NWS gauge."""
     results = {}
-    
-    # Get unique gauge site IDs
-    unique_sites = set(g['site_id'] for g in USGS_GAUGES.values())
-    
-    # Fetch data for each unique site
-    site_data = {}
-    for site_id in unique_sites:
-        site_data[site_id] = await fetch_usgs_water_data(site_id)
-    
-    # Build results for each lock
-    for lock_id, gauge_info in USGS_GAUGES.items():
-        if lock_id in LOCKS:
-            water_data = site_data.get(gauge_info['site_id'], {})
-            results[lock_id] = {
-                "gauge_name": gauge_info['name'],
-                "gage_height_ft": water_data.get('gage_height_ft'),
-                "water_temp_f": water_data.get('water_temp_f'),
-                "current_speed_mph": water_data.get('current_speed_mph'),
-                "flood_stage": water_data.get('flood_stage'),
-            }
-    
+    for lock_id, cfg in LOCK_GAUGES.items():
+        if lock_id not in LOCKS:
+            continue
+        nws = await fetch_nws_gauge_data(cfg["nwsli"])
+        stage = nws.get("stage")
+        category = nws.get("flood_category") or "normal"
+        if category == "normal" and stage is not None:
+            thresholds = cfg["stages"]
+            if stage >= thresholds.get("major", float("inf")):
+                category = "major"
+            elif stage >= thresholds.get("moderate", float("inf")):
+                category = "moderate"
+            elif stage >= thresholds.get("flood", float("inf")):
+                category = "flood"
+            elif stage >= thresholds.get("action", float("inf")):
+                category = "action"
+        results[lock_id] = {
+            "gauge_name": nws.get("name") or cfg["name"],
+            "nwsli": cfg["nwsli"],
+            "gage_height_ft": stage,
+            "datum": cfg["datum"],
+            "flood_stage": category,
+        }
     return results
 
 

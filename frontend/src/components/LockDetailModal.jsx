@@ -259,7 +259,11 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                       {/* Gauge Info */}
                       <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
                         <span>Gauge: {waterConditions.gauge?.name}</span>
-                        <span>{waterConditions.gauge?.distance_from_lock?.toFixed(1)} mi from lock</span>
+                        <span>
+                          {waterConditions.gauge?.datum === "elevation"
+                            ? "elev. ft MSL"
+                            : `${waterConditions.gauge?.distance_from_lock?.toFixed(1) ?? "0.0"} mi from lock`}
+                        </span>
                       </div>
 
                       {/* Forecast if available */}

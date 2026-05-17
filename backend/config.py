@@ -117,6 +117,43 @@ FLOOD_STAGES = {
     "07010000": {"action": 28.0, "flood": 30.0, "moderate": 35.0, "major": 40.0},  # St. Louis
 }
 
+# Per-lock NWS hydrograph gauge mapping. Each lock has its OWN forecast point
+# with its OWN flood-stage thresholds. Source: NCRFC forecast point list
+# (https://www.weather.gov/media/ncrfc/data/fcst_groups/fcstlist_fg.pdf) +
+# NWS National Water Prediction Service (https://api.water.noaa.gov/nwps/v1/).
+#
+# datum: "stage"     -> thresholds are gauge height in ft above local datum
+#        "elevation" -> thresholds are water surface elevation in ft above sea level
+LOCK_GAUGES = {
+    "lock_1":        {"nwsli": "STPM5", "usgs": "05331000", "name": "Mississippi River at St. Paul",                       "datum": "stage",     "stages": {"action": 10.0, "flood": 14.0, "moderate": 17.0, "major": 20.0}},
+    "lock_2":        {"nwsli": "HSTM5", "usgs": "05331580", "name": "Mississippi River at Hastings -- Below L&D 2",        "datum": "stage",     "stages": {"action": 13.0, "flood": 15.0, "moderate": 17.0, "major": 18.0}},
+    "lock_3":        {"nwsli": "RDWM5", "usgs": "05344490", "name": "Mississippi River at Red Wing -- Below L&D 3",        "datum": "stage",     "stages": {"action": 10.0, "flood": 14.0, "moderate": 15.0, "major": 17.0}},
+    "lock_4":        {"nwsli": "ALMW3", "usgs": None,        "name": "Mississippi River at Alma -- L&D 4",                  "datum": "stage",     "stages": {"action": 10.0, "flood": 16.0, "moderate": 17.0, "major": 18.0}},
+    "lock_5":        {"nwsli": "MSCM5", "usgs": None,        "name": "Mississippi River at Minnesota City -- L&D 5",       "datum": "elevation", "stages": {"action": 657.0, "flood": 660.0, "moderate": 662.0, "major": 665.0}},
+    "lock_5a":       {"nwsli": "WIDM5", "usgs": None,        "name": "Mississippi River at Winona -- L&D 5A",              "datum": "elevation", "stages": {"action": 650.0, "flood": 655.0, "moderate": 659.0, "major": 661.0}},
+    "lock_6":        {"nwsli": "TREW3", "usgs": None,        "name": "Mississippi River at Trempealeau -- L&D 6",          "datum": "elevation", "stages": {"action": 644.0, "flood": 647.0, "moderate": 649.0, "major": 651.0}},
+    "lock_7":        {"nwsli": "LCRM5", "usgs": None,        "name": "Mississippi River at La Crescent -- L&D 7",          "datum": "elevation", "stages": {"action": 638.0, "flood": 641.0, "moderate": 643.0, "major": 645.0}},
+    "lock_8":        {"nwsli": "GENW3", "usgs": None,        "name": "Mississippi River at Genoa -- L&D 8",                "datum": "elevation", "stages": {"action": 625.2, "flood": 631.0, "moderate": 634.0, "major": 636.0}},
+    "lock_9":        {"nwsli": "LYNW3", "usgs": "05388410",  "name": "Mississippi River at Lynxville -- Below L&D 9",      "datum": "elevation", "stages": {"action": 619.0, "flood": 625.0, "moderate": 628.0, "major": 631.0}},
+    "lock_10":       {"nwsli": "GTTI4", "usgs": None,        "name": "Mississippi River at Guttenberg -- L&D 10",          "datum": "stage",     "stages": {"action": 12.0, "flood": 15.0, "moderate": 18.0, "major": 21.0}},
+    "lock_11":       {"nwsli": "DBQI4", "usgs": None,        "name": "Mississippi River at Dubuque -- L&D 11",             "datum": "stage",     "stages": {"action": 15.0, "flood": 17.0, "moderate": 18.0, "major": 21.5}},
+    "lock_12":       {"nwsli": "BLVI4", "usgs": "05416100",  "name": "Mississippi River at Bellevue -- L&D 12",            "datum": "stage",     "stages": {"action": 16.0, "flood": 17.0, "moderate": 18.0, "major": 20.0}},
+    "lock_13":       {"nwsli": "FLTI2", "usgs": "05420400",  "name": "Mississippi River at Fulton -- L&D 13",              "datum": "stage",     "stages": {"action": 15.0, "flood": 16.0, "moderate": 18.0, "major": 20.0}},
+    "lock_14":       {"nwsli": "LECI4", "usgs": "05422400",  "name": "Mississippi River at LeClaire -- L&D 14",            "datum": "stage",     "stages": {"action": 10.0, "flood": 11.0, "moderate": 12.0, "major": 13.5}},
+    "lock_15":       {"nwsli": "RCKI2", "usgs": None,        "name": "Mississippi River at Rock Island -- L&D 15",         "datum": "stage",     "stages": {"action": 13.0, "flood": 15.0, "moderate": 16.0, "major": 18.0}},
+    "lock_16":       {"nwsli": "ILNI2", "usgs": None,        "name": "Mississippi River at Illinois City -- L&D 16",       "datum": "stage",     "stages": {"action": 14.0, "flood": 15.0, "moderate": 16.0, "major": 18.0}},
+    "lock_17":       {"nwsli": "NBOI2", "usgs": None,        "name": "Mississippi River at New Boston -- L&D 17",          "datum": "stage",     "stages": {"action": 14.0, "flood": 15.0, "moderate": 16.5, "major": 18.5}},
+    "lock_18":       {"nwsli": "GLDI2", "usgs": None,        "name": "Mississippi River at Gladstone -- L&D 18",           "datum": "stage",     "stages": {"action": 9.0, "flood": 10.0, "moderate": 12.0, "major": 14.0}},
+    "lock_19":       {"nwsli": "EOKI4", "usgs": "05474500",  "name": "Mississippi River at Keokuk -- L&D 19",              "datum": "stage",     "stages": {"action": 14.0, "flood": 16.0, "moderate": 17.5, "major": 19.0}},
+    "lock_20":       {"nwsli": "CANM7", "usgs": "05495150",  "name": "Mississippi River at Canton -- L&D 20",              "datum": "stage",     "stages": {"action": 13.0, "flood": 15.0, "moderate": 20.0, "major": 25.0}},
+    "lock_21":       {"nwsli": "QLDI2", "usgs": None,        "name": "Mississippi River at Quincy -- L&D 21",              "datum": "stage",     "stages": {"action": 16.0, "flood": 18.0, "moderate": 21.0, "major": 25.0}},
+    "lock_22":       {"nwsli": "SVRM7", "usgs": None,        "name": "Mississippi River at Saverton -- L&D 22",            "datum": "stage",     "stages": {"action": 14.0, "flood": 16.0, "moderate": 20.0, "major": 24.0}},
+    "lock_24":       {"nwsli": "CLKM7", "usgs": None,        "name": "Mississippi River at Clarksville -- L&D 24",         "datum": "stage",     "stages": {"action": 23.0, "flood": 25.0, "moderate": 31.0, "major": 33.0}},
+    "lock_25":       {"nwsli": "CAGM7", "usgs": "05513675",  "name": "Mississippi River at Cap au Gris (Winfield) -- L&D 25", "datum": "stage",  "stages": {"action": 24.0, "flood": 26.0, "moderate": 30.0, "major": 34.0}},
+    "melvin_price":  {"nwsli": "ALNI2", "usgs": "05587541",  "name": "Mississippi River at Alton -- Melvin Price L&D",      "datum": "stage",     "stages": {"action": 19.0, "flood": 21.0, "moderate": 29.0, "major": 34.0}},
+    "chain_of_rocks":{"nwsli": "EADM7", "usgs": "07010000",  "name": "Mississippi River at St. Louis (Eads Bridge)",        "datum": "stage",     "stages": {"action": 28.0, "flood": 30.0, "moderate": 35.0, "major": 40.0}},
+}
+
 # River mile reference points for estimation
 RIVER_MILE_POINTS = [
     (44.9778, -93.2650, 847.6),   # L1 - Minneapolis

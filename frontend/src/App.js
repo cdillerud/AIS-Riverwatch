@@ -239,6 +239,35 @@ function MainApp() {
       // User is logged in but has no vessels - clear any stale MMSI from localStorage
       localStorage.removeItem('riverwatch_mmsi');
       setUserMmsi("");
+
+      // Still set up a default connectionConfig so the dashboard renders
+      // (otherwise the app falls through to <SetupPage> on every load/reload).
+      const storedConfig = localStorage.getItem('riverwatch_connection');
+      if (storedConfig) {
+        try {
+          setConnectionConfig(JSON.parse(storedConfig));
+        } catch {
+          const fallback = {
+            ip_address: "ais-relay",
+            port: 5353,
+            user_mmsi: "",
+            boat_name: "",
+            account_type: user?.account_type || "vessel_owner",
+          };
+          localStorage.setItem('riverwatch_connection', JSON.stringify(fallback));
+          setConnectionConfig(fallback);
+        }
+      } else {
+        const fallback = {
+          ip_address: "ais-relay",
+          port: 5353,
+          user_mmsi: "",
+          boat_name: "",
+          account_type: user?.account_type || "vessel_owner",
+        };
+        localStorage.setItem('riverwatch_connection', JSON.stringify(fallback));
+        setConnectionConfig(fallback);
+      }
     }
   }, [user]);
 
@@ -270,25 +299,33 @@ function MainApp() {
     }
   }, [user]);
 
-  // Full app refresh - clears stale data and reconnects
+  // Full app refresh - clears stale data and reconnects WebSocket (no page reload)
   const performFullRefresh = useCallback(() => {
-    console.log("Performing full refresh...");
-    
+    console.log("Performing full refresh (in-place)...");
+
     // Clear vessels to prevent stale data accumulation
     setVessels([]);
     setRaceAnalysis(null);
-    
-    // Close and reconnect WebSocket
+
+    // Close existing WebSocket so it reconnects fresh
     if (wsRef.current) {
       wsRef.current.close();
+      wsRef.current = null;
     }
-    
+
     // Update refresh timestamp
     setLastRefresh(Date.now());
-    
-    // Refetch all data
-    window.location.reload();
-  }, []);
+
+    // Reconnect WebSocket and refetch data (no page reload - keeps us on /dashboard)
+    if (connectionConfig) {
+      setTimeout(() => {
+        connectWebSocket(connectionConfig);
+      }, 250);
+    }
+
+    // Refetch vessels, lock status, lockage times
+    performSoftRefresh();
+  }, [connectionConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Soft refresh - just refetch data without page reload
   const performSoftRefresh = useCallback(async () => {

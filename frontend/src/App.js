@@ -236,38 +236,61 @@ function MainApp() {
         restoreVessels();
       }
     } else if (user && (!user.vessels || user.vessels.length === 0)) {
-      // User is logged in but has no vessels - clear any stale MMSI from localStorage
-      localStorage.removeItem('riverwatch_mmsi');
-      setUserMmsi("");
-
-      // Still set up a default connectionConfig so the dashboard renders
-      // (otherwise the app falls through to <SetupPage> on every load/reload).
-      const storedConfig = localStorage.getItem('riverwatch_connection');
-      if (storedConfig) {
+      // User is logged in but has no vessels saved on the account.
+      // The Settings page writes MMSI to /api/settings (not to user.vessels),
+      // so read from there as a fallback before defaulting to empty.
+      (async () => {
+        let fallbackMmsi = "";
+        let fallbackBoatName = "";
         try {
-          setConnectionConfig(JSON.parse(storedConfig));
-        } catch {
+          const settingsRes = await fetch(`${API}/settings`);
+          if (settingsRes.ok) {
+            const settingsData = await settingsRes.json();
+            fallbackMmsi = settingsData?.user_mmsi || "";
+            fallbackBoatName = settingsData?.boat_name || "";
+          }
+        } catch (e) {
+          console.warn("[APP] Couldn't load /api/settings fallback:", e);
+        }
+
+        if (fallbackMmsi) {
+          localStorage.setItem('riverwatch_mmsi', fallbackMmsi);
+          setUserMmsi(fallbackMmsi);
+        } else {
+          localStorage.removeItem('riverwatch_mmsi');
+          setUserMmsi("");
+        }
+
+        const storedConfig = localStorage.getItem('riverwatch_connection');
+        if (storedConfig) {
+          try {
+            const cfg = JSON.parse(storedConfig);
+            if (fallbackMmsi) cfg.user_mmsi = fallbackMmsi;
+            if (fallbackBoatName) cfg.boat_name = fallbackBoatName;
+            setConnectionConfig(cfg);
+          } catch {
+            const fallback = {
+              ip_address: "ais-relay",
+              port: 5353,
+              user_mmsi: fallbackMmsi,
+              boat_name: fallbackBoatName,
+              account_type: user?.account_type || "vessel_owner",
+            };
+            localStorage.setItem('riverwatch_connection', JSON.stringify(fallback));
+            setConnectionConfig(fallback);
+          }
+        } else {
           const fallback = {
             ip_address: "ais-relay",
             port: 5353,
-            user_mmsi: "",
-            boat_name: "",
+            user_mmsi: fallbackMmsi,
+            boat_name: fallbackBoatName,
             account_type: user?.account_type || "vessel_owner",
           };
           localStorage.setItem('riverwatch_connection', JSON.stringify(fallback));
           setConnectionConfig(fallback);
         }
-      } else {
-        const fallback = {
-          ip_address: "ais-relay",
-          port: 5353,
-          user_mmsi: "",
-          boat_name: "",
-          account_type: user?.account_type || "vessel_owner",
-        };
-        localStorage.setItem('riverwatch_connection', JSON.stringify(fallback));
-        setConnectionConfig(fallback);
-      }
+      })();
     }
   }, [user]);
 

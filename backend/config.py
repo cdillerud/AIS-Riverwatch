@@ -210,6 +210,19 @@ ILLINOIS_RIVER_EXCLUSION = {
     "confluence_lat": 38.87,  # Grafton, IL
 }
 
+ST_CROIX_RIVER_EXCLUSION = {
+    # St. Croix River traffic can be received by the AIS feed near Stillwater,
+    # Hudson, and Prescott. Those vessels are not in the Mississippi lock queue
+    # and should not affect RiverWatch lock timing, trip planning, or speed-to-beat.
+    #
+    # This intentionally starts just above the Mississippi/St. Croix confluence
+    # and only excludes vessels east of the Mississippi main-channel corridor.
+    "min_lat": 44.74,
+    "max_lat": 45.45,
+    "east_of_mississippi_lon": -92.84,
+    "west_limit_lon": -92.50,
+}
+
 def is_on_upper_mississippi(lat: float, lon: float, river_mile: float = None) -> bool:
     """
     Check if a vessel position is on the Upper Mississippi River.
@@ -244,6 +257,17 @@ def is_on_upper_mississippi(lat: float, lon: float, river_mile: float = None) ->
         # Mississippi runs roughly N-S
         if lat < 40.0 and lon > -90.2:
             return False
+
+    # Check St. Croix River exclusion zone.
+    # AIS vessels north/east of Prescott/Hastings can be close enough to the
+    # Mississippi reference points to get assigned a Mississippi RM, but they
+    # are not on the Mississippi navigation channel.
+    st_croix = ST_CROIX_RIVER_EXCLUSION
+    if (
+        st_croix["min_lat"] <= lat <= st_croix["max_lat"]
+        and st_croix["east_of_mississippi_lon"] < lon < st_croix["west_limit_lon"]
+    ):
+        return False
     
     return True
 

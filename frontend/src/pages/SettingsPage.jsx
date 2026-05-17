@@ -108,6 +108,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [accountType, setAccountType] = useState(user?.account_type || "vessel_owner");
   const [modeToggleLoading, setModeToggleLoading] = useState(false);
 
+  // Live AIS connection state (polled from /api/connection/status every 3s)
+  const [connStatus, setConnStatus] = useState(null);
+  const [connEdit, setConnEdit] = useState({ ip_address: "", port: "5353", user_mmsi: "", boat_name: "" });
+  const [connBusy, setConnBusy] = useState(false);
+  const [connDirty, setConnDirty] = useState(false);
+
   // Demo vessel editor
   const [demoVessels, setDemoVessels] = useState([]);
   const [editingDemoVessel, setEditingDemoVessel] = useState(null);
@@ -383,6 +389,107 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     };
     loadAccountType();
   }, []);
+
+  // Poll live AIS connection status every 3s + seed editor fields once.
+  useEffect(() => {
+    let cancelled = false;
+    let interval = null;
+
+    const pull = async () => {
+      try {
+        const r = await fetch(`${API}/connection/status`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (cancelled) return;
+        setConnStatus(data);
+        // Seed editor from backend only if user hasn't started typing.
+        setConnEdit((prev) => {
+          if (connDirty) return prev;
+          const cfg = data?.config || {};
+          // Don't seed obviously stale Docker hostnames.
+          const ip = cfg.ip_address && cfg.ip_address !== "ais-relay" && cfg.ip_address !== "push://relay"
+            ? cfg.ip_address
+            : prev.ip_address;
+          return {
+            ip_address: ip || "",
+            port: (cfg.port || prev.port || 5353).toString(),
+            user_mmsi: cfg.user_mmsi || prev.user_mmsi || "",
+            boat_name: cfg.boat_name || prev.boat_name || "",
+          };
+        });
+      } catch (_) {
+        /* network blip - keep prior state */
+      }
+    };
+
+    pull();
+    interval = setInterval(pull, 3000);
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [connDirty]);
+
+  const handleApplyConnection = async () => {
+    const ip = (connEdit.ip_address || "").trim();
+    const port = parseInt(connEdit.port, 10);
+    const mmsi = (connEdit.user_mmsi || "").trim();
+    if (!ip) { toast.error("IP address is required"); return; }
+    if (!port || port <= 0 || port > 65535) { toast.error("Port must be 1-65535"); return; }
+    setConnBusy(true);
+    try {
+      const r = await fetch(`${API}/connection/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ip_address: ip,
+          port,
+          user_mmsi: mmsi,
+          boat_name: (connEdit.boat_name || "").trim(),
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.success) {
+        toast.success(`Reconnecting to ${ip}:${port}…`);
+        setConnDirty(false);
+        // Also save to local settings so last_ip / last_port stays in sync
+        setSettings((prev) => ({ ...prev, last_ip: ip, last_port: port.toString() }));
+      } else {
+        toast.error(body?.message || "Failed to apply connection");
+      }
+    } catch (e) {
+      toast.error(`Connection failed: ${e.message}`);
+    } finally {
+      setConnBusy(false);
+    }
+  };
+
+  const handleReconnect = async () => {
+    setConnBusy(true);
+    try {
+      const r = await fetch(`${API}/connection/reconnect`, { method: "POST" });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.success) toast.success("Reconnecting…");
+      else toast.error(body?.message || "No connection configured yet");
+    } catch (e) {
+      toast.error(`Reconnect failed: ${e.message}`);
+    } finally {
+      setConnBusy(false);
+    }
+  };
+
+  const handleStopConnection = async () => {
+    setConnBusy(true);
+    try {
+      const r = await fetch(`${API}/connection/stop`, { method: "POST" });
+      if (r.ok) toast.success("AIS connection stopped");
+      else toast.error("Failed to stop");
+    } catch (e) {
+      toast.error(`Stop failed: ${e.message}`);
+    } finally {
+      setConnBusy(false);
+    }
+  };
 
   // Convert River Mile to lat/lon
   const convertRiverMileToCoords = async (rm) => {
@@ -1333,43 +1440,147 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
           </Card>
           )}
 
-          {/* Connection Settings */}
-          <Card className="glass-panel border-white/10">
+          {/* AIS Connection - LIVE control */}
+          <Card className="glass-panel border-white/10" data-testid="ais-connection-card">
             <CardHeader>
               <CardTitle className="text-lg text-white flex items-center gap-2">
                 <Wifi className="w-5 h-5 text-cyan-400" />
                 AIS Connection
+                {connStatus?.connected ? (
+                  <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 ml-2" data-testid="ais-conn-pill-live">
+                    LIVE
+                  </Badge>
+                ) : (
+                  <Badge className="bg-rose-500/20 text-rose-300 border border-rose-500/40 ml-2" data-testid="ais-conn-pill-offline">
+                    OFFLINE
+                  </Badge>
+                )}
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Boat Beacon TCP connection settings
+                Boat Beacon TCP source. Update the IP whenever your phone's address changes,
+                then tap <span className="text-cyan-300 font-semibold">Apply &amp; Reconnect</span>.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              {/* Live status strip */}
+              <div className="rounded-md border border-slate-700 bg-slate-900/60 p-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs" data-testid="ais-conn-status-strip">
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wider">In use</div>
+                  <div className="text-white font-mono" data-testid="ais-conn-current-target">
+                    {connStatus?.config?.ip_address && connStatus.config.ip_address !== "ais-relay"
+                      ? `${connStatus.config.ip_address}:${connStatus.config.port || "—"}`
+                      : "— not set —"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wider">MMSI</div>
+                  <div className="text-white font-mono">
+                    {connStatus?.config?.user_mmsi || "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wider">Subscribers</div>
+                  <div className="text-white font-mono">{connStatus?.subscriber_count ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wider">Last NMEA</div>
+                  <div className="text-white font-mono" data-testid="ais-conn-last-data">
+                    {connStatus?.last_data_time
+                      ? new Date(connStatus.last_data_time).toLocaleTimeString()
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Editable fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="ip" className="text-slate-300">Default IP Address</Label>
+                  <Label htmlFor="conn-ip" className="text-slate-300">Phone IP address</Label>
                   <Input
-                    id="ip"
-                    data-testid="settings-ip"
-                    placeholder="192.168.1.100"
-                    value={settings.last_ip}
-                    onChange={(e) => updateSetting("last_ip", e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white font-mono"
+                    id="conn-ip"
+                    data-testid="conn-ip-input"
+                    inputMode="decimal"
+                    placeholder="192.168.0.105"
+                    value={connEdit.ip_address}
+                    onChange={(e) => { setConnEdit({ ...connEdit, ip_address: e.target.value }); setConnDirty(true); }}
+                    className="bg-slate-950 border-slate-700 text-white font-mono h-12 text-base"
                   />
                 </div>
-                
                 <div className="space-y-2">
-                  <Label htmlFor="port" className="text-slate-300">Port</Label>
+                  <Label htmlFor="conn-port" className="text-slate-300">Port</Label>
                   <Input
-                    id="port"
-                    data-testid="settings-port"
+                    id="conn-port"
+                    data-testid="conn-port-input"
+                    inputMode="numeric"
                     placeholder="5353"
-                    value={settings.last_port}
-                    onChange={(e) => updateSetting("last_port", e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white font-mono"
+                    value={connEdit.port}
+                    onChange={(e) => { setConnEdit({ ...connEdit, port: e.target.value }); setConnDirty(true); }}
+                    className="bg-slate-950 border-slate-700 text-white font-mono h-12 text-base"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="conn-mmsi" className="text-slate-300">Your MMSI</Label>
+                  <Input
+                    id="conn-mmsi"
+                    data-testid="conn-mmsi-input"
+                    inputMode="numeric"
+                    placeholder="338414076"
+                    value={connEdit.user_mmsi}
+                    onChange={(e) => { setConnEdit({ ...connEdit, user_mmsi: e.target.value }); setConnDirty(true); }}
+                    className="bg-slate-950 border-slate-700 text-white font-mono h-12 text-base"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="conn-boat" className="text-slate-300">Boat name <span className="text-slate-500 text-xs">(optional)</span></Label>
+                  <Input
+                    id="conn-boat"
+                    data-testid="conn-boat-input"
+                    placeholder="REBOOT"
+                    value={connEdit.boat_name}
+                    onChange={(e) => { setConnEdit({ ...connEdit, boat_name: e.target.value }); setConnDirty(true); }}
+                    className="bg-slate-950 border-slate-700 text-white h-12 text-base"
                   />
                 </div>
               </div>
+
+              {/* Action buttons - touch-friendly heights for the Pi */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <Button
+                  onClick={handleApplyConnection}
+                  disabled={connBusy}
+                  data-testid="conn-apply-btn"
+                  className="bg-cyan-600 hover:bg-cyan-500 text-white h-12 flex-1"
+                >
+                  {connBusy ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                  Apply &amp; Reconnect
+                </Button>
+                <Button
+                  onClick={handleReconnect}
+                  disabled={connBusy || !connStatus?.config?.ip_address || connStatus.config.ip_address === "ais-relay"}
+                  data-testid="conn-reconnect-btn"
+                  variant="outline"
+                  className="border-slate-600 text-slate-200 hover:bg-slate-800 h-12 sm:w-auto"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Reconnect
+                </Button>
+                <Button
+                  onClick={handleStopConnection}
+                  disabled={connBusy || !connStatus?.connected}
+                  data-testid="conn-stop-btn"
+                  variant="outline"
+                  className="border-rose-700/60 text-rose-300 hover:bg-rose-900/30 h-12 sm:w-auto"
+                >
+                  <Ban className="w-4 h-4 mr-2" />
+                  Disconnect
+                </Button>
+              </div>
+
+              {connDirty && (
+                <p className="text-amber-400 text-xs" data-testid="conn-dirty-hint">
+                  Unsaved changes — tap Apply &amp; Reconnect to switch the live feed.
+                </p>
+              )}
             </CardContent>
           </Card>
 

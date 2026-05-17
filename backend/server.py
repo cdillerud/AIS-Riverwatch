@@ -2425,6 +2425,7 @@ class ConnectionConfig(BaseModel):
     ip_address: str
     port: int = 5353
     user_mmsi: str
+    boat_name: str = ""
 
 class VesselPosition(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -4931,14 +4932,45 @@ async def reconnect_ais():
 
 @api_router.post("/connection/start")
 async def start_connection(config: ConnectionConfig):
-    """Start the AIS connection with the given configuration."""
+    """Start the AIS connection with the given configuration.
+
+    Also persists the config to the `settings` collection under key
+    `last_connection_config` so the connection is auto-restored on backend
+    restart (important for the Pi where the systemd service may restart
+    overnight and we don't want the user to re-enter the phone IP)."""
     await ais_manager.configure(
         config.ip_address,
         config.port,
         config.user_mmsi,
-        ""  # boat_name
+        getattr(config, "boat_name", "") or ""
     )
+
+    # Persist for auto-restore on reboot.
+    try:
+        await db.settings.update_one(
+            {"key": "last_connection_config"},
+            {"$set": {
+                "value": json.dumps({
+                    "ip_address": config.ip_address,
+                    "port": config.port,
+                    "user_mmsi": config.user_mmsi,
+                    "boat_name": getattr(config, "boat_name", "") or "",
+                }),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to persist last_connection_config: {e}")
+
     return {"success": True, "message": f"Connection started to {config.ip_address}:{config.port}"}
+
+
+@api_router.post("/connection/stop")
+async def stop_connection():
+    """Stop the AIS connection (manual disconnect from Settings page)."""
+    await ais_manager.disconnect()
+    return {"success": True, "message": "AIS connection stopped"}
 
 
 # =============================================================================
@@ -6547,6 +6579,24 @@ async def startup_event():
     # Start demo vessel simulation
     if DEMO_VESSELS_ENABLED:
         asyncio.create_task(simulate_demo_vessels())
+
+    # Auto-restore last AIS connection (so the Pi reconnects to the phone
+    # automatically after a reboot without the user re-entering the IP).
+    try:
+        doc = await db.settings.find_one({"key": "last_connection_config"}, {"_id": 0})
+        if doc and doc.get("value"):
+            saved = json.loads(doc["value"])
+            ip = saved.get("ip_address")
+            port = int(saved.get("port") or 5353)
+            mmsi = saved.get("user_mmsi", "") or ""
+            boat = saved.get("boat_name", "") or ""
+            if ip and ip not in ("ais-relay", "push://relay"):
+                logger.info(f"Auto-restoring AIS connection to {ip}:{port} (mmsi={mmsi})")
+                asyncio.create_task(ais_manager.configure(ip, port, mmsi, boat))
+            else:
+                logger.info(f"Skipping AIS auto-restore (ip={ip!r} is stale/non-routable)")
+    except Exception as e:
+        logger.warning(f"Failed to auto-restore AIS connection: {e}")
 
 
 async def usace_refresh_task():

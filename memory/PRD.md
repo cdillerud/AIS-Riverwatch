@@ -4,398 +4,67 @@
 Build a local application named "River Watch" to track vessels on the upper Mississippi River. The application should connect to an AIS (Automatic Identification System) TCP feed, calculate "Lock Timing" to help the user's vessel beat commercial traffic to locks, and display this information on a simplified river map.
 
 ## Core Requirements
-1. **AIS/GPS Data Integration:** Connect to a TCP feed to receive and parse AIS and NMEA GPS data.
-2. **Vessel Tracking:** Display the user's vessel and other commercial vessels on a simplified river map.
-3. **"Lock Timing" Calculation:** Calculate the required speed for the user's vessel to reach a target lock before a competing commercial vessel.
-4. **Alert System:** Trigger a visual alert if the required speed exceeds the user's boat's maximum speed.
-5. **Local Deployment:** Provide a `docker-compose` setup.
-6. **Persistent Configuration:** A Settings page for persisting vessel MMSI, name, max speed, and other UI preferences.
-7. **USACE Data Integration:** Fetch and display lock status and real-time lockage data.
-8. **Tow/Barge Estimation:** Identify commercial tows and display their barge count from USACE data.
-9. **Data Visibility:** Show all available AIS data for any vessel in a detail view.
-10. **MMSI/Vessel Name Search:** Implement a search bar to filter the vessel list.
-11. **Click-to-Map Info:** Clicking a vessel on the map or in the list should display a compact information card on the map.
-12. **Lock Wait Time Predictions:** When a lock is clicked, show predicted wait times, USACE delays, and other detailed information.
-13. **User Accounts:** Implement user registration and login (Email/Password and Google Social Login) to support multiple users with their own settings and lists of MMSIs.
-14. **Persistent Vessel Position:** A user's vessel position should be stored in their account and restored when they log in.
-15. **Demo Vessels:** The application should include simulated vessels for testing purposes, with a setting to toggle them on/off.
-16. **NOAA/USGS Integration:** Integrate real-time environmental data like water levels, current speed, and water temperature from gauges near the locks.
-17. **Traffic Watch Mode:** Allow users without vessels to monitor river traffic (for lock operators, marina operators, shipping companies, etc.)
-18. **Admin Features:** User management, vessel oversight, system statistics, user impersonation for debugging.
+1. AIS/GPS Data Integration via TCP from Boat Beacon
+2. Vessel tracking and lock-timing race analysis
+3. Visual alert if required speed exceeds boat max speed
+4. Persistent settings (MMSI, boat name, max speed, IP, port, lock filters)
+5. USACE lock data + USGS/NWPS water conditions
+6. User accounts: Vessel Owner / Traffic Watch + Google social login
+7. Demo vessels + user-vessel simulation + Quick Test preset
+8. Dual deployment: Cloud VM (Docker + Nginx + Let's Encrypt) and Raspberry Pi 4 native install
+9. Touchscreen-friendly kiosk mode on LysMarine OS
 
-## User Personas
-
-### 1. Vessel Owner (Primary)
-- Recreational boater on the upper Mississippi
-- Wants to time arrivals at locks to avoid commercial traffic
-- Needs real-time position tracking and race analysis
-
-### 2. Traffic Watcher
-- Lock operators, marina operators, shipping companies, river enthusiasts
-- Monitors traffic flow without owning a vessel
-- Needs traffic summaries, vessel counts by direction, and recent lockage history
-
-### 3. Administrator
-- System admin managing users and monitoring system health
-- Needs user management, password resets, user impersonation for support
+See CHANGELOG below for implementation history.
 
 ## Architecture
+- Frontend: React (CRA), Tailwind, shadcn/ui, Sonner for toasts
+- Backend: FastAPI + AsyncIOMotorClient, all routes under `/api`
+- Database: MongoDB (cloud: latest; Pi: 4.4.18 for ARMv8.0 compat)
+- Realtime: WebSockets (`/ws/ais`, `/api/ws/ais`, `/api/ws/raw`)
+- Pi: native Python venv + systemd, native Nginx, MongoDB in single Docker container
+- Cloud VM: full docker-compose + Nginx + Let's Encrypt
 
-### Tech Stack
-- **Frontend**: React, Shadcn UI, TailwindCSS
-- **Backend**: FastAPI, Python 3.11
-- **Database**: MongoDB
-- **Real-time**: WebSockets
-- **Authentication**: JWT (email/password) + OAuth2 (Google)
-- **External APIs**: USACE (lock data), USGS Water Services (river conditions)
+## Key DB Schema
+- `users`, `user_accounts`, `user_sessions`
+- `settings` — `{key, value, updated_at}` (now incl. `last_connection_config`)
+- `user_settings` — `{mmsi, settings, updated_at}`
+- `vessel_names` (cached names) / `vessel_sightings` (history)
+- `trips` — `{user_id, name, start_rm, end_rm, heading, departure_time, notes, locks, created_at, updated_at}`
 
-### Key Files
-```
-/app/
-├── backend/
-│   ├── config.py          # App config, LOCKS data, USGS_GAUGE_MAP
-│   ├── database.py        # MongoDB connection setup
-│   ├── models/            # Pydantic models
-│   ├── routes/            # Route modules
-│   ├── services/          # Service logic
-│   ├── server.py          # Core app logic (NEEDS REFACTOR)
-│   └── ...
-└── frontend/
-    ├── src/
-    │   ├── App.js         # Core component, handles routing
-    │   ├── pages/
-    │   │   ├── Dashboard.jsx      # Main dashboard with map
-    │   │   ├── SettingsPage.jsx   # User settings, admin panel, mode toggle
-    │   │   ├── SetupPage.jsx      # Account type selection, vessel/watch point setup
-    │   │   ├── LoginPage.jsx      # Login form
-    │   │   └── RegisterPage.jsx   # Registration with existing user handling
-    │   ├── components/
-    │   │   ├── RiverVisualization.jsx
-    │   │   ├── LockDetailModal.jsx
-    │   │   └── VesselDetailModal.jsx
-    │   └── context/
-    │       └── AuthContext.jsx
-    └── ...
-```
+## Key Endpoints
+- `GET  /api/connection/status` — live AIS state (polled by Settings UI every 3s)
+- `POST /api/connection/start` — set IP/port/MMSI/boat_name + persist to Mongo
+- `POST /api/connection/reconnect` — re-dial current config
+- `POST /api/connection/stop` — disconnect manually (Settings → Disconnect)
+- `POST /api/ais/ingest` — push-based NMEA relay
+- `GET  /api/water-conditions/{lock_id}` — NWS NWPS per-lock gauge
+- `WS   /ws/ais`, `WS /api/ws/ais` — vessel stream
+- `WS   /ws/raw`, `WS /api/ws/raw` — raw NMEA debug stream
 
-### Database Schema
-- **users**: `{ user_id, email, name, account_type, is_admin, is_super_admin, vessels[], watch_point, favorite_locks[], vessel_watch_list[], settings, last_login, created_at }`
-- **vessel_sightings**: `{ mmsi, timestamp, lat, lon, usace_source, ... }`
-- **lockage_history**: `{ lock_id, vessel_name, mmsi, direction, timestamps... }`
-- **user_sessions**: `{ user_id, session_token, expires_at, impersonated_by (optional) }`
+## Active P0 (Pi)
+- ✅ Pi nginx WebSocket upgrade (now proxies `/ws/` and `/api/ws/`)
+- ✅ AIS connection IP/port editable from the app + persisted across reboots
 
-## Implemented Features
-
-### Phase 1: Core MVP ✅
-- [x] AIS TCP connection and NMEA parsing
-- [x] River map visualization with vessel markers
-- [x] Lock timing calculation and race analysis
-- [x] User authentication (email/password + Google OAuth)
-- [x] Persistent vessel settings per user
-- [x] USACE lock status integration
-- [x] Demo vessel simulation
-
-### Phase 2: Enhanced UX ✅
-- [x] Session isolation fix (data cleared on logout)
-- [x] Auto-connect for returning users with saved vessels
-- [x] Redesigned vessel info panel (single-click, all data visible)
-- [x] Demo vessels with direction and ETA
-- [x] Clickable lock header to open details
-
-### Phase 3: Environmental Data ✅
-- [x] USGS Water Services API integration
-- [x] Water level, temperature, current speed in lock details
-- [x] Flood stage indicators with thresholds
-
-### Phase 4: Traffic Watch Mode ✅ (January 27, 2026)
-- [x] Account type selection (vessel_owner / traffic_watch)
-- [x] Watch point presets for all locks
-- [x] Traffic Summary dashboard for observers
-- [x] Directional vessel counts (Northbound/Southbound)
-- [x] "Near Lock" vessel list
-- [x] Recent lockages history
-
-### Phase 5: Admin Features ✅ (January 27, 2026)
-- [x] Admin role system (admin + super_admin)
-- [x] Admin Panel in Settings page with tabs (Stats, Users, Vessels)
-- [x] User management (create, delete, promote/demote, reset password)
-- [x] User impersonation for debugging
-- [x] System statistics dashboard
-- [x] Mode toggle (vessel owner ↔ traffic watch)
-- [x] Graceful handling of existing users in signup
-
-### Bug Fix: Mode Toggle Not Switching Views ✅ (January 27, 2026)
-- [x] Fixed: Dashboard was reading `accountType` from stale `connectionConfig` instead of `user.account_type`
-- [x] Fixed: App.js now properly handles localStorage config restoration for both modes
-- [x] Fixed: Traffic Watch config is now stored to localStorage for session persistence
-- [x] Fixed: Mode toggle correctly routes to SetupPage for watch point configuration when needed
-- [x] Fixed: AIS WebSocket connection maintained across mode switches
-
-### User Vessel Simulation Feature ✅ (February 12, 2026)
-- [x] Implemented vessel simulation for testing when no live AIS feed is available
-- [x] Settings page UI controls: toggle switch, river mile, speed (knots), heading (northbound/southbound)
-- [x] Backend API: GET/POST /api/user-vessel/simulation/{mmsi}
-- [x] Simulated vessel appears on Dashboard map at correct position
-- [x] Bug Fixed: Frontend `userMmsi` undefined variable changed to `settings.user_mmsi`
-- [x] Feature isolated to vessel_owner account type (hidden in traffic_watch mode)
-- [x] Test file created: `/app/backend/tests/test_user_vessel_simulation.py`
-- [x] **Quick Test button** added - one-click preset (RM 820, 8 kts, southbound) for instant testing
-
-### Trip Plan — Multi-Lock Chain Race Analysis ✅ (February 13, 2026)
-- [x] **Backend**: `GET /api/session/{mmsi}/trip-plan` returns ordered chain of upcoming locks
-  - For each lock in user's heading direction: user_eta_minutes, threatening_vessel, required_speed_mph, leg status
-  - Per-leg status values: clear / on_pace / speed_up / cant_beat / no_data
-  - Summary: legs_count, total_distance_mi, cumulative_eta_minutes, overall_status (worst-of-chain)
-  - Query params: `destination_rm`, `buffer_minutes` (default 20), `max_locks` (default 5, max 15)
-- [x] **Frontend**: `TripPlanPanel.jsx` component with summary tiles, heading badge, per-leg status cards
-  - Auto-refreshes every 30 seconds + manual refresh button
-  - Renders on Dashboard desktop sidebar (vessel_owner only, between Lock Timing & Nearby Vessels)
-  - Also renders on Dashboard mobile "race" tab
-- [x] **Filter fix**: Both Trip Plan and Race Analysis now skip orphan user-simulated vessels (vessels with is_simulated && is_user_vessel) so prior test sessions don't appear as threats. Demo tows (is_demo only) remain eligible.
-- [x] Backend tests: `/app/backend/tests/test_trip_plan.py` (8/8 pass)
-
-### Production Baseline: HTTPS Push Relay Architecture ✅ (February 13, 2026, tag `baseline-v2-relay-push`)
-**Confirmed working end-to-end with live Boat Beacon AIS data on user's GCP VM (34.172.47.153).**
-
-**Data flow:**
-```
-Boat Beacon (192.168.0.25:5353)  --TCP-->  RIVERWATCH.bat (Windows LAN)
-RIVERWATCH.bat  --HTTPS POST /api/ais/ingest-->  nginx :80 on VM
-nginx  --proxy /api/*-->  riverwatchclean-backend container (uvicorn :8001)
-backend  --processes NMEA-->  active_vessels  -->  dashboard (REST + WebSocket)
-```
-
-**Key endpoints added in this baseline:**
-- `POST /api/ais/ingest` — relay-push receiver, identity-free, parses AIVDM/GPRMC/GPGGA
-- `GET /api/relay/download` — dynamically generates RIVERWATCH.bat with the requesting Host baked in
-- `GET /api/session/{mmsi}/trip-plan` — multi-lock chain race analysis
-- `GET /api/install/bootstrap` — one-shot installer script for the VM
-- `GET /api/install/tarball` — bundle of changed files
-
-**Files of record:**
-- `backend/server.py` — `ingest_nmea()`, `_generate_relay_bat()`, `download_relay_bat()`, `get_session_trip_plan()`, orphan-vessel filter in race-analysis + trip-plan
-- `frontend/src/components/TripPlanPanel.jsx` — Trip Plan UI
-- `frontend/src/pages/Dashboard.jsx` — Trip Plan integration (desktop sidebar + mobile race tab)
-- `scripts/ais_relay.py` / `scripts/ais_relay.ps1` / `scripts/RIVERWATCH.bat` — relay clients
-- `dist/install.sh` + `dist/riverwatch-update.tar.gz` — VM update bundle
-
-**Why this beats the legacy designs:**
-- No router port-forward, no GCP firewall changes (port 80 already open for nginx)
-- Cloud VM cannot route to LAN RFC1918 — push model is the only direction that works
-- Survives ISP IP rotation, marina Wi-Fi NAT, DHCP changes
-- Relay is identity-free (MMSI lives in dashboard user settings, not the relay)
-- Dashboard Settings → AIS Connection form still shows `ais-relay:5353` as the *internal* default (legacy ais-relay container path); both paths can coexist
-
-**Deployment on the VM (one-shot):**
-```
-curl -fsSL https://<preview>/api/install/bootstrap | RW_DIR=/home/cdillerud/AIS-Riverwatch bash
-```
-Auto-detects `docker-compose.clean.yml`, rebuilds `riverwatchclean-backend`, re-runs `scripts/deploy-static-frontend.sh`, smoke-tests endpoints.
-
-**Windows-side relay (one-shot):**
-```
-iwr http://<vm-host>/api/relay/download -OutFile RIVERWATCH.bat; .\RIVERWATCH.bat
-```
-
-### UI/UX Improvements ✅
-- [x] Nearby Vessels sorted by River Mile (descending)
-- [x] Removed Locks/Raw tabs, moved Raw Data to Settings
-- [x] Extended Nearby Vessels card to fill sidebar height
-- [x] Swapped Traffic Ahead and Queue positions
-- [x] Filter vessels within 100 miles of user
-
-### Race Logic Fix ✅ (February 4, 2026)
-- [x] **Bi-directional competitor detection**: Fixed race analysis to consider vessels heading toward the lock from EITHER side (not just vessels between user and lock)
-- [x] Before: Only detected vessels that were physically between user position and lock
-- [x] After: Detects ANY vessel heading toward the target lock, regardless of which side they're on
-- [x] Example: User at RM 850, Lock at RM 815 - now correctly detects both:
-  - Vessel at RM 830 heading southbound (between user and lock)
-  - Vessel at RM 800 heading northbound (opposite side of lock, but heading toward it)
-- [x] UI updated to show vessel heading direction (↑N/↓S) and distance to lock
-
-## Pending Features
-
-### P0 - High Priority
-- [ ] Expand NOAA/USGS integration with forecast data
-- [ ] Vessel Alert notifications (when watched vessels pass a point)
-- [ ] Password reset email flow
-
-### P1 - Medium Priority
-- [ ] Sound/Vibration alerts for "Can't Beat" warnings
-- [ ] MarineTraffic API integration for vessel name lookups
-- [ ] Favorite Locks quick-switch UI
-- [ ] Exit Impersonation banner/button
-
-### P2 - Lower Priority
-- [ ] Quick Position Presets
-- [ ] System announcements/banner messages
-
-### Future/Backlog
-- [ ] Lock Wait Time Predictions (ML-powered)
-- [ ] Mobile App (PWA Conversion)
-- [ ] Offline Mode with Smart Sync
-- [ ] Trip Planner
-- [ ] Community/Social Features
-- [ ] Premium Data Integrations
-- [ ] Vessel Watchlist with alerts
-- [ ] Speed Advisor
-
-## Technical Debt
-
-### Backend Refactoring (PHASE 2 IN PROGRESS)
-**Status**: Services extracted, route modules created, performance improvements added
-
-Completed (Phase 1):
-- [x] `services/usace_service.py` - USACE lock queue/status data (~230 lines)
-- [x] `services/usgs_service.py` - USGS water conditions (~180 lines)
-- [x] `services/ais_parser.py` - NMEA/AIS parsing (~350 lines)
-- [x] `routes/admin.py` - Admin endpoints module (~280 lines)
-- [x] `routes/locks.py` - Lock info endpoints module
-- [x] `routes/traffic.py` - Traffic watch endpoints module  
-- [x] `routes/water.py` - Water conditions endpoints module
-- [x] Updated server.py imports to use new services
-- [x] Updated README.md with new architecture
-
-Completed (Phase 2 - Performance):
-- [x] `services/vessel_service.py` - Centralized vessel data management with TTL cache (~200 lines)
-- [x] `services/cache_service.py` - TTL-based caching for expensive API calls (~150 lines)
-- [x] `services/http_client.py` - Shared HTTP client pool for connection reuse (~80 lines)
-- [x] `services/websocket_manager.py` - WebSocket connection manager (~200 lines)
-- [x] `routes/vessels.py` - Vessel and session endpoints module (~250 lines)
-- [x] `/api/debug/performance` endpoint for monitoring cache stats and connections
-
-Remaining (Phase 3 - Code Consolidation):
-- [x] Extract AISConnectionManager class to `services/ais_connection.py` (~380 lines) - CREATED
-- [x] Create WebSocket handlers module `services/websocket_handlers.py` (~170 lines) - CREATED  
-- [x] Create Repository layer `repositories/__init__.py` (~540 lines) - CREATED & EXPANDED
-- [x] Replace vessel_names db calls with repos.vessels (3 calls)
-- [x] Replace blocked_mmsi db calls with repos.blocked_mmsi (4 calls)
-- [x] Replace majority of db.users calls (31 of 48 replaced)
-- [x] Replace majority of db.user_sessions calls (8 of 9 replaced)
-- [ ] Replace remaining db.users calls (17 remaining)
-- [ ] Replace db.lockage_history calls (12 remaining)
-- [ ] Replace db.vessel_sightings calls (6 remaining)
-- [ ] Replace db.vessel_history calls (4 remaining)
-- [ ] Replace db.user_settings calls (6 remaining)
-- [ ] Migrate inline routes to use route modules
-- [ ] Wire up new AIS connection manager to replace inline class
-- [ ] Target: Reduce server.py from ~5,850 lines to <2,000 lines (currently 50 db calls remain, down from 96)
-
-**Progress Summary (March 23, 2026):**
-- Started with 96 direct db.* calls in server.py
-- Replaced 46 calls with repository pattern
-- 50 db calls remaining
-- repos.* calls: 46
-
-**Repository Classes Created:**
-- VesselRepository - vessel names cache
-- UserRepository - user accounts (expanded with get_user_by_email, update_by_email, find_by_vessel_mmsi)
-- SessionRepository - user sessions (expanded with get_by_token, delete_by_token, count_active)
-- TrafficWatchRepository - watch points
-- LockPassageRepository - lock passage history
-- SettingsRepository - global app settings
-- UserSettingsRepository - per-user settings
-- BlockedMMSIRepository - blocked vessel list
-
-**New Modules Created (March 23, 2026):**
-- `services/ais_connection.py` - AIS TCP connection manager with watchdog
-- `services/websocket_handlers.py` - WebSocket endpoint handlers for /ws/ais and /ws/raw
-- `repositories/__init__.py` - Database repository layer with 8 repositories
-
-**Note**: Phase 3 requires careful testing as it removes code rather than adding modules.
-
-### Frontend Refactoring (NOT STARTED)
-- [ ] Extract state management from Dashboard.jsx into custom hooks
-- [ ] Extract mode-specific UI into separate components
-- [ ] Break down SettingsPage.jsx into smaller components
-
-## Admin Accounts
-- **Super Admin**: `cdillerud@gmail.com` (Google OAuth) - Full access
-- **Admin**: `chaddillerud@gmail.com` / `test123` - Standard admin
-
-## Test Accounts
-- **Vessel Owner**: `chaddillerud@gmail.com` / `test123`
-- **Vessel Owner 2**: `test@example.com` / `password123`
-- **Traffic Watch**: `trafficwatch@test.com` / `test123`
-- **Google Auth**: `cdillerud@gmail.com` (OAuth flow)
-
-## API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - Register new user (handles existing users gracefully)
-- `POST /api/auth/login` - Login with email/password
-- `POST /api/auth/logout` - Logout and clear session
-- `GET /api/auth/me` - Get current user info
-
-### User Settings
-- `GET/PUT /api/user/settings` - User settings
-- `POST/GET /api/user/account-type` - Account type (mode toggle)
-- `POST/GET /api/user/watch-point` - Watch point
-- `POST/GET /api/user/favorite-locks` - Favorite locks
-- `POST/GET/DELETE /api/user/vessel-watch` - Vessel watch list
-
-### Admin (requires admin role)
-- `GET /api/admin/stats` - System statistics
-- `GET /api/admin/users` - List users (with search)
-- `POST /api/admin/users` - Create user
-- `PUT /api/admin/users/{id}` - Update user
-- `DELETE /api/admin/users/{id}` - Delete user
-- `POST /api/admin/users/{id}/promote` - Promote to admin
-- `POST /api/admin/users/{id}/demote` - Demote from admin
-- `POST /api/admin/users/{id}/reset-password` - Reset password
-- `POST /api/admin/impersonate/{id}` - Impersonate user
-- `GET /api/admin/vessels` - List all tracked vessels
-
-### Data
-- `GET /api/vessels` - Get all vessels
-- `GET /api/locks` - Get all locks with status
-- `GET /api/traffic-summary/{lock_id}` - Traffic summary
-- `GET /api/locks/{lock_id}/water-conditions` - USGS water data
-- `GET /api/session/{mmsi}/race-analysis/{lock_id}` - Race analysis
-
-### User Vessel Simulation
-- `GET /api/user-vessel/simulation/{mmsi}` - Get simulation status and parameters
-- `POST /api/user-vessel/simulation/{mmsi}` - Enable/configure simulation
-- `POST /api/user-vessel/simulation/{mmsi}/stop` - Stop simulation
-
-## Refresh Intervals
-- Vessels: 30 seconds (WebSocket provides real-time updates)
-- Race Analysis: 20 seconds
-- Lock Status: 5 minutes
-- Lockage Times: 10 minutes
-- Traffic Summary: 30 seconds
-- Auto Soft-Refresh: 15 minutes
-
-
-## Changelog
-- **2026-02-17**: Fixed Lock Detail Modal "River Conditions" regression. The USGS gauge section was conditionally rendered only when both `waterConditions` and `waterConditions.conditions` were truthy, causing the whole card to silently disappear if the API call was slow or returned an error. The card now always renders inside the modal with a `LOADING…` badge while data is fetched and a `NO GAUGE` badge plus a friendly explanation when the upstream USGS feed is unavailable. The actual gauge UI (Water Level, Water Temp, Current, Flood Stage thresholds, 48-hour forecast) is unchanged when data is available.
-  - File: `frontend/src/components/LockDetailModal.jsx`
-  - Data-testid added: `river-conditions-card`, `river-conditions-empty`
-  - Verified end-to-end on preview environment with logged-in vessel-owner account (Lock 2 shows MAJOR FLOOD, 25.7 ft water level, USGS gauge at Prescott, WI).
-
-
-- **2026-02-17 (P0 #2)**: Replaced the broken "share one upstream USGS gauge across multiple locks" config with a true per-lock NWS hydrograph gauge mapping (`config.LOCK_GAUGES`). Each lock now uses its own NWS NWSLI forecast point with its own action/flood/moderate/major thresholds straight from NCRFC. Backend added `fetch_nws_gauge_data(nwsli)` that queries the NWS National Water Prediction Service (`https://api.water.noaa.gov/nwps/v1/gauges/{nwsli}`) for observed stage + flood category + forecast. Mixed-datum gauges supported: locks 5, 5A, 6, 7, 8, 9 use elevation-above-sea-level thresholds; the rest use stage-above-datum. Response now includes a `datum` field so the UI labels the gauge correctly ("elev. ft MSL" vs. "X mi from lock"). Lock 2 (Hastings) now reports HSTM5 13/15/17/18 ft thresholds instead of Prescott's 12/16/18/21.
-  - Files: `backend/config.py`, `backend/server.py`, `frontend/src/components/LockDetailModal.jsx`
-  - Verified live on preview: Lock 2 -> NORMAL @ 5.5 ft (HSTM5); Lock 5 -> NORMAL @ 651.5 ft MSL (MSCM5).
-
-
-- **2026-02-18 (P0 Pi #1)**: Fixed Raspberry Pi native deployment showing "OFFLINE" in the browser. Two root causes:
-  1. App.js (line 22) uses `WS_PATH = isEmergentPreview ? '/api/ws/ais' : '/ws/ais'`. On the Pi, `isEmergentPreview` is false, so the production build connects to `ws://localhost/ws/ais`. The Pi nginx config only proxied `/api/ws/`, so `/ws/ais` fell through to the SPA fallback and returned `index.html` (not a WS handshake).
-  2. Bare `/api/ws` (no trailing slash) triggered nginx's auto-301 to add the slash, which strips the WebSocket Upgrade headers and produces the `301 Moved Permanently` the user reported.
-  Fix: added `location /ws/ {…}` proxy block to the Pi nginx config (backend already exposes both `/ws/ais` and `/api/ws/ais`), kept the existing `/api/ws/` block, and added explicit `location = /api/ws` / `location = /ws` 308 redirects so curl WS-upgrade tests preserve the method.
-  - Files: `scripts/pi-native-install.sh` (baked into installer for fresh Pis), `scripts/pi-fix-nginx-ws.sh` (NEW one-shot patch for existing Pi installs - idempotent, backs up the current config, validates with `nginx -t`, and reloads).
-  - Usage on Pi after `git pull`: `sudo ./scripts/pi-fix-nginx-ws.sh`, then verify with `curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Sec-WebSocket-Version: 13" http://localhost/ws/ais` (expect `101 Switching Protocols`).
-  - Verification: cannot e2e-test from Emergent (requires Pi hardware + Boat Beacon). User to confirm "LIVE" pill in the app after running the patch script.
-
-## Roadmap (Prioritized Backlog)
-- **P0** — Pi WebSocket fix verification on user's hardware (this session, pending user run)
-- **P1** — On-screen keyboard (`onboard`) reliable trigger in Chromium kiosk mode on Pi (MMSI/boat-name typing)
+## Roadmap
+- **P1** — On-screen keyboard (`onboard`) reliable trigger in Chromium kiosk on Pi
 - **P1** — Phase 4 Traffic Watch vessel alerts
-- **P1** — Audio/haptic feedback for "Can't Beat" lock warnings
-- **P1** — Finish `server.py` repository-pattern migration (~50 direct db calls left)
-- **P2** — Phase 2 Pi: SQLite migration to remove the last Docker dependency
+- **P1** — Audio/haptic "Can't Beat" feedback
+- **P1** — Finish `server.py` repository-pattern migration
+- **P2** — Phase 2 Pi: SQLite migration (drop final Docker dependency)
 - **P2** — 48-hr stage forecast sparkline per Lock card
-- **P2** — Split `Dashboard.jsx` / `SettingsPage.jsx` into smaller hooks/components
-- **Future** — External AIS API enrichment (MarineTraffic single-call fallback)
-- **Future** — ML-powered lock wait-time predictions
-- **Future** — Offline mode with smart sync
+- **P2** — Split `Dashboard.jsx` / `SettingsPage.jsx` into hooks/components
+- **Future** — External AIS API enrichment, ML wait-time predictions, offline mode
+
+## Changelog (recent)
+
+- **2026-02-17** — Lock Detail Modal "River Conditions" no longer disappears on slow USGS feed; defensive rendering with LOADING / NO GAUGE badges.
+
+- **2026-02-17** — Per-lock NWS hydrograph gauges via `config.LOCK_GAUGES` + `fetch_nws_gauge_data()`. Supports mixed datums (stage vs elev. MSL).
+
+- **2026-02-18** — Pi WebSocket "OFFLINE" fix. Two root causes: App.js used `/ws/ais` on non-Emergent hosts but Pi nginx only proxied `/api/ws/`; and bare `/api/ws` triggered nginx auto-301 stripping WS upgrade headers. Fix: added `location /ws/` proxy block + `308` redirects for bare paths. Files: `scripts/pi-native-install.sh`, NEW `scripts/pi-fix-nginx-ws.sh` (idempotent patch for existing Pi installs).
+
+- **2026-02-18** — Editable AIS Connection from the app + reboot persistence.
+  - Backend: `POST /api/connection/start` now persists `{ip, port, mmsi, boat_name}` to `settings.last_connection_config`; added `POST /api/connection/stop`; `ConnectionConfig` Pydantic model now accepts `boat_name`; startup event auto-restores last known good config (skips stale `ais-relay` / `push://relay`).
+  - Frontend (`SettingsPage.jsx`): replaced cosmetic IP/port fields with a live, touch-friendly AIS Connection card. Polls `/api/connection/status` every 3s, shows LIVE/OFFLINE pill + In Use / MMSI / Subscribers / Last NMEA strip. Four editable fields (Phone IP, Port, Your MMSI, Boat name) with 12 px-tall inputs for the Pi touchscreen. Three buttons: Apply & Reconnect (POST `/api/connection/start`), Reconnect (POST `/api/connection/reconnect`), Disconnect (POST `/api/connection/stop`). Toasts on every action.
+  - Verified backend e2e: POST /start → status reflects new config → MongoDB `settings` collection persists → backend restart → auto-restore log entry → status still correct.
+  - Test IDs added: `ais-connection-card`, `ais-conn-pill-live`, `ais-conn-pill-offline`, `ais-conn-status-strip`, `ais-conn-current-target`, `ais-conn-last-data`, `conn-ip-input`, `conn-port-input`, `conn-mmsi-input`, `conn-boat-input`, `conn-apply-btn`, `conn-reconnect-btn`, `conn-stop-btn`, `conn-dirty-hint`.

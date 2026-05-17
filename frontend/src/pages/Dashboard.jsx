@@ -451,7 +451,17 @@ export default function Dashboard({
       
       // Convert speed from MPH to knots
       const speedKnots = (speed || 0) * 0.868976;
-      
+
+      // Resolve MMSI: user account vessel -> active session MMSI -> connection config
+      const effectiveMmsi = userMmsi
+        || userVessel?.mmsi
+        || connectionConfig?.user_mmsi
+        || "";
+      if (!effectiveMmsi) {
+        toast.error("No MMSI set. Open Settings > Vessels and add your MMSI first.");
+        return;
+      }
+
       // Update position
       const response = await fetch(`${API}/user-position`, {
         method: "POST",
@@ -462,11 +472,11 @@ export default function Dashboard({
           speed: speedKnots,
           course: course || 0,
           source: "manual",
-          mmsi: userMmsi || userVessel?.mmsi,
+          mmsi: effectiveMmsi,
           name: userSettings.boat_name || userVessel?.name || "Your Vessel"
         })
       });
-      
+
       if (response.ok) {
         toast.success(`Position updated to RM ${rm}`);
         setShowPositionEditor(false);
@@ -475,11 +485,12 @@ export default function Dashboard({
           await onRefresh();
         }
       } else {
-        toast.error("Failed to update position");
+        const errDetail = await response.json().catch(() => null);
+        toast.error(errDetail?.detail || `Failed to update position (HTTP ${response.status})`);
       }
     } catch (error) {
       console.error("Position update error:", error);
-      toast.error("Failed to update position");
+      toast.error(error?.message || "Failed to update position");
     }
   };
 

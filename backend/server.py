@@ -4885,6 +4885,32 @@ async def download_relay_bat():
         filename="RIVERWATCH.bat",
     )
 
+
+@api_router.get("/install/tarball")
+async def download_install_tarball():
+    """Return the tarball bundle of the latest backend/frontend/scripts changes."""
+    path = "/app/dist/riverwatch-update.tar.gz"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Install bundle not built on server")
+    return _FileResponse(
+        path,
+        media_type="application/gzip",
+        filename="riverwatch-update.tar.gz",
+    )
+
+
+@api_router.get("/install/bootstrap")
+async def download_install_bootstrap():
+    """Return the one-shot installer shell script."""
+    path = "/app/dist/install.sh"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Installer not built on server")
+    return _FileResponse(
+        path,
+        media_type="text/x-shellscript",
+        filename="install.sh",
+    )
+
 @api_router.get("/river-mile-to-coords/{rm}")
 async def convert_rm_to_coords(rm: float):
     """Convert a river mile to approximate lat/lon coordinates."""

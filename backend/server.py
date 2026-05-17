@@ -4818,32 +4818,26 @@ async def start_connection(config: ConnectionConfig):
 @api_router.post("/ais/ingest")
 async def ingest_nmea(payload: dict):
     """Accept a batch of raw NMEA lines from a local relay and process them
-    through the same pipeline used by the live TCP feed."""
+    through the same pipeline used by the live TCP feed.
+
+    The relay is identity-free: AIS sentences already contain MMSI, and GPS
+    sentences get attributed to whichever MMSI is configured on the AIS
+    manager (set when the dashboard user clicks Connect)."""
     lines = payload.get("lines") or []
     if not isinstance(lines, list):
         raise HTTPException(status_code=400, detail="`lines` must be a list of NMEA strings")
 
-    user_mmsi = str(payload.get("user_mmsi") or "").strip()
-    boat_name = str(payload.get("boat_name") or "").strip()
-
     # Mark the manager as "connected" via push so /api/connection/status
     # and the UI reflect a live feed even without a TCP dial-in.
-    if not ais_manager._config or ais_manager._config.get("user_mmsi") != user_mmsi:
+    if not ais_manager._config:
         ais_manager._config = {
             "ip_address": "push://relay",
             "port": 0,
-            "user_mmsi": user_mmsi,
-            "boat_name": boat_name,
+            "user_mmsi": "",
+            "boat_name": "",
         }
     ais_manager._connected = True
     ais_manager._last_data_time = datetime.now(timezone.utc)
-    if user_mmsi:
-        try:
-            session_manager.create_session(user_mmsi)
-        except Exception:
-            pass
-        if boat_name:
-            vessel_static_cache[user_mmsi] = {"name": boat_name, "is_user": True}
 
     accepted = 0
     for raw in lines:

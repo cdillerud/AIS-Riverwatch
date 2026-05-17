@@ -17,7 +17,7 @@
 param(
     [string]$BoatBeaconIp   = $(if ($env:BOAT_BEACON_IP)   { $env:BOAT_BEACON_IP }   else { "192.168.0.25" }),
     [int]   $BoatBeaconPort = $(if ($env:BOAT_BEACON_PORT) { [int]$env:BOAT_BEACON_PORT } else { 5353 }),
-    [string]$VmUrl          = $(if ($env:VM_URL)           { $env:VM_URL }           else { "https://mississippi-kiosk.preview.emergentagent.com" }),
+    [string]$VmUrl          = $(if ($env:VM_URL)           { $env:VM_URL }           else { "http://136.116.165.255:8001" }),
     [double]$BatchSeconds   = $(if ($env:BATCH_SECONDS)    { [double]$env:BATCH_SECONDS } else { 1.0 }),
     [int]   $MaxBatchLines  = $(if ($env:MAX_BATCH_LINES)  { [int]$env:MAX_BATCH_LINES }  else { 200 })
 )

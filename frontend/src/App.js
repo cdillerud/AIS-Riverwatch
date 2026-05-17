@@ -12,6 +12,7 @@ import LandingPage from "@/pages/LandingPage";
 import AuthCallback from "@/pages/AuthCallback";
 import TripsPage from "@/pages/TripsPage";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import useAisDriftWatch from "@/hooks/useAisDriftWatch";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -113,6 +114,12 @@ function MainApp() {
   const geoWatchRef = useRef(null);
   const autoRefreshRef = useRef(null);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
+
+  // Cross-deployment drift detector (works identically on Pi + VM).
+  // Polls /api/connection/status; warns once if NMEA stalls > 30 s, recovers
+  // automatically when sentences resume. Disabled until a connection exists
+  // so first-time users on the SetupPage don't see false alarms.
+  useAisDriftWatch({ enabled: !!connectionConfig });
 
   // Load primary vessel from user account and restore positions
   useEffect(() => {

@@ -44,6 +44,13 @@ See CHANGELOG below for implementation history.
 ## Active P0 (Pi)
 - ✅ Pi nginx WebSocket upgrade (now proxies `/ws/` and `/api/ws/`)
 - ✅ AIS connection IP/port editable from the app + persisted across reboots
+- ✅ NMEA drift warning (Sonner toast if feed stalls > 30 s, recovery toast on restore)
+
+## Cross-deployment rule (locked in 2026-02-18)
+ALL feature changes must apply to BOTH the Raspberry Pi native install and
+the Cloud VM Docker deployment from the same `/app` codebase. No Pi-only or
+VM-only code paths. New features live in `/app/frontend` + `/app/backend`
+and use endpoints that exist on both deployments.
 
 ## Roadmap
 - **P1** — On-screen keyboard (`onboard`) reliable trigger in Chromium kiosk on Pi

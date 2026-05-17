@@ -377,3 +377,25 @@ Remaining (Phase 3 - Code Consolidation):
 - **2026-02-17 (P0 #2)**: Replaced the broken "share one upstream USGS gauge across multiple locks" config with a true per-lock NWS hydrograph gauge mapping (`config.LOCK_GAUGES`). Each lock now uses its own NWS NWSLI forecast point with its own action/flood/moderate/major thresholds straight from NCRFC. Backend added `fetch_nws_gauge_data(nwsli)` that queries the NWS National Water Prediction Service (`https://api.water.noaa.gov/nwps/v1/gauges/{nwsli}`) for observed stage + flood category + forecast. Mixed-datum gauges supported: locks 5, 5A, 6, 7, 8, 9 use elevation-above-sea-level thresholds; the rest use stage-above-datum. Response now includes a `datum` field so the UI labels the gauge correctly ("elev. ft MSL" vs. "X mi from lock"). Lock 2 (Hastings) now reports HSTM5 13/15/17/18 ft thresholds instead of Prescott's 12/16/18/21.
   - Files: `backend/config.py`, `backend/server.py`, `frontend/src/components/LockDetailModal.jsx`
   - Verified live on preview: Lock 2 -> NORMAL @ 5.5 ft (HSTM5); Lock 5 -> NORMAL @ 651.5 ft MSL (MSCM5).
+
+
+- **2026-02-18 (P0 Pi #1)**: Fixed Raspberry Pi native deployment showing "OFFLINE" in the browser. Two root causes:
+  1. App.js (line 22) uses `WS_PATH = isEmergentPreview ? '/api/ws/ais' : '/ws/ais'`. On the Pi, `isEmergentPreview` is false, so the production build connects to `ws://localhost/ws/ais`. The Pi nginx config only proxied `/api/ws/`, so `/ws/ais` fell through to the SPA fallback and returned `index.html` (not a WS handshake).
+  2. Bare `/api/ws` (no trailing slash) triggered nginx's auto-301 to add the slash, which strips the WebSocket Upgrade headers and produces the `301 Moved Permanently` the user reported.
+  Fix: added `location /ws/ {…}` proxy block to the Pi nginx config (backend already exposes both `/ws/ais` and `/api/ws/ais`), kept the existing `/api/ws/` block, and added explicit `location = /api/ws` / `location = /ws` 308 redirects so curl WS-upgrade tests preserve the method.
+  - Files: `scripts/pi-native-install.sh` (baked into installer for fresh Pis), `scripts/pi-fix-nginx-ws.sh` (NEW one-shot patch for existing Pi installs - idempotent, backs up the current config, validates with `nginx -t`, and reloads).
+  - Usage on Pi after `git pull`: `sudo ./scripts/pi-fix-nginx-ws.sh`, then verify with `curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Sec-WebSocket-Version: 13" http://localhost/ws/ais` (expect `101 Switching Protocols`).
+  - Verification: cannot e2e-test from Emergent (requires Pi hardware + Boat Beacon). User to confirm "LIVE" pill in the app after running the patch script.
+
+## Roadmap (Prioritized Backlog)
+- **P0** — Pi WebSocket fix verification on user's hardware (this session, pending user run)
+- **P1** — On-screen keyboard (`onboard`) reliable trigger in Chromium kiosk mode on Pi (MMSI/boat-name typing)
+- **P1** — Phase 4 Traffic Watch vessel alerts
+- **P1** — Audio/haptic feedback for "Can't Beat" lock warnings
+- **P1** — Finish `server.py` repository-pattern migration (~50 direct db calls left)
+- **P2** — Phase 2 Pi: SQLite migration to remove the last Docker dependency
+- **P2** — 48-hr stage forecast sparkline per Lock card
+- **P2** — Split `Dashboard.jsx` / `SettingsPage.jsx` into smaller hooks/components
+- **Future** — External AIS API enrichment (MarineTraffic single-call fallback)
+- **Future** — ML-powered lock wait-time predictions
+- **Future** — Offline mode with smart sync

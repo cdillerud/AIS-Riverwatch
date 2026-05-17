@@ -756,8 +756,12 @@ function MainApp() {
             const lonDiff = Math.abs((existing.lon || 0) - (data.vessel.lon || 0));
             const speedDiff = Math.abs((existing.speed || 0) - (data.vessel.speed || 0));
             
-            if (latDiff < 0.0001 && lonDiff < 0.0001 && speedDiff < 0.5) {
-              return prev; // No significant change, skip update
+            const existingCheckIn = existing.last_ais_checkin || existing.timestamp || existing.last_update;
+            const newCheckIn = data.vessel.last_ais_checkin || data.vessel.timestamp || data.vessel.last_update;
+            const checkInChanged = newCheckIn && newCheckIn !== existingCheckIn;
+
+            if (latDiff < 0.0001 && lonDiff < 0.0001 && speedDiff < 0.5 && !checkInChanged) {
+              return prev; // No significant change and no fresh check-in, skip update
             }
             const updated = [...prev];
             updated[existingIdx] = data.vessel;

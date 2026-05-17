@@ -13,7 +13,7 @@ import {
   Ship, Compass, 
   MapPin, Hash,
   ArrowUp, ArrowDown, Minus, Box, 
-  Edit3, Check, X, Lock, History, Navigation
+  Edit3, Check, X, Lock, History, Navigation, Clock
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -60,11 +60,49 @@ const getShipTypeDescription = (code) => {
   return SHIP_TYPES[base] || `Type ${code}`;
 };
 
+const getLastCheckInValue = (vessel) => (
+  vessel?.last_ais_checkin || vessel?.timestamp || vessel?.last_update || null
+);
+
+const parseCheckInTime = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const formatLastCheckIn = (vessel, nowMs) => {
+  const parsed = parseCheckInTime(getLastCheckInValue(vessel));
+  if (!parsed) return "--";
+
+  const ageSeconds = Math.max(0, Math.floor((nowMs - parsed.getTime()) / 1000));
+
+  if (ageSeconds < 10) return "just now";
+  if (ageSeconds < 60) return `${ageSeconds}s ago`;
+
+  const ageMinutes = Math.floor(ageSeconds / 60);
+  if (ageMinutes < 60) return `${ageMinutes}m ago`;
+
+  const ageHours = Math.floor(ageMinutes / 60);
+  if (ageHours < 24) return `${ageHours}h ago`;
+
+  const ageDays = Math.floor(ageHours / 24);
+  return `${ageDays}d ago`;
+};
+
 export default function VesselDetailModal({ vessel, isOpen, onClose }) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState("");
   const [lockageHistory, setLockageHistory] = useState([]);
   const [vesselData, setVesselData] = useState(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  // Keep displayed check-in age current while the modal is open.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const intervalId = window.setInterval(() => setNowTick(Date.now()), 30000);
+    return () => window.clearInterval(intervalId);
+  }, [isOpen]);
 
   // Fetch additional vessel data on open
   useEffect(() => {
@@ -89,6 +127,7 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
   const lockStatus = getVesselLockStatus(vessel);
   const speedMph = (vessel.speed * 1.15078).toFixed(1);
   const direction = vessel.direction || vessel.heading_direction || vessel.heading;
+  const lastCheckInDisplay = formatLastCheckIn(vessel, nowTick);
 
   const saveVesselName = async () => {
     if (!editedName.trim()) {
@@ -183,6 +222,15 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
             </div>
             <div className="font-mono text-lg text-white">{speedMph}</div>
             <div className="text-[10px] text-slate-500">mph {vessel.course?.toFixed(0)}°</div>
+          </div>
+
+          {/* Last AIS Check-In */}
+          <div className="bg-slate-800/50 rounded p-2">
+            <div className="flex items-center gap-1 text-slate-400 text-xs mb-1">
+              <Clock className="w-3 h-3" /> Check-In
+            </div>
+            <div className="font-mono text-sm text-white">{lastCheckInDisplay}</div>
+            <div className="text-[10px] text-slate-500">last AIS</div>
           </div>
 
           {/* Direction */}

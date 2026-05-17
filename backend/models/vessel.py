@@ -32,6 +32,7 @@ class VesselPosition(BaseModel):
     eta_minute: Optional[int] = None
     draught: Optional[float] = None
     last_update: Optional[str] = None
+    last_ais_checkin: Optional[str] = None
     message_type: Optional[int] = None
     
     # Calculated fields

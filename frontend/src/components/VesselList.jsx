@@ -1,4 +1,4 @@
-import { memo, useState, useMemo } from "react";
+import { memo, useState, useMemo, useEffect } from "react";
 import { Ship, Navigation, Gauge, Clock, ChevronUp, ChevronDown, Minus, Box, Timer, Lock, Search, MapPin, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -36,8 +36,56 @@ const getVesselLockStatus = (vessel) => {
   return null;
 };
 
+const getLastCheckInValue = (vessel) => (
+  vessel?.last_ais_checkin || vessel?.timestamp || vessel?.last_update || null
+);
+
+const parseCheckInTime = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const formatLastCheckIn = (vessel, nowMs) => {
+  const parsed = parseCheckInTime(getLastCheckInValue(vessel));
+  if (!parsed) return "--";
+
+  const ageSeconds = Math.max(0, Math.floor((nowMs - parsed.getTime()) / 1000));
+
+  if (ageSeconds < 10) return "just now";
+  if (ageSeconds < 60) return `${ageSeconds}s ago`;
+
+  const ageMinutes = Math.floor(ageSeconds / 60);
+  if (ageMinutes < 60) return `${ageMinutes}m ago`;
+
+  const ageHours = Math.floor(ageMinutes / 60);
+  if (ageHours < 24) return `${ageHours}h ago`;
+
+  const ageDays = Math.floor(ageHours / 24);
+  return `${ageDays}d ago`;
+};
+
+const getCheckInTextClass = (vessel, nowMs) => {
+  const parsed = parseCheckInTime(getLastCheckInValue(vessel));
+  if (!parsed) return "text-slate-600";
+
+  const ageSeconds = Math.max(0, Math.floor((nowMs - parsed.getTime()) / 1000));
+
+  if (ageSeconds <= 120) return "text-emerald-400";
+  if (ageSeconds <= 300) return "text-amber-400";
+  return "text-red-400";
+};
+
 const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false, onVesselClick = () => {}, showVesselNames = true }) => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  // Keep the "last check-in" age moving even when no new vessel data arrives.
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNowTick(Date.now()), 30000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   // Filter vessels based on search query (MMSI or name)
   const filteredVessels = useMemo(() => {
@@ -166,6 +214,8 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
               const isTow = vessel.is_tow || vessel.barge_count > 0;
               const lockStatus = getVesselLockStatus(vessel);
               const isMatch = isSearchMatch(vessel);
+              const lastCheckInDisplay = formatLastCheckIn(vessel, nowTick);
+              const lastCheckInClass = getCheckInTextClass(vessel, nowTick);
 
               return (
                 <div
@@ -222,6 +272,10 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                       {getDirectionIcon(vessel.heading)}
                       {vessel.heading?.slice(0,1).toUpperCase()}
                     </span>
+                    <span className={`flex items-center gap-0.5 ${lastCheckInClass}`}>
+                      <Clock className="w-3 h-3" />
+                      {lastCheckInDisplay}
+                    </span>
                   </div>
                   {isTow && (
                     <div className="flex items-center gap-3 mt-1.5 flex-wrap">
@@ -273,6 +327,8 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
             const isTow = vessel.is_tow || vessel.barge_count > 0;
             const lockStatus = getVesselLockStatus(vessel);
             const isMatch = isSearchMatch(vessel);
+            const lastCheckInDisplay = formatLastCheckIn(vessel, nowTick);
+            const lastCheckInClass = getCheckInTextClass(vessel, nowTick);
 
             return (
               <div
@@ -339,6 +395,11 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                       <span className="flex items-center gap-1">
                         {getDirectionIcon(vessel.heading)}
                         <span className="capitalize">{vessel.heading || 'stationary'}</span>
+                      </span>
+
+                      <span className={`flex items-center gap-1 ${lastCheckInClass}`}>
+                        <Clock className="w-3 h-3" />
+                        <span className="font-mono">{lastCheckInDisplay}</span>
                       </span>
                     </div>
 

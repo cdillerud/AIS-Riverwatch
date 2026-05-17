@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
@@ -579,11 +579,11 @@ function MainApp() {
   // OPTIMIZED: Increased interval from 10s to 20s
   useEffect(() => {
     const fetchRaceAnalysis = async () => {
-      if (!selectedLock || !userMmsi) return;
+      if (!activeTimingLock || !userMmsi) return;
       try {
         const bufferMinutes = userSettings.lock_buffer_minutes || 20;
         // Use session-scoped endpoint
-        const response = await fetch(`${API}/session/${userMmsi}/race-analysis/${selectedLock}?buffer_minutes=${bufferMinutes}`);
+        const response = await fetch(`${API}/session/${userMmsi}/race-analysis/${activeTimingLock}?buffer_minutes=${bufferMinutes}`);
         if (response.ok) {
           const data = await response.json();
           // Only update if analysis actually changed
@@ -603,7 +603,7 @@ function MainApp() {
     // OPTIMIZED: Reduced frequency from 10s to 20s
     const interval = setInterval(fetchRaceAnalysis, 20000);
     return () => clearInterval(interval);
-  }, [selectedLock, userMmsi, userSettings.lock_buffer_minutes]);
+  }, [activeTimingLock, userMmsi, userSettings.lock_buffer_minutes]);
 
   // Continuous GPS tracking (bypasses AIS self-suppression) - EXPLICITLY scoped to session MMSI
   useEffect(() => {
@@ -938,6 +938,67 @@ function MainApp() {
     }
   };
 
+
+  const dashboardVessels = useMemo(() => {
+    return vessels
+      .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
+      .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"));
+  }, [vessels, userSettings.show_buoys]);
+
+  const activeTimingLock = useMemo(() => {
+    const accountType = user?.account_type || "vessel_owner";
+
+    // Traffic Watch mode is intentionally watch-point/selected-lock driven.
+    if (accountType === "traffic_watch") {
+      return selectedLock;
+    }
+
+    if (!userMmsi || !locks.length) {
+      return selectedLock;
+    }
+
+    const userVessel = dashboardVessels.find(v => String(v.mmsi) === String(userMmsi));
+    const userRM = Number(userVessel?.river_mile);
+
+    if (!Number.isFinite(userRM)) {
+      return selectedLock;
+    }
+
+    const rawHeading = (
+      userVessel?.heading ||
+      userVessel?.heading_direction ||
+      userVessel?.direction ||
+      ""
+    ).toString().toLowerCase();
+
+    const isDownbound = ["southbound", "downriver", "downbound", "sb"].some(term => rawHeading.includes(term));
+    const isUpbound = ["northbound", "upriver", "upbound", "nb"].some(term => rawHeading.includes(term));
+
+    const sortedLocks = [...locks]
+      .filter(lock => Number.isFinite(Number(lock.river_mile)))
+      .sort((a, b) => Number(a.river_mile) - Number(b.river_mile));
+
+    const epsilon = 0.05;
+
+    if (isDownbound) {
+      const nextDownboundLock = [...sortedLocks]
+        .reverse()
+        .find(lock => Number(lock.river_mile) < userRM - epsilon);
+
+      return nextDownboundLock?.id || selectedLock;
+    }
+
+    if (isUpbound) {
+      const nextUpboundLock = sortedLocks
+        .find(lock => Number(lock.river_mile) > userRM + epsilon);
+
+      return nextUpboundLock?.id || selectedLock;
+    }
+
+    // If heading is unknown/stationary, keep the user's selected lock.
+    return selectedLock;
+  }, [dashboardVessels, locks, selectedLock, user?.account_type, userMmsi]);
+
   // If showing settings page
   if (showSettings) {
     return (
@@ -957,16 +1018,14 @@ function MainApp() {
       {connectionConfig ? (
         <Dashboard 
           isConnected={isConnected}
-          vessels={vessels
-            .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
-            .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"))
-          }
+          vessels={dashboardVessels}
           userMmsi={userMmsi}
           locks={locks}
           lockStatus={lockStatus}
           lockageTimes={lockageTimes}
           raceAnalysis={raceAnalysis}
           selectedLock={selectedLock}
+          activeTimingLock={activeTimingLock}
           onSelectLock={setSelectedLock}
           onDisconnect={handleDisconnect}
           onResetConnection={handleResetConnection}

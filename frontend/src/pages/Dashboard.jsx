@@ -48,6 +48,7 @@ export default function Dashboard({
   lockageTimes = {},
   raceAnalysis,
   selectedLock,
+  activeTimingLock,
   onSelectLock,
   onDisconnect,
   onResetConnection,
@@ -217,10 +218,21 @@ export default function Dashboard({
   // Track current threatening vessel to reset alert when it changes
   const currentThreatMmsi = raceAnalysis?.analysis?.threatening_vessel?.mmsi;
 
-  // Get the selected lock object for the modal
-  const selectedLockObj = useMemo(() => {
+  // Map lock = what the dropdown/map is looking at.
+  // Timing lock = the live navigation target used for HUD, Lock Timing, queue, and race analysis.
+  // For vessel owners, timing follows the next lock in the vessel's current direction.
+  // For Traffic Watch, selected lock remains the timing/watch target.
+  const selectedMapLockObj = useMemo(() => {
     return locks.find(l => l.id === selectedLock);
   }, [locks, selectedLock]);
+
+  const activeTimingLockId = isTrafficWatch
+    ? selectedLock
+    : (activeTimingLock || nextLock?.id || selectedLock);
+
+  const selectedLockObj = useMemo(() => {
+    return locks.find(l => l.id === activeTimingLockId) || selectedMapLockObj;
+  }, [locks, activeTimingLockId, selectedMapLockObj]);
 
   // Calculate distance to selected lock and travel time
   const lockTravelInfo = useMemo(() => {
@@ -233,7 +245,7 @@ export default function Dashboard({
     const travelMinutes = speedMph > 0 ? (distance / speedMph) * 60 : null;
     
     // Estimate wait time based on lockage times data
-    const avgLockageTime = lockageTimes?.[selectedLock]?.avg_minutes || 20; // default 20 min
+    const avgLockageTime = lockageTimes?.[activeTimingLockId]?.avg_minutes || 20; // default 20 min
     
     return {
       distance: distance.toFixed(1),
@@ -241,7 +253,7 @@ export default function Dashboard({
       estimatedWait: avgLockageTime,
       totalMinutes: travelMinutes ? (parseFloat(travelMinutes) + avgLockageTime).toFixed(0) : null
     };
-  }, [userVessel, selectedLockObj, selectedLock, lockageTimes]);
+  }, [userVessel, selectedLockObj, activeTimingLockId, lockageTimes]);
 
   // Get vessels near the target lock (within 5 RM, heading towards it)
   const lockQueue = useMemo(() => {
@@ -1151,7 +1163,7 @@ export default function Dashboard({
                     {/* Watch Point Info - Clickable to open lock details */}
                     <div 
                       className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
-                      onClick={() => setSelectedLockDetail(selectedLock)}
+                      onClick={() => setSelectedLockDetail(activeTimingLockId)}
                       title="Click to view lock details"
                     >
                       <div className="text-[10px] text-slate-500 uppercase">Watching</div>
@@ -1273,7 +1285,7 @@ export default function Dashboard({
                   {/* Target Lock Info - Clickable to open details */}
                   <div 
                     className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
-                    onClick={() => setSelectedLockDetail(selectedLock)}
+                    onClick={() => setSelectedLockDetail(activeTimingLockId)}
                     title="Click to view lock details"
                   >
                     <div className="text-[10px] text-slate-500 uppercase">Target Lock</div>
@@ -1281,6 +1293,11 @@ export default function Dashboard({
                       <div>
                         <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
                         <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
+                        {!isTrafficWatch && selectedLock !== activeTimingLockId && (
+                          <div className="text-[10px] text-cyan-400 mt-1">
+                            Timing follows your next lock. Map view: L{selectedLock.replace('lock_', '')}.
+                          </div>
+                        )}
                       </div>
                       <ChevronDown className="w-4 h-4 text-cyan-400" />
                     </div>
@@ -1388,7 +1405,7 @@ export default function Dashboard({
                           </div>
                         ))}
                         {/* Show "You" in queue ONLY if this is the lock you're heading toward */}
-                        {userVessel && nextLock && selectedLock === nextLock.id && (
+                        {userVessel && nextLock && activeTimingLockId === nextLock.id && (
                           <div className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-cyan-900/30 border border-cyan-500/30">
                             <span className="text-cyan-400 font-semibold">
                               {lockQueue.length + 1}. You

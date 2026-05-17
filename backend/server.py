@@ -4874,6 +4874,23 @@ async def get_vessel_cache():
         "cache": vessel_static_cache
     }
 
+
+# Serve the one-click Windows relay launcher so users can fetch it with
+# a single PowerShell command. See /app/scripts/RIVERWATCH.bat.
+from fastapi.responses import FileResponse as _FileResponse  # noqa: E402
+
+@api_router.get("/relay/download")
+async def download_relay_bat():
+    """Return the RIVERWATCH.bat one-click relay launcher."""
+    path = "/app/scripts/RIVERWATCH.bat"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Relay launcher not found on server")
+    return _FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename="RIVERWATCH.bat",
+    )
+
 @api_router.get("/river-mile-to-coords/{rm}")
 async def convert_rm_to_coords(rm: float):
     """Convert a river mile to approximate lat/lon coordinates."""

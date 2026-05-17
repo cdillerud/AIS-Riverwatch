@@ -5164,6 +5164,11 @@ async def get_session_trip_plan(
         for mmsi, vessel in active_vessels.items():
             if mmsi == session_mmsi:
                 continue
+            # Skip other users' simulated vessels (they are not real commercial traffic).
+            # These can show up as "Your Vessel" orphans from prior test sessions.
+            if isinstance(vessel, dict):
+                if vessel.get('is_simulated') and vessel.get('is_user_vessel'):
+                    continue
             if hasattr(vessel, 'river_mile'):
                 vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
                 vessel_speed = vessel.speed

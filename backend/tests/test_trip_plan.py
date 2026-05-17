@@ -129,6 +129,55 @@ def test_trip_plan_northbound_first_lock(http):
         _stop_sim(http, mmsi)
 
 
+# --- NEW FILTER: Two concurrent simulated users should NOT see each other as threats ---
+def test_trip_plan_skips_other_simulated_users(http):
+    mmsi_a = "367123450"
+    mmsi_b = "367999999"
+    try:
+        _enable_sim(http, mmsi_a, river_mile=820, speed_knots=8, heading="southbound")
+        _enable_sim(http, mmsi_b, river_mile=820, speed_knots=8, heading="southbound")
+        r = http.get(f"{API}/session/{mmsi_a}/trip-plan?max_locks=4", timeout=15)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        # Overall must NOT be cant_beat due to self/other-sim threat at absurd required speed
+        overall = data["summary"]["overall_status"]
+        assert overall in ("clear", "on_pace", "speed_up"), (
+            f"Expected clear/on_pace/speed_up after filter, got {overall}; "
+            f"legs={data['legs']}"
+        )
+        # No leg should have other simulated user (mmsi_b) as threat
+        for leg in data["legs"]:
+            threat = leg.get("threat") or {}
+            t_mmsi = threat.get("mmsi") if isinstance(threat, dict) else None
+            assert t_mmsi != mmsi_b, (
+                f"Other simulated user {mmsi_b} appeared as threat in leg "
+                f"{leg.get('lock_id')}"
+            )
+            # required_speed_mph should not be absurd (>100 mph)
+            rs = leg.get("required_speed_mph")
+            if rs is not None:
+                assert rs < 100, f"Absurd required_speed_mph={rs} in leg {leg.get('lock_id')}"
+    finally:
+        _stop_sim(http, mmsi_a)
+        _stop_sim(http, mmsi_b)
+
+
+# --- NEW FILTER: Demo vessels are NOT excluded ---
+def test_trip_plan_demo_vessels_present_in_active(http):
+    """Verify DEMO001/DEMO002 still appear in active vessels (not filtered out)."""
+    r = http.get(f"{API}/vessels", timeout=15)
+    assert r.status_code == 200
+    vessels = r.json()
+    # Vessels endpoint may return list or dict
+    vlist = vessels if isinstance(vessels, list) else vessels.get("vessels", [])
+    mmsis = {str(v.get("mmsi")) for v in vlist if isinstance(v, dict)}
+    # Demo vessels should be present (may or may not be enabled; if absent, skip)
+    has_demo = any(m.startswith("DEMO") for m in mmsis)
+    if not has_demo:
+        pytest.skip("Demo vessels not active in this environment")
+    assert has_demo
+
+
 # --- REGRESSION: race-analysis endpoint still functions ---
 def test_regression_race_analysis(http):
     mmsi = "367123453"

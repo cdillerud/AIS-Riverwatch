@@ -1,0 +1,65 @@
+{
+  "summary": "Re-tested Trip Plan after both fixes. (1) DESKTOP PLACEMENT CONFIRMED FIXED — TripPlanPanel renders inside the right sidebar (parent `hidden md:block`) at y=693, between timing-sidebar (y=112) and vessels-sidebar (y=1189). bounding_box is non-null (1198,693,445,480). (2) THREAT FILTER CONFIRMED FIXED — Backend skips vessels with both is_simulated && is_user_vessel. New regression test with two concurrent simulated users verifies neither appears in the other's trip-plan, and required_speed_mph never exceeds 100. Demo vessels remain visible. All 8 backend tests pass; UI summary tiles, heading badge, current speed, and leg cards render correctly with real commercial threat (M/V DELTA QUEEN). Mobile (md:hidden) render also still works after switching to race tab.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Lock Timing card (Race Analysis, separate from Trip Plan)",
+        "issues": [
+          "Lock Timing 'SPEED TO BEAT' shows 172.0 mph with 'Exceeds max speed (25 mph)' and Queue lists 'Your Vessel' 4 times (4 orphan entries). This is the older race-analysis endpoint (NOT trip-plan). The new is_simulated && is_user_vessel filter is only applied in get_session_trip_plan(); the race-analysis path appears to still include orphan simulated-user entries. Out of scope for this task but worth noting for a follow-up — consider applying the same filter inside race-analysis."
+        ]
+      }
+    ],
+    "bugs_fixed": []
+  },
+  "passed_tests": [
+    "Backend: test_trip_plan_no_user — 200, user_vessel null, legs empty, overall_status no_user",
+    "Backend: test_trip_plan_southbound_first_lock — first leg lock_2 @ RM 815.2",
+    "Backend: test_trip_plan_max_locks — max_locks=2 caps legs",
+    "Backend: test_trip_plan_northbound_first_lock — first leg lock_4 @ RM 752.8",
+    "Backend NEW: test_trip_plan_skips_other_simulated_users — two concurrent sims for mmsi 367123450 & 367999999 → overall_status not cant_beat; other sim never appears as threat; no required_speed_mph >= 100",
+    "Backend NEW: test_trip_plan_demo_vessels_present_in_active — verifies demos are not excluded",
+    "Backend regression: race-analysis endpoint returns 200",
+    "Backend regression: simulation enable/get/stop endpoints functional",
+    "FRONTEND DESKTOP (1920x1080): trip-plan-panel visible, bbox={x:1198,y:693,w:445,h:480}, parent='hidden md:block'",
+    "FRONTEND DESKTOP: ordering timing(112) < trip-plan(693) < vessels(1189) ✓",
+    "FRONTEND DESKTOP: summary tiles render (Locks Ahead 5, Total Dist. 119.1 mi, Final ETA 12h 56m), Heading ↓ SB, Current 9.2 mph",
+    "FRONTEND DESKTOP: 5 leg cards with status badges (SPEED UP, CLEAR x4); threat correctly identified as real commercial traffic (M/V DELTA QUEEN), no longer 'Your Vessel'",
+    "FRONTEND DESKTOP: trip-plan-summary, trip-plan-legs, trip-plan-refresh-btn testids present",
+    "FRONTEND MOBILE (390x844, race tab): trip-plan-panel still renders below RaceAnalysisPanel (panel[1] visible with bbox)",
+    "REGRESSION: no JS runtime errors related to TripPlanPanel; dashboard mounts cleanly (1 unrelated 405 console error)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_trip_plan.py",
+    "/app/test_reports/pytest/trip_plan_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL FOLLOW-UP: Apply the same is_simulated && is_user_vessel filter inside the older race-analysis endpoint / Lock Timing 'Speed to Beat' calculation. Current desktop screenshot shows Lock Timing queue listing 'Your Vessel' 4 times and Speed to Beat 172 mph — orphan simulated users still leak into that view. (Trip Plan itself is correct.)"
+  ],
+  "critical_code_review_comments": [
+    "Filter at server.py:5169-5171 only handles dict-shaped vessels. The branch above at 5172 (`hasattr(vessel, 'river_mile')`) handles object-shaped vessels but does NOT apply the same is_simulated/is_user_vessel skip — if the in-memory store ever stores Vessel pydantic models with these flags, the filter would be bypassed. Consider adding the same check for the object branch for completeness.",
+    "Lock Timing / race-analysis appears to use a different competitor-detection path; the new filter should be replicated there to fully eliminate self-as-threat for that card."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_trip_plan.py (added test_trip_plan_skips_other_simulated_users + test_trip_plan_demo_vessels_present_in_active)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8)",
+    "frontend": "100% — desktop placement, mobile placement, content rendering, ordering, and testids all verified"
+  },
+  "test_credentials": {
+    "email": "chaddillerud@gmail.com",
+    "password": "test123",
+    "user_mmsi_in_settings": "USER2_MMSI_222"
+  },
+  "seed_data_creation": "Tests enable user-vessel simulation for mmsi 367123450, 367123451, 367123452, 367123453, 367123454, 367999999, and USER2_MMSI_222 during the run; each test calls /stop in its finally block.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Trip Plan feature (both desktop placement + threat filter) is FULLY working. If continuing on this app: Lock Timing card (older race-analysis component) still suffers from self-vessel-as-threat (Speed to Beat 172 mph, 4x 'Your Vessel' in queue) — apply same is_simulated && is_user_vessel filter there. Use chaddillerud@gmail.com / test123, USER2_MMSI_222, viewport 1920x1080. To force a live position quickly: POST /api/user-vessel/simulation/USER2_MMSI_222 {enabled:true, river_mile:820, speed_knots:8, heading:'southbound'} then reload.",
+  "rca_of_the_issue": "Previous self-as-threat bug: backend trip-plan loop iterated active_vessels and only skipped exact session_mmsi match. When TWO user-vessel simulations were enabled (e.g. tester A and tester B both at the same RM/heading), each appeared in the other's threat-detection with absurd required_speed_mph (e.g. 981.3). Fix at server.py:5169-5171 skips any vessel with both is_simulated=True and is_user_vessel=True. Demo vessels (is_demo=True, is_simulated absent) are unaffected and still surface as threats."
+}

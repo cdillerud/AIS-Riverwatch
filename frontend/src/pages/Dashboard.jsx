@@ -1400,7 +1400,12 @@ export default function Dashboard({
                 </div>
               </Card>
               )}
-              
+
+              {/* Trip Plan - Multi-Lock Chain Analysis (vessel_owner only) */}
+              {!isTrafficWatch && userMmsi && (
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={5} bufferMinutes={20} compact={true} />
+              )}
+
               {/* Nearby Vessels Card - Expands to fill remaining space */}
               <Card className="glass-panel hud-border flex-1 flex flex-col min-h-0" data-testid="vessels-sidebar">
                 <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between flex-shrink-0">

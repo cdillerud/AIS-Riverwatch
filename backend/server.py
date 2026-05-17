@@ -5994,6 +5994,146 @@ async def broadcast_demo_nmea(mmsi: str, lat: float, lon: float, speed_knots: fl
     await broadcast_raw_line(f"[DEMO] {aivdm_comment}")
 
 
+# =============================================================================
+# TRIPS - Create / Save / Load planned trips
+# =============================================================================
+class TripCreate(BaseModel):
+    name: str
+    start_rm: Optional[float] = None
+    end_rm: Optional[float] = None
+    heading: Optional[str] = None   # "northbound" | "southbound"
+    departure_time: Optional[str] = None  # ISO 8601 string
+    notes: Optional[str] = None
+    locks: Optional[List[str]] = None  # ordered lock ids the trip traverses
+
+
+def _trip_doc_to_public(doc: dict) -> dict:
+    """Strip Mongo internals + ensure JSON-safe fields."""
+    if not doc:
+        return {}
+    out = {k: v for k, v in doc.items() if k != "_id"}
+    for k in ("created_at", "updated_at"):
+        v = out.get(k)
+        if isinstance(v, datetime):
+            out[k] = v.isoformat()
+    return out
+
+
+@api_router.post("/trips")
+async def create_trip(trip: TripCreate, request: Request):
+    """Create a new saved trip for the current user."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    name = (trip.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Trip name is required")
+
+    now = datetime.now(timezone.utc)
+    doc = {
+        "trip_id": f"trip_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "name": name,
+        "start_rm": trip.start_rm,
+        "end_rm": trip.end_rm,
+        "heading": trip.heading,
+        "departure_time": trip.departure_time,
+        "notes": (trip.notes or "").strip(),
+        "locks": list(trip.locks or []),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.trips.insert_one(doc)
+    return _trip_doc_to_public(doc)
+
+
+@api_router.get("/trips")
+async def list_trips(request: Request):
+    """List the current user's saved trips, newest first."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    cursor = db.trips.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0},
+    ).sort("created_at", -1)
+    trips = []
+    async for doc in cursor:
+        for k in ("created_at", "updated_at"):
+            v = doc.get(k)
+            if isinstance(v, datetime):
+                doc[k] = v.isoformat()
+        trips.append(doc)
+    return {"trips": trips, "count": len(trips)}
+
+
+@api_router.get("/trips/{trip_id}")
+async def get_trip(trip_id: str, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    doc = await db.trips.find_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"_id": 0},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    for k in ("created_at", "updated_at"):
+        v = doc.get(k)
+        if isinstance(v, datetime):
+            doc[k] = v.isoformat()
+    return doc
+
+
+@api_router.put("/trips/{trip_id}")
+async def update_trip(trip_id: str, trip: TripCreate, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    update_fields = {
+        "name": (trip.name or "").strip(),
+        "start_rm": trip.start_rm,
+        "end_rm": trip.end_rm,
+        "heading": trip.heading,
+        "departure_time": trip.departure_time,
+        "notes": (trip.notes or "").strip(),
+        "locks": list(trip.locks or []),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if not update_fields["name"]:
+        raise HTTPException(status_code=400, detail="Trip name is required")
+    result = await db.trips.update_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"$set": update_fields},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    doc = await db.trips.find_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"_id": 0},
+    )
+    for k in ("created_at", "updated_at"):
+        v = doc.get(k)
+        if isinstance(v, datetime):
+            doc[k] = v.isoformat()
+    return doc
+
+
+@api_router.delete("/trips/{trip_id}")
+async def delete_trip(trip_id: str, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    result = await db.trips.delete_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return {"deleted": trip_id}
+
+
+
+
 @api_router.post("/debug/inject-nmea")
 async def inject_test_nmea(request: Request):
     """

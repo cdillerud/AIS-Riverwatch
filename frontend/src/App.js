@@ -10,6 +10,7 @@ import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import LandingPage from "@/pages/LandingPage";
 import AuthCallback from "@/pages/AuthCallback";
+import TripsPage from "@/pages/TripsPage";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -69,6 +70,11 @@ function AppRouter() {
       <Route path="/dashboard" element={
         <ProtectedRoute>
           <MainApp />
+        </ProtectedRoute>
+      } />
+      <Route path="/trips" element={
+        <ProtectedRoute>
+          <TripsPage />
         </ProtectedRoute>
       } />
       {/* Catch-all redirect to landing or dashboard */}

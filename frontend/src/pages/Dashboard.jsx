@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
-  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
+  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings, Map,
   Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
   Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info,
   LogOut, Radio, User, Eye, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
@@ -589,6 +589,18 @@ export default function Dashboard({
             
             {/* Right: Actions */}
             <div className="flex items-center gap-2">
+              {/* My Trips */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.location.assign('/trips')}
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                data-testid="trips-nav-btn"
+                title="My Trips"
+              >
+                <Map className="w-4 h-4" />
+              </Button>
+
               {/* Settings - Icon only */}
               <Button
                 variant="ghost"

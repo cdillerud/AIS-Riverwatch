@@ -154,6 +154,49 @@ Build a local application named "River Watch" to track vessels on the upper Miss
 - [x] **Filter fix**: Both Trip Plan and Race Analysis now skip orphan user-simulated vessels (vessels with is_simulated && is_user_vessel) so prior test sessions don't appear as threats. Demo tows (is_demo only) remain eligible.
 - [x] Backend tests: `/app/backend/tests/test_trip_plan.py` (8/8 pass)
 
+### Production Baseline: HTTPS Push Relay Architecture ✅ (February 13, 2026, tag `baseline-v2-relay-push`)
+**Confirmed working end-to-end with live Boat Beacon AIS data on user's GCP VM (34.172.47.153).**
+
+**Data flow:**
+```
+Boat Beacon (192.168.0.25:5353)  --TCP-->  RIVERWATCH.bat (Windows LAN)
+RIVERWATCH.bat  --HTTPS POST /api/ais/ingest-->  nginx :80 on VM
+nginx  --proxy /api/*-->  riverwatchclean-backend container (uvicorn :8001)
+backend  --processes NMEA-->  active_vessels  -->  dashboard (REST + WebSocket)
+```
+
+**Key endpoints added in this baseline:**
+- `POST /api/ais/ingest` — relay-push receiver, identity-free, parses AIVDM/GPRMC/GPGGA
+- `GET /api/relay/download` — dynamically generates RIVERWATCH.bat with the requesting Host baked in
+- `GET /api/session/{mmsi}/trip-plan` — multi-lock chain race analysis
+- `GET /api/install/bootstrap` — one-shot installer script for the VM
+- `GET /api/install/tarball` — bundle of changed files
+
+**Files of record:**
+- `backend/server.py` — `ingest_nmea()`, `_generate_relay_bat()`, `download_relay_bat()`, `get_session_trip_plan()`, orphan-vessel filter in race-analysis + trip-plan
+- `frontend/src/components/TripPlanPanel.jsx` — Trip Plan UI
+- `frontend/src/pages/Dashboard.jsx` — Trip Plan integration (desktop sidebar + mobile race tab)
+- `scripts/ais_relay.py` / `scripts/ais_relay.ps1` / `scripts/RIVERWATCH.bat` — relay clients
+- `dist/install.sh` + `dist/riverwatch-update.tar.gz` — VM update bundle
+
+**Why this beats the legacy designs:**
+- No router port-forward, no GCP firewall changes (port 80 already open for nginx)
+- Cloud VM cannot route to LAN RFC1918 — push model is the only direction that works
+- Survives ISP IP rotation, marina Wi-Fi NAT, DHCP changes
+- Relay is identity-free (MMSI lives in dashboard user settings, not the relay)
+- Dashboard Settings → AIS Connection form still shows `ais-relay:5353` as the *internal* default (legacy ais-relay container path); both paths can coexist
+
+**Deployment on the VM (one-shot):**
+```
+curl -fsSL https://<preview>/api/install/bootstrap | RW_DIR=/home/cdillerud/AIS-Riverwatch bash
+```
+Auto-detects `docker-compose.clean.yml`, rebuilds `riverwatchclean-backend`, re-runs `scripts/deploy-static-frontend.sh`, smoke-tests endpoints.
+
+**Windows-side relay (one-shot):**
+```
+iwr http://<vm-host>/api/relay/download -OutFile RIVERWATCH.bat; .\RIVERWATCH.bat
+```
+
 ### UI/UX Improvements ✅
 - [x] Nearby Vessels sorted by River Mile (descending)
 - [x] Removed Locks/Raw tabs, moved Raw Data to Settings

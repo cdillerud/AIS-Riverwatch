@@ -141,6 +141,7 @@ async def persist_vessel_sighting(vessel_data: dict):
         "course": vessel_data.get('course'),
         "heading_direction": vessel_data.get('heading_direction'),
         "ship_type": vessel_data.get('ship_type'),
+        "last_ais_checkin": vessel_data.get('last_ais_checkin') or vessel_data.get('timestamp'),
         # USACE data
         "usace_source": vessel_data.get('usace_source', False),
         "barge_count": vessel_data.get('barge_count'),
@@ -2210,6 +2211,7 @@ class AISConnectionManager:
             if config_mmsi in vessel_static_cache:
                 vessel_name = vessel_static_cache[config_mmsi].get('name', boat_name)
             
+            checkin_now = datetime.now(timezone.utc)
             vessel = VesselPosition(
                 mmsi=config_mmsi,
                 name=vessel_name,
@@ -2219,6 +2221,8 @@ class AISConnectionManager:
                 course=gps_data['course'],
                 river_mile=rm,
                 heading=heading,
+                timestamp=checkin_now,
+                last_ais_checkin=checkin_now.isoformat(),
                 is_user_vessel=True,  # Will be recalculated per-session
                 vessel_type='recreational',
             )
@@ -2282,6 +2286,7 @@ class AISConnectionManager:
             # NOTE: is_user_vessel is determined PER-SESSION when sending to subscribers
             # Here we just store the raw data keyed by MMSI
             
+            checkin_now = datetime.now(timezone.utc)
             vessel = VesselPosition(
                 mmsi=mmsi_parsed,
                 name=vessel_name,
@@ -2291,6 +2296,8 @@ class AISConnectionManager:
                 course=vessel_data['course'],
                 river_mile=rm,
                 heading=heading,
+                timestamp=checkin_now,
+                last_ais_checkin=checkin_now.isoformat(),
                 is_user_vessel=False,  # Will be set per-session when broadcasting
                 vessel_type=vessel_data.get('vessel_type', 'unknown'),
                 ship_type=vessel_data.get('ship_type'),
@@ -2438,6 +2445,7 @@ class VesselPosition(BaseModel):
     river_mile: Optional[float] = None
     heading: Optional[str] = None  # "northbound" or "southbound"
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_ais_checkin: Optional[str] = None  # ISO timestamp of most recent AIS/GPS position check-in
     is_user_vessel: bool = False
     vessel_type: str = "unknown"
     # Ship information
@@ -2605,8 +2613,18 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
         v_dict = vessel.model_dump()
         if v_dict.get('timestamp') and hasattr(v_dict['timestamp'], 'isoformat'):
             v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+        if v_dict.get('last_ais_checkin') and hasattr(v_dict['last_ais_checkin'], 'isoformat'):
+            v_dict['last_ais_checkin'] = v_dict['last_ais_checkin'].isoformat()
     else:
         v_dict = dict(vessel)  # Copy the dict
+        if v_dict.get('timestamp') and hasattr(v_dict['timestamp'], 'isoformat'):
+            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+        if v_dict.get('last_ais_checkin') and hasattr(v_dict['last_ais_checkin'], 'isoformat'):
+            v_dict['last_ais_checkin'] = v_dict['last_ais_checkin'].isoformat()
+
+    # Backward-compatible fallback: older/demo vessel objects may only have timestamp.
+    if not v_dict.get('last_ais_checkin') and v_dict.get('timestamp'):
+        v_dict['last_ais_checkin'] = v_dict['timestamp']
     
     # Get vessel MMSI
     vessel_mmsi = v_dict.get('mmsi', '')

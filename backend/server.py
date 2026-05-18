@@ -2267,12 +2267,15 @@ class AISConnectionManager:
                 # This is likely a static data message (type 5) - just cache the name
                 return
             
-            if illinois_filter_enabled:
-                if not is_on_upper_mississippi(lat, lon):
-                    filter_stats["filtered"] += 1
-                    logger.debug(f"Filtered vessel {mmsi_parsed} - not on Upper Mississippi (lat={lat}, lon={lon})")
-                    return
-                filter_stats["passed"] += 1
+            # Always enforce main-channel filtering.
+            # This excludes AIS targets on tributaries such as the St. Croix and Illinois River
+            # so they do not affect Mississippi lock timing, traffic ahead, trip planning,
+            # or speed-to-beat calculations.
+            if not is_on_upper_mississippi(lat, lon):
+                filter_stats["filtered"] += 1
+                logger.info(f"Filtered vessel {mmsi_parsed} - not on Mississippi main channel (lat={lat}, lon={lon})")
+                return
+            filter_stats["passed"] += 1
             
             # Calculate river mile and heading
             rm = estimate_river_mile(lat, lon)

@@ -5418,6 +5418,15 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         user_speed_mph = user_speed_knots * 1.15078
         
         user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm)
+
+        # If the user's vessel is stopped, do not calculate impossible "speed to beat"
+        # values. A stopped vessel obviously cannot beat traffic to the lock, and the
+        # frontend should not display panic values like 888 MPH.
+        user_stopped_for_timing = (
+            user_speed_mph < 0.5
+            or user_heading == "stationary"
+            or user_eta is None
+        )
         
         # Find most threatening competitor
         # LOGIC: Any vessel heading TOWARD the lock is a potential competitor,
@@ -5439,12 +5448,18 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             
             # Check if this competitor will arrive before user (with buffer)
             # Competitors are already sorted by ETA, so first valid one is the biggest threat
-            if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
-                # User needs to arrive buffer_minutes BEFORE the tow to get through first
+            if comp_eta and (user_stopped_for_timing or user_eta is None or comp_eta < user_eta + buffer_minutes):
+                # User needs to arrive buffer_minutes BEFORE the tow to get through first.
+                # If stopped, keep the traffic threat but suppress impossible speed math.
                 threat = comp
-                required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
-                if required_speed and required_speed > 25:
+
+                if user_stopped_for_timing:
+                    required_speed = None
                     can_beat = False
+                else:
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
+                    if required_speed and required_speed > 25:
+                        can_beat = False
                 break
         
         analysis = {
@@ -5455,7 +5470,9 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             "required_speed_mph": required_speed,
             "can_beat_at_25mph": can_beat,
             "max_speed_mph": 25,
-            "buffer_minutes": buffer_minutes
+            "buffer_minutes": buffer_minutes,
+            "timing_paused": user_stopped_for_timing,
+            "timing_paused_reason": "stopped" if user_stopped_for_timing else None
         }
     
     return RaceAnalysis(

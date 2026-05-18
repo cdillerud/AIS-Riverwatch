@@ -211,9 +211,17 @@ export default function Dashboard({
     return vessels.filter(v => v.mmsi !== userMmsi);
   }, [vessels, userMmsi]);
 
-  // Check if speed requirement is dangerous
-  const isDangerous = raceAnalysis?.analysis?.required_speed_mph && 
-                      raceAnalysis.analysis.required_speed_mph > 25;
+  // Check if speed requirement is dangerous.
+  // If the user's vessel is stopped, do not treat impossible speed-to-beat values
+  // as an active traffic delay. A stopped vessel cannot race anyone to the lock.
+  const userSpeedMph = userVessel?.speed ? userVessel.speed * 1.15078 : 0;
+  const maxAllowedSpeedMph = userSettings.max_speed_mph || 25;
+  const isUserEffectivelyStopped = !isTrafficWatch && !!userVessel && userSpeedMph < 0.5;
+  const hasRequiredSpeed = Number.isFinite(raceAnalysis?.analysis?.required_speed_mph);
+  const isTimingPaused = isUserEffectivelyStopped && !!raceAnalysis?.analysis?.threatening_vessel;
+  const isDangerous = !isTimingPaused &&
+                      hasRequiredSpeed &&
+                      raceAnalysis.analysis.required_speed_mph > maxAllowedSpeedMph;
   
   // Track current threatening vessel to reset alert when it changes
   const currentThreatMmsi = raceAnalysis?.analysis?.threatening_vessel?.mmsi;
@@ -507,8 +515,8 @@ export default function Dashboard({
   };
 
   // Quick stats for mobile header
-  const requiredSpeed = raceAnalysis?.analysis?.required_speed_mph;
-  const userEta = raceAnalysis?.analysis?.user_eta_minutes;
+  const requiredSpeed = isTimingPaused ? null : raceAnalysis?.analysis?.required_speed_mph;
+  const userEta = isTimingPaused ? null : raceAnalysis?.analysis?.user_eta_minutes;
 
   // Keyboard shortcuts - must be after all handler functions
   useEffect(() => {
@@ -826,9 +834,9 @@ export default function Dashboard({
                   </span>
                 </div>
               ) : (
-                <div className={`flex items-center gap-1 px-2.5 py-1 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'} rounded-r`}>
-                  <span className={`font-heading text-[10px] font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                    {isDangerous ? 'DELAY' : 'CLEAR'}
+                <div className={`flex items-center gap-1 px-2.5 py-1 ${isDangerous ? 'bg-red-500/10' : isTimingPaused ? 'bg-slate-500/10' : 'bg-green-500/10'} rounded-r`}>
+                  <span className={`font-heading text-[10px] font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : isTimingPaused ? 'text-slate-300' : 'text-green-400'}`}>
+                    {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : 'CLEAR'}
                   </span>
                   {isDangerous && <AlertTriangle className="w-3 h-3 text-red-400 animate-pulse" />}
                 </div>
@@ -1272,13 +1280,15 @@ export default function Dashboard({
                     <span className="text-sm font-medium text-white">Lock Timing</span>
                   </div>
                   <Badge className={`text-[10px] ${
-                    isDangerous 
-                      ? 'bg-red-500/20 text-red-400 border-red-500/50' 
-                      : raceAnalysis?.analysis?.threatening_vessel 
-                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
-                        : 'bg-green-500/20 text-green-400 border-green-500/50'
+                    isDangerous
+                      ? 'bg-red-500/20 text-red-400 border-red-500/50'
+                      : isTimingPaused
+                        ? 'bg-slate-500/20 text-slate-300 border-slate-500/50'
+                        : raceAnalysis?.analysis?.threatening_vessel
+                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
+                          : 'bg-green-500/20 text-green-400 border-green-500/50'
                   }`}>
-                    {isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
+                    {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
                   </Badge>
                 </div>
                 <div className="p-3 space-y-3">
@@ -1356,11 +1366,22 @@ export default function Dashboard({
                       </div>
                       <div className="text-center py-2">
                         <div className="text-[10px] text-slate-500 uppercase">Speed to Beat</div>
-                        <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                          {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
-                        </div>
-                        {isDangerous && (
-                          <div className="text-[10px] text-red-400 mt-1">Exceeds max speed (25 mph)</div>
+                        {isTimingPaused ? (
+                          <>
+                            <div className="text-2xl font-mono font-bold text-slate-300">Stopped</div>
+                            <div className="text-[10px] text-slate-400 mt-1">
+                              Start moving or enter a speed to calculate a meaningful speed-to-beat.
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                              {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
+                            </div>
+                            {isDangerous && (
+                              <div className="text-[10px] text-red-400 mt-1">Exceeds max speed ({maxAllowedSpeedMph} mph)</div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -1555,6 +1576,8 @@ export default function Dashboard({
                 raceAnalysis={raceAnalysis}
                 userVessel={userVessel}
                 isDangerous={isDangerous}
+                isTimingPaused={isTimingPaused}
+                maxAllowedSpeedMph={maxAllowedSpeedMph}
                 compact={true}
                 showVesselNames={userSettings.show_vessel_names !== false}
               />

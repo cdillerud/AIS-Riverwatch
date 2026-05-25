@@ -6378,6 +6378,158 @@ async def get_raw_subscribers():
     }
 
 
+def _generate_phone_localhost_relay_script(vm_url: str) -> bytes:
+    """Build an Android/Termux relay for Boat Beacon localhost TCP output."""
+    ingest_url = vm_url.rstrip("/") + "/api/ais/ingest"
+
+    script = r"""#!/data/data/com.termux/files/usr/bin/bash
+set -u
+
+BOAT_BEACON_HOST="${BOAT_BEACON_HOST:-127.0.0.1}"
+BOAT_BEACON_PORT="${BOAT_BEACON_PORT:-5353}"
+INGEST_URL="__INGEST_URL__"
+BATCH_SECONDS="${BATCH_SECONDS:-1}"
+MAX_BATCH_LINES="${MAX_BATCH_LINES:-200}"
+
+log() {
+  printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+json_escape() {
+  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().rstrip("\n")))'
+}
+
+send_batch() {
+  local tmpfile="$1"
+  local count
+  count=$(wc -l < "$tmpfile" | tr -d ' ')
+
+  if [ "$count" = "0" ]; then
+    return 0
+  fi
+
+  local lines_json
+  local line
+  local escaped
+  local first
+
+  lines_json="["
+  first=1
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    escaped=$(printf '%s' "$line" | json_escape)
+
+    if [ "$first" = "1" ]; then
+      lines_json="$lines_json$escaped"
+      first=0
+    else
+      lines_json="$lines_json,$escaped"
+    fi
+  done < "$tmpfile"
+
+  lines_json="$lines_json]"
+  body="{\"lines\":$lines_json}"
+
+  if curl -fsS -X POST "$INGEST_URL" \
+      -H "Content-Type: application/json" \
+      --data "$body" >/tmp/riverwatch-phone-relay-response.json 2>/tmp/riverwatch-phone-relay-error.log; then
+    log "POST ok: $count line(s)"
+    : > "$tmpfile"
+    return 0
+  else
+    log "POST failed: $(cat /tmp/riverwatch-phone-relay-error.log 2>/dev/null)"
+    return 1
+  fi
+}
+
+log "RiverWatch Phone Localhost Relay"
+log "Boat Beacon source: $BOAT_BEACON_HOST:$BOAT_BEACON_PORT"
+log "RiverWatch ingest: $INGEST_URL"
+
+if ! need_cmd python3; then
+  log "python3 not found. Installing..."
+  pkg install -y python || {
+    log "ERROR: Could not install python. Run: pkg install python"
+    exit 1
+  }
+fi
+
+if ! need_cmd curl; then
+  log "curl not found. Installing..."
+  pkg install -y curl || {
+    log "ERROR: Could not install curl. Run: pkg install curl"
+    exit 1
+  }
+fi
+
+if ! need_cmd nc; then
+  log "netcat not found. Installing..."
+  pkg install -y netcat-openbsd || pkg install -y busybox || {
+    log "ERROR: Could not install netcat. Run: pkg install netcat-openbsd"
+    exit 1
+  }
+fi
+
+batch_file="/tmp/riverwatch-phone-nmea-batch.txt"
+: > "$batch_file"
+
+while true; do
+  log "Connecting to Boat Beacon localhost feed..."
+  log "If this loops, confirm Boat Beacon is outputting TCP/NMEA on 127.0.0.1:5353."
+
+  last_flush="$(date +%s)"
+
+  nc "$BOAT_BEACON_HOST" "$BOAT_BEACON_PORT" | while IFS= read -r line || [ -n "$line" ]; do
+    line="$(printf '%s' "$line" | tr -d '\r')"
+
+    if [ -z "$line" ]; then
+      continue
+    fi
+
+    printf '%s\n' "$line" >> "$batch_file"
+
+    current_count=$(wc -l < "$batch_file" | tr -d ' ')
+    if [ "$current_count" -ge "$MAX_BATCH_LINES" ]; then
+      send_batch "$batch_file" || true
+    fi
+
+    now="$(date +%s)"
+    elapsed=$((now - last_flush))
+
+    if [ "$elapsed" -ge "$BATCH_SECONDS" ]; then
+      send_batch "$batch_file" || true
+      last_flush="$now"
+    fi
+  done
+
+  send_batch "$batch_file" || true
+  log "Boat Beacon connection closed or failed. Retrying in 5 seconds..."
+  sleep 5
+done
+"""
+
+    script = script.replace("__INGEST_URL__", ingest_url)
+    return script.encode("utf-8")
+
+
+@api_router.get("/relay/phone-localhost/download")
+async def download_phone_localhost_relay(request: Request):
+    """Return an Android/Termux relay script for Boat Beacon localhost TCP output."""
+    host = request.headers.get("host") or "127.0.0.1"
+    scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else "http"
+    vm_url = f"{scheme}://{host}"
+    content = _generate_phone_localhost_relay_script(vm_url)
+    return _Response(
+        content=content,
+        media_type="text/x-shellscript",
+        headers={"Content-Disposition": 'attachment; filename="riverwatch-phone-localhost-relay.sh"'},
+    )
+
+
 # Include the router in the main app
 app.include_router(api_router)
 

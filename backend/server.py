@@ -4709,6 +4709,7 @@ async def get_transit_stats() -> dict:
         ).to_list(None)
         stats = _transits.transit_stats(_transits.transit_samples(rows, _TRANSIT_ORDER))
         stats.update(_transits.dwell_stats(rows))
+        stats.update(_transits.continuation_stats(rows, _TRANSIT_ORDER))
         _transit_cache["stats"] = stats
         _transit_cache["at"] = now
     except Exception as e:
@@ -4855,6 +4856,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
     from_rm + direction (upbound|downbound) + scope=ahead: only the locks in
     front of the boat, nearest first. sort=delay: longest estimated wait first.
     """
+    direction = direction or None   # "?direction=" means unknown
     if direction not in (None, "upbound", "downbound"):
         raise HTTPException(status_code=400, detail="direction must be upbound or downbound")
     now = datetime.now(timezone.utc)
@@ -4934,7 +4936,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
                 except (KeyError, TypeError, ValueError):
                     continue
             wait_at_arrival = _lock_board.predict_waits_at(
-                lid, locking, waiting, appr, typical, now + timedelta(minutes=arrive_in), now)
+                lid, locking, waiting, appr, typical, now + timedelta(minutes=arrive_in), now, direction=direction)
             wait_at_arrival["arrive_in_minutes"] = round(arrive_in)
 
         st = status_data.get(lid)

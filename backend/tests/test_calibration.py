@@ -16,7 +16,9 @@ def _samples(n=3000, intercept=27.0, slope=1.25, seed=7):
         v0 = rnd.uniform(20, 240) if busy else 0.0
         actual = intercept + slope * v0 + rnd.gauss(0, 15) if busy else max(0.0, rnd.gauss(10, 5))
         out.append({"lock_id": "lock_14", "train": i < n * 2 // 3, "actual": actual, "recreational": False,
-                    "queue": 1 if busy else 0, "locking": 0, "v0": v0, "v1": v0, "v2": v0, "lock_median": 30.0})
+                    "queue": 1 if busy else 0, "locking": 0, "v0": v0, "v1": v0, "v2": v0, "lock_median": 30.0,
+                    "n_same": 1.0 if busy else 0.0, "n_opp": 0.0, "dbl": 0.0, "lk_rem": 0.0,
+                    "own_double": 0.0, "empty": 0.0 if busy else 1.0})
     return out
 
 
@@ -32,7 +34,7 @@ BAD = {"tow": {"intercept": 0.0, "slope": 0.4, "empty_lock": 60.0}, "recreationa
 def test_refit_adopted_when_clearly_better(monkeypatch):
     report = _run(monkeypatch, BAD, _samples())
     assert report["adopt"] is True, report["reason"]
-    assert abs(report["model"]["tow"]["slope"] - 1.25) < 0.2
+    assert abs(report["model"]["tow"]["coef"]["v0"] - 1.25) < 0.2
     assert report["new_score"]["all"]["mae"] < report["current_score"]["all"]["mae"]
 
 
@@ -50,4 +52,4 @@ def test_not_enough_history(monkeypatch):
 
 def test_out_of_bounds_fit_is_rejected(monkeypatch):
     report = _run(monkeypatch, BAD, _samples(slope=5.0))
-    assert report["adopt"] is False and "tow.slope" in report["reason"]
+    assert report["adopt"] is False and "tow.v0" in report["reason"]

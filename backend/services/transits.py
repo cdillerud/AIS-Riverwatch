@@ -9,6 +9,11 @@ direction. A vessel that has just left lock A heading toward lock B is then
 expected at B around exit + median transit, before any AIS sees it.
 
 Locks with no USACE data (5A) are skipped, so 5 -> 6 is one leg.
+
+Tested and not used (2026-11-10): river flow. Daily USGS discharge at five
+gauges vs 3,646 transits: correlation ~+0.01 both directions (downbound ~4%
+faster at high flow). Late-fall flows were moderate; re-check at spring
+high water.
 """
 import statistics
 from datetime import datetime, timedelta, timezone
@@ -107,6 +112,49 @@ def dwell_stats(records: Iterable[dict]) -> Dict[tuple, dict]:
     return out
 
 
+MIN_CONTINUE_PROBABILITY = 0.25
+
+
+def continuation_stats(records: Iterable[dict], order: List[str], data_end: Optional[datetime] = None,
+                       window_hours: float = MAX_TRANSIT_HOURS) -> Dict[tuple, dict]:
+    """How often a tow leaving lock A in direction d reaches the next lock B
+    (same direction, within `window_hours`), keyed ("cont", A, B, d).
+
+    Varies a lot by reach (30 days to 2026-11-10: 82% overall; Lock 2 -> 1
+    upbound 0%, Mel Price -> 25 upbound 47%, Lock 14 -> 13 upbound 49% -
+    harbors and fleeting areas absorb tows), so predicted arrivals carry it as
+    a probability instead of assuming every tow continues."""
+    by_vessel: Dict[str, List[dict]] = {}
+    for r in records:
+        if r.get("is_recreational") or r.get("in_progress"):
+            continue
+        key = _vessel_key(r)
+        if key and r.get("exit_time"):
+            by_vessel.setdefault(key, []).append(r)
+    if data_end is None:
+        data_end = max((r["exit_time"] for rows in by_vessel.values() for r in rows), default=None)
+    if data_end is None:
+        return {}
+    counts: Dict[tuple, List[int]] = {}
+    window = timedelta(hours=window_hours)
+    for rows in by_vessel.values():
+        rows.sort(key=lambda r: r["exit_time"])
+        for i, a in enumerate(rows):
+            d = a.get("direction")
+            if d not in ("upbound", "downbound") or a["exit_time"] > data_end - window:
+                continue  # too recent to know whether it continued
+            b = next_lock(order, a["lock_id"], d)
+            if not b:
+                continue
+            nxt = rows[i + 1] if i + 1 < len(rows) else None
+            went = bool(nxt and nxt["lock_id"] == b and nxt.get("direction") == d
+                        and nxt.get("arrival_time") and nxt["arrival_time"] - a["exit_time"] < window)
+            c = counts.setdefault(("cont", a["lock_id"], b, d), [0, 0])
+            c[0] += went
+            c[1] += 1
+    return {k: {"p": c[0] / c[1], "n": c[1]} for k, c in counts.items() if c[1] >= 10}
+
+
 def _leg(stats, a, b, d, barges):
     return stats.get((a, b, d, size_class(barges))) or stats.get((a, b, d))
 
@@ -155,6 +203,11 @@ def predicted_arrivals(lock_id: str, order: List[str], stats: Dict[tuple, dict],
             legs += [stats.get(("dwell", b, d)), _leg(stats, b, lock_id, d, barges)]
         if not all(legs):
             continue
+        probability = stats.get(("cont", a, b, d), {}).get("p", 1.0)
+        if hops == 2:
+            probability *= stats.get(("cont", b, lock_id, d), {}).get("p", 1.0)
+        if probability < MIN_CONTINUE_PROBABILITY:
+            continue
         exit_time = r["exit_time"] if r["exit_time"].tzinfo else r["exit_time"].replace(tzinfo=timezone.utc)
         if now - exit_time > timedelta(hours=lookback_hours):
             continue
@@ -188,6 +241,8 @@ def predicted_arrivals(lock_id: str, order: List[str], stats: Dict[tuple, dict],
             "eta_latest": latest_eta,
             "overdue": now > eta,
             "transit_samples": legs[0]["n"],
+            # Share of tows on this reach that actually continue to `lock_id`
+            "probability": round(probability, 2),
             "progress": max(0.0, min(0.97, elapsed / median_h)),
             "segment_from": seg[0],
             "segment_to": seg[1],

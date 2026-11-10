@@ -65,11 +65,106 @@ def estimate_wait(lock_id: str, locking: Iterable[dict], waiting: Iterable[dict]
 # craft by ~28 min: lock staff slot recreational boats in around tows.
 # Re-run the backtest as history grows and update these numbers.
 CALIBRATION = {
-    "tow": {"intercept": 26.5, "slope": 1.264, "empty_lock": 10.0},
-    "recreational": {"intercept": 5.8, "slope": 0.088},
-    "fitted_on": "2026-10-11..2026-10-31, 4055 USACE lockages",
-    "test_mae_minutes": {"tow": 48.3, "recreational": 8.0},
+    # Tow model v2 (services/calibration.fit_tow_features): L1 fit on queue
+    # features + per-lock effects, 4,067 lockages Oct 11-31 2026, scored on the
+    # next 10 days: tow MAE 43.0 min (v1 46.7), 70% within 30 min, 84% within
+    # 60. Opposite-direction tows waiting cost ~19 min each vs ~10 for
+    # same-direction (locks alternate). The nightly job refits and replaces
+    # this only when the refit is more accurate on recent data.
+    "tow": {
+        "kind": "l1_features",
+        "coef": {
+            "intercept": 30.82,
+            "v0": 0.989,
+            "n_same": 10.302,
+            "n_opp": 19.382,
+            "dbl": 4.954,
+            "lk_rem": -0.13,
+            "own_double": 6.289,
+            "empty": -17.985
+        },
+        "lock_effects": {
+            "chain_of_rocks": 0.0,
+            "lock_1": -6.0,
+            "lock_10": 7.69,
+            "lock_11": 4.86,
+            "lock_12": -13.04,
+            "lock_13": -6.22,
+            "lock_14": -0.99,
+            "lock_15": 7.37,
+            "lock_16": -9.67,
+            "lock_17": -12.77,
+            "lock_18": -8.9,
+            "lock_19": 10.2,
+            "lock_2": -3.52,
+            "lock_20": -6.0,
+            "lock_21": 2.64,
+            "lock_22": 6.38,
+            "lock_24": -10.47,
+            "lock_25": 19.47,
+            "lock_3": -7.13,
+            "lock_4": -12.53,
+            "lock_5": -10.43,
+            "lock_6": -12.76,
+            "lock_7": -5.66,
+            "lock_8": 8.18,
+            "lock_9": -3.12,
+            "melvin_price": -3.03
+        }
+    },
+    "recreational": {"intercept": 5.7, "slope": 0.09},
+    "fitted_on": "2026-10-11..2026-10-31, 4067 USACE lockages",
+    "test_mae_minutes": {"tow": 43.0, "recreational": 8.1},
 }
+
+
+# Tow wait model v2 features (services/calibration.py fits them nightly):
+# raw queue minutes, waiting tows going the same / opposite way (locks
+# alternate directions, so opposite-direction tows cost more), double
+# lockages ahead, minutes left on the lockage in progress, whether the
+# arriving tow itself needs two cuts, and an empty-lock flag; plus a
+# per-lock effect.
+TOW_FEATURES = ["v0", "n_same", "n_opp", "dbl", "lk_rem", "own_double", "empty"]
+
+
+def tow_wait(f: dict, model: Optional[dict] = None) -> float:
+    """Tow wait from queue features under the given (default: current) model."""
+    m = (model or CALIBRATION)["tow"]
+    if m.get("kind") == "l1_features":
+        z = m["coef"]["intercept"] + sum(m["coef"].get(k, 0.0) * float(f.get(k) or 0.0) for k in TOW_FEATURES)
+        z += m.get("lock_effects", {}).get(f.get("lock_id"), 0.0)
+        return max(0.0, z)
+    if f.get("empty"):
+        return float(m["empty_lock"])
+    return max(0.0, m["intercept"] + m["slope"] * float(f.get("v0") or 0.0))
+
+
+def queue_features(lock_id: str, locking: List[dict], waiting: List[dict], typical: dict,
+                   direction: Optional[str], raw_minutes: float, locking_remaining: float,
+                   own_double: Optional[float] = None) -> dict:
+    """Features for tow_wait(). Without a direction the waiting tows are split
+    evenly between same and opposite; without the arriving tow's size, the
+    lock's share of double lockages is used."""
+    # Predicted vessels (with a probability) count fractionally
+    weight = [float(w.get("probability", 1.0)) for w in waiting]
+    total = sum(weight)
+    if direction in ("upbound", "downbound"):
+        n_same = sum(wt for w, wt in zip(waiting, weight) if w.get("direction") == direction)
+        n_opp = total - n_same
+    else:
+        n_same = n_opp = total / 2.0
+    if own_double is None:
+        own_double = float(typical.get("double_share") or 0.0)
+    return {
+        "lock_id": lock_id,
+        "v0": float(raw_minutes),
+        "n_same": n_same,
+        "n_opp": n_opp,
+        "dbl": float(sum(wt for w, wt in zip(waiting, weight) if needs_double(lock_id, w.get("barges")))),
+        "lk_rem": float(locking_remaining),
+        "own_double": float(own_double),
+        "empty": 1.0 if not locking and not waiting else 0.0,
+    }
 
 
 def predict_waits(lock_id: str, locking: List[dict], waiting: List[dict], typical: dict,
@@ -80,10 +175,9 @@ def predict_waits(lock_id: str, locking: List[dict], waiting: List[dict], typica
     queue going the same way; without it the whole queue is used."""
     now = now or datetime.now(timezone.utc)
     queue_minutes = estimate_wait(lock_id, locking, waiting, typical, now)
-    if not locking and not waiting:
-        tow = CALIBRATION["tow"]["empty_lock"]
-    else:
-        tow = CALIBRATION["tow"]["intercept"] + CALIBRATION["tow"]["slope"] * queue_minutes
+    feats = queue_features(lock_id, locking, waiting, typical, direction, queue_minutes,
+                           estimate_wait(lock_id, locking, [], typical, now))
+    tow = tow_wait(feats)
     same_dir = [w for w in waiting if not direction or w.get("direction") == direction]
     rec_queue = estimate_wait(lock_id, locking, same_dir, typical, now)
     rec = CALIBRATION["recreational"]["intercept"] + CALIBRATION["recreational"]["slope"] * rec_queue
@@ -115,26 +209,40 @@ def queue_minutes_at(lock_id: str, locking: List[dict], waiting: List[dict], app
     ]
     queue.sort(key=lambda q: q[0])
     for at, v in queue:
-        free_at = max(free_at, at) + timedelta(minutes=expected_lockage_minutes(lock_id, v.get("barges"), typical))
+        # Predicted vessels count by the chance they really continue to this lock
+        p = float(v.get("probability", 1.0))
+        free_at = max(free_at, at) + timedelta(minutes=p * expected_lockage_minutes(lock_id, v.get("barges"), typical))
         ahead.append(v)
     raw = max(0.0, (free_at - arrive_at).total_seconds() / 60)
     return {"queue_minutes": round(raw), "ahead": ahead}
 
 
+SIMULATE_BEYOND = timedelta(minutes=90)
+
+
 def predict_waits_at(lock_id: str, locking: List[dict], waiting: List[dict], approaching: List[dict],
-                     typical: dict, arrive_at: datetime, now: Optional[datetime] = None) -> dict:
+                     typical: dict, arrive_at: datetime, now: Optional[datetime] = None,
+                     direction: Optional[str] = None) -> dict:
     """Calibrated tow / recreational wait for a boat arriving at `arrive_at`."""
+    now = now or datetime.now(timezone.utc)
     sim = queue_minutes_at(lock_id, locking, waiting, approaching, typical, arrive_at, now)
     q = sim["queue_minutes"]
-    if q <= 0 and not sim["ahead"]:
-        tow = CALIBRATION["tow"]["empty_lock"]
+    if (arrive_at - now) <= SIMULATE_BEYOND:
+        # Close in, the queue as it stands predicts better than simulating it
+        # forward (backtest 1 h ahead: MAE 57.6 vs 65.2 min).
+        tow = predict_waits(lock_id, locking, waiting, typical, direction, now)["tow"]
     else:
-        tow = CALIBRATION["tow"]["intercept"] + CALIBRATION["tow"]["slope"] * q
+        # Further out, simulate: the lockage in progress finishes, waiting and
+        # predicted vessels lock through first (2 h: 66.6 vs 67.6; 4 h: 70.2 vs 76.1).
+        feats = queue_features(lock_id, [] if not sim["ahead"] and q <= 0 else locking, sim["ahead"],
+                               typical, direction, q, 0.0)
+        tow = tow_wait(feats)
     rec = CALIBRATION["recreational"]["intercept"] + CALIBRATION["recreational"]["slope"] * q
     return {"tow": round(max(0.0, tow)), "recreational": round(max(0.0, rec)),
             "queue_minutes": q, "ahead_count": len(sim["ahead"]),
             "ahead": [{"vessel_name": v.get("vessel_name"), "barges": v.get("barges"),
-                       "direction": v.get("direction"), "predicted": "eta" in v} for v in sim["ahead"]]}
+                       "direction": v.get("direction"), "predicted": "eta" in v,
+                       "probability": v.get("probability", 1.0)} for v in sim["ahead"]]}
 
 
 def locks_in_view(locks: List[dict], from_rm: Optional[float], direction: Optional[str],

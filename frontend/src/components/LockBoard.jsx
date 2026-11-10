@@ -153,6 +153,12 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
                   {a.vessel_name || "Unknown"} <span className={up ? "text-green-400" : "text-red-400"}>{up ? "↑" : "↓"}</span>
                   <span className="text-slate-500"> {a.barges ? `${a.barges}b` : "light"} · from {lockLabel(a.from_lock)}{a.via_lock ? ` via ${lockLabel(a.via_lock)}` : ""}</span>
                 </span>
+                {a.probability != null && a.probability < 0.8 && (
+                  <span className="shrink-0 text-[10px] text-slate-500"
+                        title="Share of tows on this stretch that continue to this lock (others stop at harbors or fleeting areas)">
+                    likely {Math.round(a.probability * 100)}%
+                  </span>
+                )}
                 <span className={`shrink-0 font-mono ${a.overdue ? "text-slate-500" : "text-slate-300"}`}
                       title={`Expected ${fmtTime(a.eta_earliest)}–${fmtTime(a.eta_latest)}`}>
                   {a.overdue ? `due ${fmtTime(a.eta)}` : `≈ ${fmtTime(a.eta)}`}

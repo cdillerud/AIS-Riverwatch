@@ -297,6 +297,28 @@ export default function Dashboard({
     return () => { cancelled = true; clearInterval(id); };
   }, [activeTimingLockId]);
 
+  // USACE queues at every lock, drawn on the map beside each lock.
+  const [lockQueues, setLockQueues] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${API}/locks/board?scope=all`, { credentials: "include" });
+        if (!r.ok) return;
+        const data = await r.json();
+        const byLock = {};
+        for (const lk of data.locks || []) {
+          const entries = [...(lk.locking || []), ...(lk.waiting || [])];
+          if (entries.length) byLock[lk.lock_id] = entries;
+        }
+        if (!cancelled) setLockQueues(byLock);
+      } catch { /* keep the last queues */ }
+    };
+    load();
+    const id = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
   // Calculate distance to selected lock and travel time
   const lockTravelInfo = useMemo(() => {
     if (!hasRiverMile(userVessel) || !selectedLockObj?.river_mile) {
@@ -1089,6 +1111,7 @@ export default function Dashboard({
                     focusedVessel={focusedVessel}
                     onFocusClear={() => setFocusedVessel(null)}
                     onVesselDetails={(vessel) => setSelectedVessel(vessel)}
+                    lockQueues={lockQueues}
                   />
                   
                   {/* Feature #4: Mini Compass/Heading Indicator - Top Right */}
@@ -1864,6 +1887,7 @@ export default function Dashboard({
                   focusedVessel={focusedVessel}
                   onFocusClear={() => setFocusedVessel(null)}
                   onVesselDetails={(vessel) => setSelectedVessel(vessel)}
+                  lockQueues={lockQueues}
                 />
               </CardContent>
             </Card>

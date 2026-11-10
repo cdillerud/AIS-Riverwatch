@@ -360,7 +360,10 @@ const RiverVisualizationComponent = ({
   onUserVesselEdit = () => {}, // Callback when user's vessel is clicked for editing
   showVesselNames = true,
   focusedVessel = null,
-  onFocusClear = () => {}
+  onFocusClear = () => {},
+  // USACE lock queues {lock_id: [{vessel_name, mmsi, direction, barges, ...}]}:
+  // boats known to be at a lock even when no AIS position is available.
+  lockQueues = {}
 }) => {
   // Scroll offset in river miles (positive = shifted north/up)
   const [scrollOffset, setScrollOffset] = useState(0);
@@ -788,6 +791,46 @@ const RiverVisualizationComponent = ({
         );
       })}
 
+      {/* USACE queue at each lock: drawn beside the lock, dashed, so they read
+          as "reported at this lock" rather than a live AIS position. Boats that
+          also have a live AIS position are left to their live marker. */}
+      {visibleLocks.map(lock => {
+        const liveMmsis = new Set(vessels.map(v => String(v.mmsi)));
+        const entries = (lockQueues[lock.id] || []).filter(e => !e.mmsi || !liveMmsis.has(String(e.mmsi)));
+        if (!entries.length) return null;
+        const shown = entries.slice(0, compact ? 2 : 3);
+        return (
+          <div
+            key={`queue-${lock.id}`}
+            className="absolute z-20 flex flex-col items-end gap-0.5 cursor-pointer"
+            style={{ top: `${getRiverPosition(lock.river_mile)}%`, right: 'calc(50% + 40px)', transform: 'translateY(-50%)' }}
+            onClick={() => onLockClick(lock.id)}
+            title={`Reported by USACE at ${lock.name} - click for lock details`}
+            data-testid={`lock-queue-${lock.id}`}
+          >
+            {shown.map((e, i) => {
+              const up = e.direction === 'upbound';
+              return (
+                <div key={i} className="border border-dashed border-amber-500/60 bg-slate-950/90 rounded px-1.5 py-0.5 text-[9px] md:text-[10px] whitespace-nowrap">
+                  <span className="text-slate-500 mr-1">USACE</span>
+                  <span className="text-slate-100">{e.vessel_name || 'Unknown'}</span>
+                  <span className={`ml-1 ${up ? 'text-green-400' : 'text-red-400'}`}>{up ? '↑' : '↓'}</span>
+                  {!compact && <span className="text-slate-400">{e.barges ? ` ${e.barges}b` : ' light'}</span>}
+                  <span className={e.started_at ? 'text-cyan-400' : 'text-slate-400'}>
+                    {e.started_at
+                      ? ` · locking${e.cuts_completed ? ` ${e.cuts_completed}/${e.cuts_completed + 1}` : ''}`
+                      : (e.waiting_minutes != null ? ` · at lock ${e.waiting_minutes >= 60 ? `${Math.floor(e.waiting_minutes / 60)}h${e.waiting_minutes % 60 ? ` ${e.waiting_minutes % 60}m` : ''}` : `${e.waiting_minutes}m`}` : '')}
+                  </span>
+                </div>
+              );
+            })}
+            {entries.length > shown.length && (
+              <div className="text-[9px] text-slate-500">+{entries.length - shown.length} more at lock</div>
+            )}
+          </div>
+        );
+      })}
+
       {/* Vessels - dots spread horizontally when close together */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         // ONLY match by MMSI
@@ -913,6 +956,10 @@ const RiverVisualizationComponent = ({
               <Lock className="w-2 h-2 md:w-3 md:h-3 text-white" />
               <span className="text-[10px] md:text-xs text-slate-300">Lock & Dam</span>
             </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-2 md:w-4 md:h-2.5 border border-dashed border-amber-500/70 rounded-sm" />
+              <span className="text-[10px] md:text-xs text-slate-300">At lock (USACE)</span>
+            </div>
           </div>
         </div>
       )}
@@ -982,6 +1029,7 @@ export const RiverVisualization = memo(RiverVisualizationComponent, (prevProps, 
   if (prevProps.userMmsi !== nextProps.userMmsi) return false;
   if (prevProps.locks !== nextProps.locks) return false;
   if (prevProps.maxSpeedMph !== nextProps.maxSpeedMph) return false;
+  if (prevProps.lockQueues !== nextProps.lockQueues) return false;   // USACE queue refresh
   
   // Check if focused vessel changed - important for centering from list clicks
   if (prevProps.focusedVessel?.mmsi !== nextProps.focusedVessel?.mmsi) return false;

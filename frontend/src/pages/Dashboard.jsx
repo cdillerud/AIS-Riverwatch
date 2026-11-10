@@ -742,7 +742,7 @@ export default function Dashboard({
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-sm ${isConnected ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
                 title={isConnected
                   ? "Live vessel positions are arriving from the AIS feed (Settings > AIS Connection)."
-                  : "The AIS feed (Settings > AIS Connection) is not connected, so vessel positions on the map are not updating. Lock queues, waits and history come from USACE and stay current."}
+                  : "The AIS feed (Settings > AIS Connection) is not connected, so vessel positions on the map are not updating. Lock queues, waits and history come from USACE separately (the lock board flags any that are out of date)."}
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'} ${isConnected ? 'animate-pulse' : ''}`} />
                 <span className="text-xs font-mono uppercase whitespace-nowrap">AIS<span className="hidden sm:inline">{isConnected ? ' live' : ' offline'}</span></span>
@@ -1343,9 +1343,16 @@ export default function Dashboard({
                           <span className="text-slate-400">At this lock (USACE)</span>
                           <span className={`font-mono text-right ${targetLockBoard.queue_count === 0 ? 'text-green-400' : targetLockBoard.wait_estimate_minutes >= 60 ? 'text-amber-400' : 'text-white'}`}
                                 title={WAIT_TOOLTIP}>
-                            {targetLockBoard.queue_count === 0 ? 'No queue · ' : ''}tow ≈ {fmtDuration(targetLockBoard.wait_estimate_minutes)} · pleasure ≈ {fmtDuration(targetLockBoard.wait_estimate_recreational_minutes)}
+                            {targetLockBoard.queue_count === 0 ? (targetLockBoard.queue_stale ? 'Queue unknown · ' : 'No queue · ') : ''}tow ≈ {fmtDuration(targetLockBoard.wait_estimate_minutes)} · pleasure ≈ {fmtDuration(targetLockBoard.wait_estimate_recreational_minutes)}
                           </span>
                         </div>
+                        {targetLockBoard.queue_stale && (
+                          <div className="text-[10px] text-amber-400/90 text-right" data-testid="timing-queue-stale">
+                            {targetLockBoard.queue_age_minutes != null
+                              ? `USACE queue data ${fmtDuration(targetLockBoard.queue_age_minutes)} old - may be out of date`
+                              : 'Waiting for USACE queue data'}
+                          </div>
+                        )}
                         {[...(targetLockBoard.locking || []), ...(targetLockBoard.waiting || [])].slice(0, 4).map((v, i) => (
                           <div key={i} className="flex justify-between text-slate-300 mt-1">
                             <span className="truncate">
@@ -1575,7 +1582,9 @@ export default function Dashboard({
                         <Check className="w-4 h-4 text-green-400" />
                       </div>
                       <div className="text-green-400 font-semibold text-sm">No Traffic</div>
-                      <div className="text-[10px] text-slate-400">Clear path to lock</div>
+                      <div className="text-[10px] text-slate-400" data-testid="no-traffic-note">
+                        {isConnected ? 'Clear path to lock' : 'None seen - AIS offline, vessels on the way may not show'}
+                      </div>
                     </div>
                   )}
                   

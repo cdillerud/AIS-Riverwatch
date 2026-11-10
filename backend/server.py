@@ -57,6 +57,7 @@ from services import lock_board as _lock_board
 from services import transits as _transits
 from services import calibration as _calibration
 from services.db_indexes import ensure_indexes as _ensure_indexes
+from services import feed_health as _health
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -4924,6 +4925,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
     if direction not in (None, "upbound", "downbound"):
         raise HTTPException(status_code=400, detail="direction must be upbound or downbound")
     now = datetime.now(timezone.utc)
+    fetched_by_lock = _usace_fetched_by_lock()
     status_data = await fetch_usace_lock_status()
     averages = await get_lockage_averages()
 
@@ -5038,7 +5040,10 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             # Predicted from each vessel's last USACE lockage + learned transit times
             "approaching": approaching.get(lid, [])[:6],
             "typical": typical,
-            "queue_data_at": usace_lock_fetched_at.get(next((n for n in usace_lock_rows if usace_lock_id(n) == lid), ""), None),
+            "queue_data_at": fetched_by_lock.get(lid),
+            # Waits from a queue older than ~20 min are labelled, not shown as current
+            **({"queue_age_minutes": None, "queue_stale": False} if lid in USACE_NO_DATA_LOCKS
+               else _health.queue_freshness(fetched_by_lock.get(lid), now)),
         })
     for row in board:
         if isinstance(row["queue_data_at"], datetime):
@@ -5057,8 +5062,38 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             "fitted_on": _lock_board.CALIBRATION["fitted_on"],
             "typical_error_minutes": _lock_board.CALIBRATION["test_mae_minutes"],
         },
+        "usace": _health.usace_summary(fetched_by_lock, LOCKS, now, USACE_NO_DATA_LOCKS),
         "locks": board,
     }
+
+
+# USACE publishes no lock queue for these (5A returns nothing as "5A" or "05A")
+USACE_NO_DATA_LOCKS = ("lock_5a",)
+
+
+def _usace_fetched_by_lock() -> Dict[str, datetime]:
+    return {usace_lock_id(n): t for n, t in usace_lock_fetched_at.items()}
+
+
+@api_router.get("/health")
+async def health(response: Response):
+    """Public health check for uptime monitors: database reachable, USACE data
+    age, live AIS feed. 503 only when the database is down; stale USACE data
+    reports "degraded". Exposes no feed addresses or user data."""
+    now = datetime.now(timezone.utc)
+    try:
+        await asyncio.wait_for(db.command("ping"), timeout=3)
+        database_ok = True
+    except Exception:
+        database_ok = False
+    usace = _health.usace_summary(_usace_fetched_by_lock(), LOCKS, now, USACE_NO_DATA_LOCKS)
+    ais = _health.ais_summary(ais_manager.config is not None, ais_manager.is_connected,
+                              ais_manager._last_data_time, now)
+    status = _health.overall(database_ok, usace)
+    if status == "down":
+        response.status_code = 503
+    return {"status": status, "time": now.isoformat(), "database": "ok" if database_ok else "down",
+            "usace": usace, "ais_feed": ais}
 
 
 @api_router.get("/locks/status")

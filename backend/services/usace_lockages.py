@@ -2,7 +2,7 @@
 Completed lockages from the USACE lock queue feed.
 
 https://ndc.ops.usace.army.mil/ords/lockqueue_xml?in_river=MI&in_lock=N lists
-each lock's queue AND every lockage completed in the last ~24 hours. A
+each lock's queue AND its completed lockages for roughly the last 30 days. A
 completed row has ARRIVAL_DATE, SOL_DATE (start of lockage) and
 END_OF_LOCKAGE. A tow too long for the chamber is locked in "cuts": one row
 per cut, sharing the vessel and arrival time.
@@ -106,7 +106,7 @@ def completed_lockages(rows: Iterable, lock_id: str, lock_name: Optional[str] = 
 
 
 def record_key(record: dict) -> dict:
-    """Natural key for idempotent upserts (the feed repeats rows for ~24 h)."""
+    """Natural key for idempotent upserts (the feed repeats rows for ~30 days)."""
     return {
         "lock_id": record["lock_id"],
         "source": "usace_lpms",

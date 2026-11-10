@@ -3195,7 +3195,7 @@ async def fetch_usace_lock(client, lock_no: str) -> int:
             logger.warning(f"USACE lock {lock_no}: unparseable XML")
             return len(usace_lock_rows.get(lock_no, []))
 
-    # The feed also lists every lockage completed in the last ~24 h.
+    # The feed also lists the lock's completed lockages (~30 days back).
     await _store_usace_lockages(rows, lock_no)
 
     def val(row, tag):
@@ -5365,7 +5365,8 @@ async def get_vessel_history(mmsi: str, days: int = 30):
         lk.setdefault("lock_name", (LOCKS.get(lk.get("lock_id")) or {}).get("name"))
         for key, value in list(lk.items()):
             if isinstance(value, datetime):
-                lk[key] = value.isoformat()
+                # Mongo returns naive UTC; say so, or browsers read it as local time.
+                lk[key] = (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
 
     return {
         "mmsi": mmsi,

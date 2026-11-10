@@ -1,10 +1,9 @@
-# River Watch - production stack: nginx (TLS) serves the static frontend and
-# proxies /api + /ws to the backend on the same origin, so no CORS is needed.
+# River Watch - production stack. Caddy (HTTPS, automatic certificates)
+# serves the frontend and proxies /api + /ws to the backend on the same
+# origin, so no CORS is needed. Step-by-step: DEPLOY_HOSTED.md.
 #
-#   cp backend/.env.example .env      # set AIS_INGEST_TOKEN etc.
+#   cp deploy/production.env.example .env      # then fill it in
 #   docker compose -f docker-compose.prod.yml up -d --build
-#
-# Certificates go in ./nginx/ssl (see nginx/nginx.conf).
 
 services:
   mongodb:
@@ -58,15 +57,23 @@ services:
     networks:
       - riverwatch-net
 
-  nginx:
-    image: nginx:alpine
-    container_name: riverwatch-nginx
+  # Public entry point: HTTPS with automatic Let's Encrypt certificates and
+  # renewal (deploy/Caddyfile). Needs RIVERWATCH_DOMAIN in .env and the
+  # domain's DNS A record pointing at this server.
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: riverwatch-caddy
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"
+    environment:
+      - RIVERWATCH_DOMAIN=${RIVERWATCH_DOMAIN:?set RIVERWATCH_DOMAIN in .env}
+      - ACME_EMAIL=${ACME_EMAIL:-}
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - frontend
       - backend
@@ -74,8 +81,32 @@ services:
     networks:
       - riverwatch-net
 
+  # Nightly compressed database backup to ./backups, keeping 14 days.
+  # Restore: docker compose -f docker-compose.prod.yml exec -T mongodb   #   mongorestore --archive --gzip --drop < backups/riverwatch-YYYY-MM-DD.archive.gz
+  mongo-backup:
+    image: mongo:7
+    container_name: riverwatch-mongo-backup
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          f=/backups/riverwatch-$$(date -u +%F).archive.gz
+          mongodump --uri=mongodb://mongodb:27017/riverwatch --archive --gzip > "$$f.tmp" && mv "$$f.tmp" "$$f" && echo "backup ok: $$f"
+          find /backups -name 'riverwatch-*.archive.gz' -mtime +14 -delete
+          sleep 86400
+        done
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    networks:
+      - riverwatch-net
+
 volumes:
   mongodb_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   riverwatch-net:

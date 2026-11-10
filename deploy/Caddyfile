@@ -1,0 +1,33 @@
+# River Watch - public entry point (docker-compose.prod.yml).
+# Caddy gets and renews the HTTPS certificate for RIVERWATCH_DOMAIN from
+# Let's Encrypt automatically (ports 80 and 443 must reach this server and
+# the domain's DNS A record must point at it). WebSockets (/ws, /api/ws) are
+# proxied without extra configuration.
+{
+	# Address for Let's Encrypt expiry notices (optional).
+	email {$ACME_EMAIL:}
+}
+
+{$RIVERWATCH_DOMAIN} {
+	encode zstd gzip
+
+	# API and live WebSocket feeds go to the backend
+	handle /api/* {
+		reverse_proxy backend:8001
+	}
+	handle /ws/* {
+		reverse_proxy backend:8001
+	}
+
+	# Everything else is the built frontend
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

@@ -69,3 +69,6 @@ scripts/windows_bridge/dist/
 riverwatch_*.log
 riverwatch-nginx-*-backup-*
 dump.rdb
+
+# Production database backups (docker-compose.prod.yml mongo-backup)
+backups/

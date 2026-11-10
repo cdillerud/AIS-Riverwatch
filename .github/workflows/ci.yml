@@ -41,3 +41,18 @@ jobs:
       - run: yarn build
         env:
           CI: "false"   # CRA treats lint warnings as errors when CI=true
+
+  deploy-config:
+    # Validates the hosted-deployment config (DEPLOY_HOSTED.md) without deploying.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose file is valid
+        run: |
+          cp deploy/production.env.example .env
+          docker compose -f docker-compose.prod.yml config --quiet
+      - name: Caddyfile is valid
+        run: |
+          docker run --rm -e RIVERWATCH_DOMAIN=riverwatch.example.com -e ACME_EMAIL=ops@example.com \
+            -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8.4-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

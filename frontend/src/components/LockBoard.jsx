@@ -47,7 +47,7 @@ function Vessel({ v, locking }) {
         {v.vessel_name || "Unknown"} <span className={arrowCls}>{arrow}</span>
       </span>
       <span className="shrink-0 text-slate-400">
-        {v.barges ? `${v.barges} barges` : "light"}
+        {v.barges ? `${v.barges} ${v.barges === 1 ? "barge" : "barges"}` : "light"}
         {v.needs_double && <span className="text-amber-400"> · double</span>}
         {locking
           ? (v.started_at ? ` · since ${fmtTime(v.started_at)}` : "")

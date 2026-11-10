@@ -1595,7 +1595,8 @@ async def admin_feed_coverage(request: Request, hours: float = 24.0):
     return {
         "window_hours": hours,
         "all_sources_vessels": len(union),
-        "seen_by_every_source": len(set.intersection(*sets.values())) if sets else 0,
+        # Overlap only means something with two or more sources reporting.
+        "seen_by_every_source": len(set.intersection(*sets.values())) if len(sets) > 1 else None,
         "sources": sources,
         "aisstream": {k: v for k, v in _aisstream.status.items()},
         "vessels": sorted(

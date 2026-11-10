@@ -710,18 +710,18 @@ export default function Dashboard({
                   : "The AIS feed (Settings > AIS Connection) is not connected, so vessel positions on the map are not updating. Lock queues, waits and history come from USACE and stay current."}
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'} ${isConnected ? 'animate-pulse' : ''}`} />
-                <span className="text-xs font-mono uppercase">{isConnected ? 'AIS live' : 'AIS offline'}</span>
+                <span className="text-xs font-mono uppercase whitespace-nowrap">AIS<span className="hidden sm:inline">{isConnected ? ' live' : ' offline'}</span></span>
               </div>
             </div>
             
             {/* Right: Actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5 sm:gap-2">
               {/* Traffic Planning - Icon only */}
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => { window.location.href = '/planning'; }}
-                className="text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 w-9 h-9"
+                className="text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 w-8 h-8 sm:w-9 sm:h-9"
                 data-testid="planning-nav-btn"
                 title="River Traffic Planning"
               >
@@ -732,7 +732,7 @@ export default function Dashboard({
                 variant="ghost"
                 size="icon"
                 onClick={() => window.location.assign('/trips')}
-                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-8 h-8 sm:w-9 sm:h-9"
                 data-testid="trips-nav-btn"
                 title="My Trips"
               >
@@ -744,7 +744,7 @@ export default function Dashboard({
                 variant="ghost"
                 size="icon"
                 onClick={onOpenSettings}
-                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-8 h-8 sm:w-9 sm:h-9"
                 data-testid="settings-btn"
                 title="Settings"
               >
@@ -757,7 +757,7 @@ export default function Dashboard({
                 size="icon"
                 onClick={handleRefresh}
                 disabled={isRefreshing}
-                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                className="hidden sm:inline-flex text-slate-400 hover:text-white hover:bg-white/5 w-8 h-8 sm:w-9 sm:h-9"
                 data-testid="refresh-btn"
                 title={`Refresh (${getTimeSinceRefresh()})`}
               >
@@ -770,7 +770,7 @@ export default function Dashboard({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-slate-400 hover:text-white hover:bg-white/5 gap-2"
+                    className="text-slate-400 hover:text-white hover:bg-white/5 gap-1 sm:gap-2 px-1.5 sm:px-3"
                     data-testid="user-menu-btn"
                   >
                     <User className="w-4 h-4" />
@@ -1843,7 +1843,7 @@ export default function Dashboard({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-cyan-400" />
-                    <ViewToggle value={mainView} onChange={setMainView} />
+                    <span className="text-sm font-medium text-white">River Map</span>
                   </div>
                   <div className="flex items-center gap-2">
                     {/* Auto Next Lock - Mobile */}
@@ -1879,11 +1879,6 @@ export default function Dashboard({
                 </div>
               </div>
               <CardContent className="p-0 h-[calc(100vh-260px)] min-h-[350px] relative">
-                {mainView === "locks" && (
-                  <div className="absolute inset-0 z-40 bg-[#020617] p-2">
-                    <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail} compact />
-                  </div>
-                )}
                 <RiverVisualization
                   vessels={vessels}
                   userMmsi={userMmsi}
@@ -1958,15 +1953,9 @@ export default function Dashboard({
 
           {/* Locks Panel - Mobile */}
           {mobilePanel === "locks" && (
-            <LockStatusPanel
-              locks={locks}
-              lockStatus={lockStatus}
-              lockageTimes={lockageTimes}
-              selectedLock={selectedLock}
-              onSelectLock={onSelectLock}
-              onLockDetails={setSelectedLockDetail}
-              compact={true}
-            />
+            <Card className="glass-panel hud-border h-[calc(100vh-200px)] min-h-[400px] p-2" data-testid="lock-board-mobile">
+              <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail} compact />
+            </Card>
           )}
 
           {/* Debug/Raw Data Panel - Mobile */}

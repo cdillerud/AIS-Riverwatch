@@ -26,6 +26,92 @@ NAV_STATUS = {
     15: "Not defined"
 }
 
+# ---------------------------------------------------------------------------
+# Multi-sentence AIS reassembly
+# ---------------------------------------------------------------------------
+# Class A static/voyage reports (type 5 - vessel name, dimensions, ship type,
+# destination) and some type 24s span TWO !AIVDM sentences. Decoding each line
+# on its own raises MissingMultipartMessageException, so commercial vessels
+# never got names/dimensions. The assembler buffers fragments until the set is
+# complete and then returns all of them for pyais.decode(*fragments).
+import time as _time
+
+
+class NmeaFragmentAssembler:
+    """Collects multi-part !xxVDM/!xxVDO sentences into complete messages."""
+
+    def __init__(self, timeout_s: float = 10.0, max_pending: int = 500):
+        self.timeout_s = timeout_s
+        self.max_pending = max_pending
+        self._pending: Dict[tuple, dict] = {}
+
+    def feed(self, line: str) -> Optional[list]:
+        """
+        Returns the list of sentences for a complete message, or None while a
+        multi-part message is still incomplete (or the line is not AIS).
+        """
+        line = (line or "").strip()
+        if not line.startswith("!") or "VD" not in line[:7]:
+            return None
+        parts = line.split(",")
+        if len(parts) < 7:
+            return None
+        try:
+            count, num = int(parts[1]), int(parts[2])
+        except ValueError:
+            return None
+        if count <= 1:
+            return [line]
+        if not (1 <= num <= count <= 9):
+            return None
+
+        now = _time.monotonic()
+        self._expire(now)
+        key = (parts[0][1:3], parts[3], parts[4], count)  # talker, seq id, channel, count
+        entry = self._pending.get(key)
+        if num == 1 or entry is None:
+            if num != 1:
+                return None  # orphan continuation fragment
+            entry = {"t": now, "frags": {}}
+            self._pending[key] = entry
+        entry["frags"][num] = line
+        if len(entry["frags"]) == count:
+            del self._pending[key]
+            return [entry["frags"][i] for i in range(1, count + 1)]
+        if len(self._pending) > self.max_pending:
+            oldest = min(self._pending, key=lambda k: self._pending[k]["t"])
+            self._pending.pop(oldest, None)
+        return None
+
+    def _expire(self, now: float) -> None:
+        stale = [k for k, v in self._pending.items() if now - v["t"] > self.timeout_s]
+        for k in stale:
+            del self._pending[k]
+
+
+# AIS "not available" sentinels
+AIS_SOG_NOT_AVAILABLE = 102.3
+AIS_COG_NOT_AVAILABLE = 360.0
+
+
+def clean_sog(value) -> float:
+    """Speed over ground in knots; 0 for missing / 'not available' (102.3)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if v < 0 or v >= 102.2 else v
+
+
+def clean_cog(value) -> Optional[float]:
+    """Course over ground in degrees, or None for missing / 'not available' (360)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if v < 0 or v >= 360 else v
+
+
 # In-memory cache for vessel static data (name, dimensions, etc.)
 # This is populated by AIS Type 5/19/24 messages and shared across sessions
 vessel_static_cache: Dict[str, dict] = {}

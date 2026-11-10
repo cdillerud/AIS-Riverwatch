@@ -69,8 +69,10 @@ from services.usgs_service import (
     format_water_conditions_for_display as _format_water_conditions
 )
 from services.ais_parser import (
+    NmeaFragmentAssembler,
+    clean_sog,
+    clean_cog,
     parse_nmea_gps as _parse_nmea_gps,
-    parse_nmea_ais as _parse_nmea_ais,
     NAV_STATUS as _NAV_STATUS,
     vessel_static_cache as _vessel_static_cache,
     get_cached_vessel_name,
@@ -2411,7 +2413,7 @@ class AISConnectionManager:
             if is_mmsi_blocked(mmsi_parsed):
                 logger.debug(f"Dropped filtered MMSI {mmsi_parsed} (pre-store)")
                 return
-            logger.info(f"Parsed AIS vessel: MMSI={mmsi_parsed}, lat={vessel_data.get('lat')}, lon={vessel_data.get('lon')}")
+            logger.debug(f"Parsed AIS vessel: MMSI={mmsi_parsed}, lat={vessel_data.get('lat')}, lon={vessel_data.get('lon')}")
         elif vessel_data:
             logger.debug(f"Parsed AIS but no MMSI: {vessel_data}")
         elif line.startswith('!AIVDM'):
@@ -2430,9 +2432,19 @@ class AISConnectionManager:
             lat = vessel_data.get('lat')
             lon = vessel_data.get('lon')
             
-            # Skip vessels without position data
+            # Static data message (type 5 / 24): no position. The name is already
+            # in the in-memory cache; persist it so it survives restarts.
             if lat is None or lon is None:
-                # This is likely a static data message (type 5) - just cache the name
+                if vessel_data.get('_persist_to_db') and vessel_data.get('name'):
+                    try:
+                        await repos.vessels.save_vessel_name(
+                            mmsi=mmsi_parsed,
+                            name=vessel_data['name'],
+                            ship_type=vessel_data.get('ship_type'),
+                            source="AIS",
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to persist vessel name to DB: {e}")
                 return
             
             # Always enforce main-channel filtering.
@@ -2441,13 +2453,17 @@ class AISConnectionManager:
             # or speed-to-beat calculations.
             if not is_on_upper_mississippi(lat, lon):
                 filter_stats["filtered"] += 1
-                logger.info(f"Filtered vessel {mmsi_parsed} - not on Mississippi main channel (lat={lat}, lon={lon})")
+                logger.debug(f"Filtered vessel {mmsi_parsed} - not on Mississippi main channel (lat={lat}, lon={lon})")
                 return
             filter_stats["passed"] += 1
             
             # Calculate river mile and heading
             rm = estimate_river_mile(lat, lon)
-            heading = determine_heading(vessel_data['speed'], vessel_data['course'], lat, lon)
+            heading = determine_heading(
+                vessel_data['speed'],
+                vessel_data['course'] if vessel_data.get('course_valid', True) else None,
+                lat, lon,
+            )
             
             # Preserve existing name if new data doesn't have one
             vessel_name = vessel_data.get('name', '')
@@ -4001,6 +4017,9 @@ def parse_nmea_gps(line: str) -> Optional[dict]:
     
     return None
 
+_ais_assembler = NmeaFragmentAssembler()
+
+
 def parse_nmea_ais(data: str) -> Optional[dict]:
     """
     Parse NMEA/AIS data. Boat Beacon typically sends !AIVDM sentences.
@@ -4015,9 +4034,6 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
     """
     global vessel_static_cache
     
-    # Debug: log all incoming data
-    if data.startswith('!AIVDM') or data.startswith('!AIVDO'):
-        logger.info(f"parse_nmea_ais called with: {data[:80]}")
     
     try:
         from pyais import decode
@@ -4031,7 +4047,12 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
             
             if line.startswith('!AIVDM') or line.startswith('!AIVDO'):
                 try:
-                    msg = decode(line)
+                    # Multi-sentence messages (type 5 static/voyage data) arrive
+                    # as 2 lines; wait until all fragments are in.
+                    fragments = _ais_assembler.feed(line)
+                    if not fragments:
+                        continue
+                    msg = decode(*fragments, error_if_checksum_invalid=True)
                     decoded = msg.asdict()
                     
                     if 'mmsi' not in decoded:
@@ -4101,10 +4122,16 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             vessel_static_cache[mmsi].update(static_data)
                             logger.info(f"Cached static data for MMSI {mmsi}: {static_data.get('name', 'unnamed')}")
                             
-                            # Mark for persistence to database (will be done in async context)
-                            if static_data.get('name'):
-                                static_data['_persist_to_db'] = True
-                                static_data['_mmsi'] = mmsi
+                            # Static-only messages (5, 24) carry no position: hand the
+                            # name back so the caller can persist it to the database.
+                            if msg_type in (5, 24) and static_data.get('name'):
+                                return {
+                                    'mmsi': mmsi,
+                                    'name': static_data['name'],
+                                    'ship_type': static_data.get('ship_type'),
+                                    '_static_only': True,
+                                    '_persist_to_db': True,
+                                }
                     
                     # Handle position messages (Type 1,2,3,18,19)
                     if msg_type in [1, 2, 3, 18, 19]:
@@ -4138,8 +4165,9 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                             'mmsi': mmsi,
                             'lat': lat,
                             'lon': lon,
-                            'speed': decoded.get('speed', 0) or 0,  # knots
-                            'course': decoded.get('course', 0) or 0,
+                            'speed': clean_sog(decoded.get('speed')),  # knots; 102.3 = n/a
+                            'course': clean_cog(decoded.get('course')) or 0.0,
+                            'course_valid': clean_cog(decoded.get('course')) is not None,
                             'name': '',
                             'vessel_type': 'unknown',
                             'ship_type': 0,

@@ -1,6 +1,6 @@
 # River Watch - Tests for Traffic Planning endpoints
 #
-# Run with:  cd /app/backend && python -m pytest tests/test_planning.py -q
+# Run with:  cd backend && python -m pytest tests/test_planning.py -q
 
 import os
 import pytest
@@ -10,7 +10,7 @@ API_BASE = os.environ.get("REACT_APP_BACKEND_URL")
 if not API_BASE:
     # fall back to frontend env
     try:
-        with open("/app/frontend/.env") as f:
+        with open(__import__("pathlib").Path(__file__).resolve().parents[2] / "frontend" / ".env") as f:
             for line in f:
                 if line.startswith("REACT_APP_BACKEND_URL="):
                     API_BASE = line.split("=", 1)[1].strip()

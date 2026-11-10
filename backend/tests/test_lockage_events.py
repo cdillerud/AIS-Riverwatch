@@ -1,6 +1,6 @@
 # River Watch - Tests for the AIS-inferred lockage dwell tracker
 #
-# Run with:  cd /app/backend && python -m pytest tests/test_lockage_events.py -q
+# Run with:  cd backend && python -m pytest tests/test_lockage_events.py -q
 
 import asyncio
 import os

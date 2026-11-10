@@ -26,35 +26,38 @@ def get_cors_origins():
 DEFAULT_AIS_HOST = "136.116.165.255"
 DEFAULT_AIS_PORT = 7000
 
-# Lock definitions for Upper Mississippi River (with GPS coordinates and phone)
+# Lock definitions for Upper Mississippi River.
+# river_mile / lat / lon come from the USACE National Waterway Network lock links
+# (backend/data/umr_centerline.json); several hand-entered coordinates were
+# miles off (e.g. Lock 3 was placed ~5 mi from the dam).
 LOCKS = {
-    "lock_1": {"name": "Lock & Dam #1 (Minneapolis)", "river_mile": 847.6, "lat": 44.9178, "lon": -93.2056, "phone": "612-724-2971"},
-    "lock_2": {"name": "Lock & Dam #2 (Hastings)", "river_mile": 815.2, "lat": 44.7433, "lon": -92.8506, "phone": "651-436-2900"},
-    "lock_3": {"name": "Lock & Dam #3 (Red Wing)", "river_mile": 796.9, "lat": 44.5533, "lon": -92.5356, "phone": "651-388-5794"},
-    "lock_4": {"name": "Lock & Dam #4 (Alma)", "river_mile": 752.8, "lat": 44.3189, "lon": -91.9150, "phone": "608-685-4421"},
-    "lock_5": {"name": "Lock & Dam #5 (Minnesota City)", "river_mile": 738.1, "lat": 44.1047, "lon": -91.7428, "phone": "507-689-2101"},
-    "lock_5a": {"name": "Lock & Dam #5A (Fountain City)", "river_mile": 728.5, "lat": 44.0317, "lon": -91.7089, "phone": "507-452-2789"},
-    "lock_6": {"name": "Lock & Dam #6 (Trempealeau)", "river_mile": 714.3, "lat": 43.8697, "lon": -91.5006, "phone": "608-534-6424"},
-    "lock_7": {"name": "Lock & Dam #7 (Dresbach)", "river_mile": 702.5, "lat": 43.8128, "lon": -91.3053, "phone": "507-895-2170"},
-    "lock_8": {"name": "Lock & Dam #8 (Genoa)", "river_mile": 679.2, "lat": 43.5789, "lon": -91.2294, "phone": "608-689-2625"},
-    "lock_9": {"name": "Lock & Dam #9 (Lynxville)", "river_mile": 647.9, "lat": 43.2108, "lon": -91.0836, "phone": "608-874-4311"},
-    "lock_10": {"name": "Lock & Dam #10 (Guttenberg)", "river_mile": 615.1, "lat": 42.7856, "lon": -91.1003, "phone": "563-252-1261"},
-    "lock_11": {"name": "Lock & Dam #11 (Dubuque)", "river_mile": 583.0, "lat": 42.5036, "lon": -90.6581, "phone": "563-582-0881"},
-    "lock_12": {"name": "Lock & Dam #12 (Bellevue)", "river_mile": 556.7, "lat": 42.2578, "lon": -90.4214, "phone": "563-872-4384"},
-    "lock_13": {"name": "Lock & Dam #13 (Fulton)", "river_mile": 522.5, "lat": 41.8711, "lon": -90.1547, "phone": "815-589-2274"},
-    "lock_14": {"name": "Lock & Dam #14 (Le Claire)", "river_mile": 493.3, "lat": 41.5978, "lon": -90.4336, "phone": "563-289-4233"},
-    "lock_15": {"name": "Lock & Dam #15 (Rock Island)", "river_mile": 482.9, "lat": 41.5189, "lon": -90.5628, "phone": "309-794-5338"},
-    "lock_16": {"name": "Lock & Dam #16 (Muscatine)", "river_mile": 457.2, "lat": 41.4231, "lon": -91.0439, "phone": "563-263-7913"},
-    "lock_17": {"name": "Lock & Dam #17 (New Boston)", "river_mile": 437.1, "lat": 41.1725, "lon": -91.0142, "phone": "309-587-8461"},
-    "lock_18": {"name": "Lock & Dam #18 (Gladstone)", "river_mile": 410.5, "lat": 40.8681, "lon": -91.0506, "phone": "319-524-2933"},
-    "lock_19": {"name": "Lock & Dam #19 (Keokuk)", "river_mile": 364.2, "lat": 40.3883, "lon": -91.3750, "phone": "319-524-2933"},
-    "lock_20": {"name": "Lock & Dam #20 (Canton)", "river_mile": 343.2, "lat": 40.1411, "lon": -91.5153, "phone": "573-853-4213"},
-    "lock_21": {"name": "Lock & Dam #21 (Quincy)", "river_mile": 324.9, "lat": 39.9131, "lon": -91.4097, "phone": "217-228-0890"},
-    "lock_22": {"name": "Lock & Dam #22 (Saverton)", "river_mile": 301.2, "lat": 39.6428, "lon": -91.2461, "phone": "573-754-4451"},
-    "lock_24": {"name": "Lock & Dam #24 (Clarksville)", "river_mile": 273.4, "lat": 39.3706, "lon": -90.9042, "phone": "573-242-3564"},
-    "lock_25": {"name": "Lock & Dam #25 (Cap au Gris)", "river_mile": 241.4, "lat": 39.0044, "lon": -90.8536, "phone": "636-899-2301"},
-    "melvin_price": {"name": "Melvin Price Lock & Dam (Alton)", "river_mile": 200.8, "lat": 38.8697, "lon": -90.1492, "phone": "618-462-6979"},
-    "chain_of_rocks": {"name": "Chain of Rocks Lock (Granite City)", "river_mile": 185.0, "lat": 38.7542, "lon": -90.1711, "phone": "314-355-6100"},
+    "lock_1": {"name": "Lock & Dam #1 (Minneapolis)", "river_mile": 847.6, "lat": 44.9155, "lon": -93.20085, "phone": "612-724-2971"},
+    "lock_2": {"name": "Lock & Dam #2 (Hastings)", "river_mile": 815.2, "lat": 44.76097, "lon": -92.86612, "phone": "651-436-2900"},
+    "lock_3": {"name": "Lock & Dam #3 (Red Wing)", "river_mile": 796.9, "lat": 44.61193, "lon": -92.61023, "phone": "651-388-5794"},
+    "lock_4": {"name": "Lock & Dam #4 (Alma)", "river_mile": 752.8, "lat": 44.32422, "lon": -91.92108, "phone": "608-685-4421"},
+    "lock_5": {"name": "Lock & Dam #5 (Minnesota City)", "river_mile": 738.1, "lat": 44.16004, "lon": -91.81104, "phone": "507-689-2101"},
+    "lock_5a": {"name": "Lock & Dam #5A (Fountain City)", "river_mile": 728.5, "lat": 44.08867, "lon": -91.66799, "phone": "507-452-2789"},
+    "lock_6": {"name": "Lock & Dam #6 (Trempealeau)", "river_mile": 714.0, "lat": 43.99808, "lon": -91.43883, "phone": "608-534-6424"},
+    "lock_7": {"name": "Lock & Dam #7 (Dresbach)", "river_mile": 702.0, "lat": 43.86438, "lon": -91.30794, "phone": "507-895-2170"},
+    "lock_8": {"name": "Lock & Dam #8 (Genoa)", "river_mile": 679.0, "lat": 43.57177, "lon": -91.22982, "phone": "608-689-2625"},
+    "lock_9": {"name": "Lock & Dam #9 (Lynxville)", "river_mile": 647.0, "lat": 43.21331, "lon": -91.10148, "phone": "608-874-4311"},
+    "lock_10": {"name": "Lock & Dam #10 (Guttenberg)", "river_mile": 615.0, "lat": 42.786, "lon": -91.0923, "phone": "563-252-1261"},
+    "lock_11": {"name": "Lock & Dam #11 (Dubuque)", "river_mile": 583.0, "lat": 42.54078, "lon": -90.64321, "phone": "563-582-0881"},
+    "lock_12": {"name": "Lock & Dam #12 (Bellevue)", "river_mile": 556.0, "lat": 42.2605, "lon": -90.42044, "phone": "563-872-4384"},
+    "lock_13": {"name": "Lock & Dam #13 (Fulton)", "river_mile": 522.0, "lat": 41.89677, "lon": -90.1578, "phone": "815-589-2274"},
+    "lock_14": {"name": "Lock & Dam #14 (Le Claire)", "river_mile": 493.0, "lat": 41.57317, "lon": -90.39875, "phone": "563-289-4233"},
+    "lock_15": {"name": "Lock & Dam #15 (Rock Island)", "river_mile": 482.9, "lat": 41.51968, "lon": -90.56518, "phone": "309-794-5338"},
+    "lock_16": {"name": "Lock & Dam #16 (Muscatine)", "river_mile": 457.2, "lat": 41.42684, "lon": -91.0123, "phone": "563-263-7913"},
+    "lock_17": {"name": "Lock & Dam #17 (New Boston)", "river_mile": 437.1, "lat": 41.19138, "lon": -91.05908, "phone": "309-587-8461"},
+    "lock_18": {"name": "Lock & Dam #18 (Gladstone)", "river_mile": 410.5, "lat": 40.88113, "lon": -91.0249, "phone": "319-524-2933"},
+    "lock_19": {"name": "Lock & Dam #19 (Keokuk)", "river_mile": 364.2, "lat": 40.39043, "lon": -91.37326, "phone": "319-524-2933"},
+    "lock_20": {"name": "Lock & Dam #20 (Canton)", "river_mile": 343.2, "lat": 40.14168, "lon": -91.51099, "phone": "573-853-4213"},
+    "lock_21": {"name": "Lock & Dam #21 (Quincy)", "river_mile": 324.9, "lat": 39.90499, "lon": -91.43033, "phone": "217-228-0890"},
+    "lock_22": {"name": "Lock & Dam #22 (Saverton)", "river_mile": 301.2, "lat": 39.63695, "lon": -91.2474, "phone": "573-754-4451"},
+    "lock_24": {"name": "Lock & Dam #24 (Clarksville)", "river_mile": 273.4, "lat": 39.37528, "lon": -90.90384, "phone": "573-242-3564"},
+    "lock_25": {"name": "Lock & Dam #25 (Cap au Gris)", "river_mile": 241.4, "lat": 39.00369, "lon": -90.68635, "phone": "636-899-2301"},
+    "melvin_price": {"name": "Melvin Price Lock & Dam (Alton)", "river_mile": 200.8, "lat": 38.86761, "lon": -90.15109, "phone": "618-462-6979"},
+    "chain_of_rocks": {"name": "Chain of Rocks Lock (Granite City)", "river_mile": 185.5, "lat": 38.7003, "lon": -90.19688, "phone": "314-355-6100"},
 }
 
 # Upper Mississippi lock numbers for USACE API
@@ -225,49 +228,19 @@ ST_CROIX_RIVER_EXCLUSION = {
 
 def is_on_upper_mississippi(lat: float, lon: float, river_mile: float = None) -> bool:
     """
-    Check if a vessel position is on the Upper Mississippi River.
-    Returns False for vessels likely on Illinois River or other tributaries.
+    True when a position is on the Upper Mississippi navigation channel.
+
+    Uses the USACE sailing line (services/river_geometry.py): the position must
+    snap to the Mississippi within a few miles AND be nearer the Mississippi
+    than any navigable tributary (St. Croix, Minnesota, Black, Illinois,
+    Missouri, ...). The old lat/lon boxes wrongly dropped real Mississippi
+    traffic between Lock 2 and Prescott and at Alton above Mel Price.
     """
     if lat is None or lon is None:
         return False
-    
+    from services import river_geometry
+    rm = river_geometry.river_mile(lat, lon)
+    if rm is None:
+        return False
     bounds = UPPER_MISSISSIPPI_BOUNDS
-    exclusion = ILLINOIS_RIVER_EXCLUSION
-    
-    # Check basic bounds
-    if not (bounds["min_lat"] <= lat <= bounds["max_lat"]):
-        return False
-    if not (bounds["min_lon"] <= lon <= bounds["max_lon"]):
-        return False
-    
-    # Check river mile if available
-    if river_mile is not None:
-        if not (bounds["min_river_mile"] <= river_mile <= bounds["max_river_mile"]):
-            return False
-    
-    # Check Illinois River exclusion zone
-    # If vessel is north of the confluence AND east of the Mississippi main channel,
-    # it's likely on the Illinois River
-    if lat > exclusion["confluence_lat"] and lon > exclusion["east_of_mississippi_lon"]:
-        # Additional check: if significantly east, definitely Illinois River
-        if lon > -90.0:
-            return False
-        # In the transition zone, check if closer to Illinois River path
-        # Illinois River runs roughly NE from Grafton
-        # Mississippi runs roughly N-S
-        if lat < 40.0 and lon > -90.2:
-            return False
-
-    # Check St. Croix River exclusion zone.
-    # AIS vessels north/east of Prescott/Hastings can be close enough to the
-    # Mississippi reference points to get assigned a Mississippi RM, but they
-    # are not on the Mississippi navigation channel.
-    st_croix = ST_CROIX_RIVER_EXCLUSION
-    if (
-        st_croix["min_lat"] <= lat <= st_croix["max_lat"]
-        and st_croix["east_of_mississippi_lon"] < lon < st_croix["west_limit_lon"]
-    ):
-        return False
-    
-    return True
-
+    return bounds["min_river_mile"] <= rm <= bounds["max_river_mile"]

@@ -22,7 +22,7 @@ import contextlib
 import pytest
 
 
-RELAY_MAIN = "/app/ais_push_relay/main.py"
+RELAY_MAIN = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "ais_push_relay" / "main.py")
 
 
 def _free_port() -> int:

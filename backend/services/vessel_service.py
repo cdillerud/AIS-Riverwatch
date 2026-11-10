@@ -122,59 +122,16 @@ def prepare_vessel_for_output(vessel: Any, mmsi: str) -> dict:
     return v_dict
 
 
-def estimate_river_mile(lat: float, lon: float) -> float:
-    """Estimate river mile from GPS coordinates using interpolation."""
-    from config import RIVER_MILE_POINTS
-    
-    if not lat or not lon:
-        return 0.0
-    
-    # Find the two closest reference points
-    closest = None
-    second_closest = None
-    
-    for ref_lat, ref_lon, ref_rm in RIVER_MILE_POINTS:
-        dist = ((lat - ref_lat) ** 2 + (lon - ref_lon) ** 2) ** 0.5
-        
-        if closest is None or dist < closest[0]:
-            second_closest = closest
-            closest = (dist, ref_lat, ref_lon, ref_rm)
-        elif second_closest is None or dist < second_closest[0]:
-            second_closest = (dist, ref_lat, ref_lon, ref_rm)
-    
-    if closest is None:
-        return 0.0
-    
-    if second_closest is None:
-        return closest[3]
-    
-    # Linear interpolation between the two closest points
-    total_dist = closest[0] + second_closest[0]
-    if total_dist == 0:
-        return closest[3]
-    
-    weight1 = 1 - (closest[0] / total_dist)
-    weight2 = 1 - (second_closest[0] / total_dist)
-    
-    interpolated_rm = (closest[3] * weight1 + second_closest[3] * weight2) / (weight1 + weight2)
-    
-    return round(interpolated_rm, 1)
+def estimate_river_mile(lat: float, lon: float) -> Optional[float]:
+    """Official river mile (snap to USACE sailing line). None if not on the Mississippi."""
+    from services import river_geometry
+    return river_geometry.river_mile(lat, lon)
 
 
-def determine_heading(speed: float, course: float) -> str:
-    """Determine if vessel is heading upstream or downstream based on course."""
-    if speed is None or speed < 0.5:
-        return "stationary"
-    
-    if course is None:
-        return "unknown"
-    
-    # On the Upper Mississippi, upstream is generally north (270-90 degrees)
-    # and downstream is generally south (90-270 degrees)
-    if 270 <= course <= 360 or 0 <= course < 90:
-        return "northbound"
-    else:
-        return "southbound"
+def determine_heading(speed: float, course: float, lat: float = None, lon: float = None) -> str:
+    """'northbound' (upbound) / 'southbound' (downbound), using local river direction."""
+    from services import river_geometry
+    return river_geometry.heading_label(speed, course, lat, lon)
 
 
 def calculate_eta_to_lock(

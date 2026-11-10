@@ -2,82 +2,28 @@
 # Contains river mile calculations and ETA computations
 from typing import Optional, Tuple
 from config import RIVER_MILE_POINTS
+from services import river_geometry as _geo
 
 
-def estimate_river_mile(lat: float, lon: float) -> float:
-    """Estimate river mile from GPS coordinates using interpolation."""
-    if not lat or not lon:
-        return 0.0
-    
-    # Find the two closest reference points
-    closest = None
-    second_closest = None
-    
-    for ref_lat, ref_lon, ref_rm in RIVER_MILE_POINTS:
-        dist = ((lat - ref_lat) ** 2 + (lon - ref_lon) ** 2) ** 0.5
-        
-        if closest is None or dist < closest[0]:
-            second_closest = closest
-            closest = (dist, ref_lat, ref_lon, ref_rm)
-        elif second_closest is None or dist < second_closest[0]:
-            second_closest = (dist, ref_lat, ref_lon, ref_rm)
-    
-    if closest is None:
-        return 0.0
-    
-    if second_closest is None:
-        return closest[3]
-    
-    # Linear interpolation between the two closest points
-    total_dist = closest[0] + second_closest[0]
-    if total_dist == 0:
-        return closest[3]
-    
-    weight1 = 1 - (closest[0] / total_dist)
-    weight2 = 1 - (second_closest[0] / total_dist)
-    
-    interpolated_rm = (closest[3] * weight1 + second_closest[3] * weight2) / (weight1 + weight2)
-    
-    return round(interpolated_rm, 1)
+def estimate_river_mile(lat: float, lon: float) -> Optional[float]:
+    """Official river mile (snap to USACE sailing line). None if not on the Mississippi."""
+    return _geo.river_mile(lat, lon)
 
 
 def river_mile_to_coords(rm: float) -> Tuple[float, float]:
-    """Convert river mile to approximate GPS coordinates."""
-    # Find the two reference points that bracket this river mile
+    """Convert river mile to a point on the sailing line."""
+    hit = _geo.coords_for_mile(rm)
+    if hit is not None:
+        return hit
     points = sorted(RIVER_MILE_POINTS, key=lambda x: x[2], reverse=True)
-    
-    for i in range(len(points) - 1):
-        if points[i][2] >= rm >= points[i + 1][2]:
-            # Linear interpolation
-            rm_range = points[i][2] - points[i + 1][2]
-            if rm_range == 0:
-                return (points[i][0], points[i][1])
-            
-            ratio = (points[i][2] - rm) / rm_range
-            lat = points[i][0] + ratio * (points[i + 1][0] - points[i][0])
-            lon = points[i][1] + ratio * (points[i + 1][1] - points[i][1])
-            return (round(lat, 4), round(lon, 4))
-    
-    # If outside range, return the closest endpoint
     if rm > points[0][2]:
         return (points[0][0], points[0][1])
     return (points[-1][0], points[-1][1])
 
 
-def determine_heading(speed: float, course: float) -> str:
-    """Determine if vessel is heading upstream or downstream based on course."""
-    if speed is None or speed < 0.5:
-        return "stationary"
-    
-    if course is None:
-        return "unknown"
-    
-    # On the Upper Mississippi, upstream is generally north (270-90 degrees)
-    # and downstream is generally south (90-270 degrees)
-    if 270 <= course <= 360 or 0 <= course < 90:
-        return "upstream"
-    else:
-        return "downstream"
+def determine_heading(speed: float, course: float, lat: float = None, lon: float = None) -> str:
+    """'upstream' / 'downstream' / 'stationary' / 'unknown', using local river direction."""
+    return _geo.heading_label(speed, course, lat, lon, up="upstream", down="downstream")
 
 
 def calculate_eta_to_lock(

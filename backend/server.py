@@ -44,6 +44,7 @@ import re
 import hashlib
 import secrets
 
+from services import river_geometry as _river_geo
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
 from services.navigation_service import (
@@ -621,7 +622,7 @@ async def restore_user_vessels(request: Request):
             speed = last_pos.get("speed", 0)
             course = last_pos.get("course", 0)
             rm = last_pos.get("river_mile") or estimate_river_mile(lat, lon)
-            heading = last_pos.get("heading_direction") or determine_heading(speed, course)
+            heading = last_pos.get("heading_direction") or determine_heading(speed, course, lat, lon)
             
             vessel = VesselPosition(
                 mmsi=mmsi,
@@ -645,7 +646,7 @@ async def restore_user_vessels(request: Request):
                 "lon": lon
             })
             
-            logger.info(f"[AUTH] Restored vessel {mmsi} ({boat_name}) at RM {rm:.1f}")
+            logger.info(f"[AUTH] Restored vessel {mmsi} ({boat_name}) at RM {rm}")
     
     return {"success": True, "restored": restored, "count": len(restored)}
 
@@ -2040,35 +2041,7 @@ FILTERED_MMSI = {
 user_blocked_mmsi: set = set()
 
 # Lock positions (River Mile markers) - All Upper Mississippi Locks (1-27, excluding 23 which was never built)
-LOCKS = {
-    "lock_1": {"name": "Lock & Dam #1 (Minneapolis)", "river_mile": 847.6, "lat": 44.9178, "lon": -93.2056, "phone": "612-724-2971"},
-    "lock_2": {"name": "Lock & Dam #2 (Hastings)", "river_mile": 815.2, "lat": 44.7433, "lon": -92.8506, "phone": "651-436-2900"},
-    "lock_3": {"name": "Lock & Dam #3 (Red Wing)", "river_mile": 796.9, "lat": 44.5533, "lon": -92.5356, "phone": "651-388-5794"},
-    "lock_4": {"name": "Lock & Dam #4 (Alma)", "river_mile": 752.8, "lat": 44.3189, "lon": -91.9150, "phone": "608-685-4421"},
-    "lock_5": {"name": "Lock & Dam #5 (Minnesota City)", "river_mile": 738.1, "lat": 44.1047, "lon": -91.7428, "phone": "507-689-2101"},
-    "lock_5a": {"name": "Lock & Dam #5A (Fountain City)", "river_mile": 728.5, "lat": 44.0317, "lon": -91.7089, "phone": "507-452-2789"},
-    "lock_6": {"name": "Lock & Dam #6 (Trempealeau)", "river_mile": 714.3, "lat": 43.8697, "lon": -91.5006, "phone": "608-534-6424"},
-    "lock_7": {"name": "Lock & Dam #7 (Dresbach)", "river_mile": 702.5, "lat": 43.8128, "lon": -91.3053, "phone": "507-895-2170"},
-    "lock_8": {"name": "Lock & Dam #8 (Genoa)", "river_mile": 679.2, "lat": 43.5789, "lon": -91.2294, "phone": "608-689-2625"},
-    "lock_9": {"name": "Lock & Dam #9 (Lynxville)", "river_mile": 647.9, "lat": 43.2108, "lon": -91.0836, "phone": "608-874-4311"},
-    "lock_10": {"name": "Lock & Dam #10 (Guttenberg)", "river_mile": 615.1, "lat": 42.7856, "lon": -91.1003, "phone": "563-252-1261"},
-    "lock_11": {"name": "Lock & Dam #11 (Dubuque)", "river_mile": 583.0, "lat": 42.5036, "lon": -90.6581, "phone": "563-582-0881"},
-    "lock_12": {"name": "Lock & Dam #12 (Bellevue)", "river_mile": 556.7, "lat": 42.2578, "lon": -90.4214, "phone": "563-872-4384"},
-    "lock_13": {"name": "Lock & Dam #13 (Fulton)", "river_mile": 522.5, "lat": 41.8711, "lon": -90.1547, "phone": "815-589-2274"},
-    "lock_14": {"name": "Lock & Dam #14 (Le Claire)", "river_mile": 493.3, "lat": 41.5978, "lon": -90.4336, "phone": "563-289-4233"},
-    "lock_15": {"name": "Lock & Dam #15 (Rock Island)", "river_mile": 482.9, "lat": 41.5189, "lon": -90.5628, "phone": "309-794-5338"},
-    "lock_16": {"name": "Lock & Dam #16 (Muscatine)", "river_mile": 457.2, "lat": 41.4231, "lon": -91.0439, "phone": "563-263-7913"},
-    "lock_17": {"name": "Lock & Dam #17 (New Boston)", "river_mile": 437.1, "lat": 41.1725, "lon": -91.0142, "phone": "309-587-8461"},
-    "lock_18": {"name": "Lock & Dam #18 (Gladstone)", "river_mile": 410.5, "lat": 40.8681, "lon": -91.0506, "phone": "319-524-2933"},
-    "lock_19": {"name": "Lock & Dam #19 (Keokuk)", "river_mile": 364.2, "lat": 40.3883, "lon": -91.3750, "phone": "319-524-2933"},
-    "lock_20": {"name": "Lock & Dam #20 (Canton)", "river_mile": 343.2, "lat": 40.1411, "lon": -91.5153, "phone": "573-853-4213"},
-    "lock_21": {"name": "Lock & Dam #21 (Quincy)", "river_mile": 324.9, "lat": 39.9131, "lon": -91.4097, "phone": "217-228-0890"},
-    "lock_22": {"name": "Lock & Dam #22 (Saverton)", "river_mile": 301.2, "lat": 39.6428, "lon": -91.2461, "phone": "573-754-4451"},
-    "lock_24": {"name": "Lock & Dam #24 (Clarksville)", "river_mile": 273.4, "lat": 39.3706, "lon": -90.9042, "phone": "573-242-3564"},
-    "lock_25": {"name": "Lock & Dam #25 (Cap au Gris)", "river_mile": 241.4, "lat": 39.0044, "lon": -90.8536, "phone": "636-899-2301"},
-    "melvin_price": {"name": "Melvin Price Lock & Dam (Alton)", "river_mile": 200.8, "lat": 38.8697, "lon": -90.1492, "phone": "618-462-6979"},
-    "chain_of_rocks": {"name": "Chain of Rocks Lock (Granite City)", "river_mile": 185.0, "lat": 38.7542, "lon": -90.1711, "phone": "314-355-6100"},
-}
+# LOCKS comes from config.py (single source of truth)
 
 # Cache for USACE lock status data
 usace_cache = {
@@ -2092,11 +2065,7 @@ usace_lock_queue_cache = {
 }
 
 # Upper Mississippi lock numbers for USACE API
-UPPER_MISS_LOCKS = [
-    "1", "2", "3", "4", "5", "5A", "6", "7", "8", "9", "10",
-    "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
-    "21", "22", "24", "25", "27"  # Note: no 23, 26
-]
+# UPPER_MISS_LOCKS comes from config.py
 
 # Vessel Lock Passage Tracking
 # Tracks vessels as they approach and transit locks to calculate real lockage times
@@ -2396,7 +2365,7 @@ class AISConnectionManager:
         if gps_data and config_mmsi:
             # Update vessel from GPS data - stored by MMSI
             rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
-            heading = determine_heading(gps_data['speed'], gps_data['course'])
+            heading = determine_heading(gps_data['speed'], gps_data['course'], gps_data['lat'], gps_data['lon'])
             
             # Get name from cache or settings
             vessel_name = boat_name
@@ -2478,7 +2447,7 @@ class AISConnectionManager:
             
             # Calculate river mile and heading
             rm = estimate_river_mile(lat, lon)
-            heading = determine_heading(vessel_data['speed'], vessel_data['course'])
+            heading = determine_heading(vessel_data['speed'], vessel_data['course'], lat, lon)
             
             # Preserve existing name if new data doesn't have one
             vessel_name = vessel_data.get('name', '')
@@ -3831,57 +3800,31 @@ async def track_ais_inferred_lockage(vessel: dict):
                 ais_dwell_sessions.pop(key, None)
 
 
-def estimate_river_mile(lat: float, lon: float) -> float:
+def estimate_river_mile(lat: float, lon: float) -> Optional[float]:
     """
-    Estimate river mile based on latitude for Upper Mississippi (simplified linear approximation).
-    Extended coverage: Lock 2 (RM 815) to Lock 10 (RM 615)
-    Latitude range roughly 44.95 (north) to 42.7 (south)
+    Official river mile for a position, by snapping it to the USACE sailing
+    line (services/river_geometry.py). Returns None when the position is not
+    on the Mississippi (off-river, or nearer a tributary channel).
     """
-    # Linear interpolation based on known points
-    # Lock 2 at Hastings: RM 815.2, lat ~44.74
-    # Lock 10 at Guttenberg: RM 615.1, lat ~42.79
-    # Slope: (815.2 - 615.1) / (44.74 - 42.79) = 200.1 / 1.95 ≈ 102.6 RM per degree lat
-    slope = 102.6
-    ref_lat = 44.74
-    ref_rm = 815.2
-    
-    estimated_rm = ref_rm + (lat - ref_lat) * slope
-    return round(estimated_rm, 1)
+    return _river_geo.river_mile(lat, lon)
+
 
 def river_mile_to_coords(rm: float) -> tuple:
-    """
-    Convert a river mile to approximate lat/lon coordinates.
-    This is the reverse of estimate_river_mile().
-    Returns (lat, lon) tuple.
-    """
-    # Using same linear model as estimate_river_mile but reversed
-    # RM = ref_rm + (lat - ref_lat) * slope
-    # lat = ref_lat + (RM - ref_rm) / slope
-    slope = 102.6
-    ref_lat = 44.74
-    ref_rm = 815.2
-    
-    # Average longitude for the Upper Mississippi in this region
-    # Roughly -91.5 to -93.0, we'll use a slight adjustment based on RM
-    ref_lon = -92.0
-    lon_slope = 0.003  # slight eastward drift as you go north
-    
-    lat = ref_lat + (rm - ref_rm) / slope
-    lon = ref_lon + (rm - ref_rm) * lon_slope
-    
-    return (round(lat, 6), round(lon, 6))
+    """Point on the sailing line at river mile `rm` (falls back to the lock table)."""
+    hit = _river_geo.coords_for_mile(rm)
+    if hit is not None:
+        return hit
+    return _river_mile_to_coords(rm)
 
-def determine_heading(speed: float, course: float) -> str:
-    """Determine if vessel is heading northbound or southbound based on course."""
-    if speed < 0.5:
-        return "stationary"
-    # Course 0-180 is roughly northbound on the Mississippi
-    # Course 180-360 is roughly southbound
-    # Adjusted for river direction (flows south)
-    if 270 <= course <= 360 or 0 <= course < 90:
-        return "northbound"
-    else:
-        return "southbound"
+
+def determine_heading(speed: float, course: float, lat: float = None, lon: float = None) -> str:
+    """
+    'northbound' = upbound (toward higher river mile), 'southbound' = downbound.
+
+    Uses the river's LOCAL direction at (lat, lon). Compass course alone is wrong
+    wherever the river runs east-west (it flows WEST through the Quad Cities).
+    """
+    return _river_geo.heading_label(speed, course, lat, lon)
 
 def calculate_eta_to_lock(vessel_rm: float, vessel_speed_knots: float, heading: str, lock_rm: float) -> Optional[float]:
     """Calculate ETA in minutes to reach a lock. Returns None if vessel moving away."""
@@ -5722,13 +5665,13 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             # Pydantic model
             vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
             vessel_speed = vessel.speed
-            vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course)
+            vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course, vessel.lat, vessel.lon)
             vessel_course = vessel.course
         else:
             # Dict (demo vessels)
             vessel_rm = vessel.get('river_mile') or estimate_river_mile(vessel.get('lat'), vessel.get('lon'))
             vessel_speed = vessel.get('speed', 0)
-            vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0))
+            vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0), vessel.get('lat'), vessel.get('lon'))
             vessel_course = vessel.get('course', 0)
         
         eta = calculate_eta_to_lock(
@@ -5908,7 +5851,7 @@ async def get_session_trip_plan(
     user_rm = user_vessel.get('river_mile') or estimate_river_mile(user_vessel.get('lat'), user_vessel.get('lon'))
     user_speed_knots = user_vessel.get('speed') or 0
     user_speed_mph = user_speed_knots * 1.15078
-    user_heading = user_vessel.get('heading') or determine_heading(user_speed_knots, user_vessel.get('course') or 0)
+    user_heading = user_vessel.get('heading') or determine_heading(user_speed_knots, user_vessel.get('course'), user_vessel.get('lat'), user_vessel.get('lon'))
 
     # Build ordered chain of locks ahead of the user in heading direction.
     locks_sorted = sorted(LOCKS.items(), key=lambda kv: kv[1]['river_mile'])
@@ -5962,11 +5905,11 @@ async def get_session_trip_plan(
             if hasattr(vessel, 'river_mile'):
                 vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
                 vessel_speed = vessel.speed
-                vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course)
+                vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course, vessel.lat, vessel.lon)
             else:
                 vessel_rm = vessel.get('river_mile') or estimate_river_mile(vessel.get('lat'), vessel.get('lon'))
                 vessel_speed = vessel.get('speed', 0)
-                vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0))
+                vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0), vessel.get('lat'), vessel.get('lon'))
 
             eta = calculate_eta_to_lock(vessel_rm, vessel_speed, vessel_heading, lock_rm)
             if eta is None or eta <= 0:
@@ -6164,7 +6107,7 @@ async def update_session_position(session_mmsi: str, data: dict):
     
     # Calculate river mile and heading
     rm = estimate_river_mile(lat, lon)
-    heading = determine_heading(speed, course)
+    heading = determine_heading(speed, course, lat, lon)
     
     # Create or update vessel for THIS SESSION ONLY
     vessel = VesselPosition(
@@ -6183,7 +6126,7 @@ async def update_session_position(session_mmsi: str, data: dict):
     # Store in active_vessels keyed by THIS session's MMSI
     active_vessels[session_mmsi] = vessel
     
-    logger.info(f"[SESSION:{session_mmsi}] Position stored: RM={rm:.1f}, speed={speed}")
+    logger.info(f"[SESSION:{session_mmsi}] Position stored: RM={rm}, speed={speed}")
     
     # Persist vessel sighting to database
     v_dict = prepare_vessel_for_output(vessel, session_mmsi)

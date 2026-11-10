@@ -83,7 +83,7 @@ async def update_session_position(session_mmsi: str, data: dict):
     course = data.get('course', 0)
     heading = data.get('heading')
     if not heading:
-        heading = determine_heading(speed, course)
+        heading = determine_heading(speed, course, lat, lon)
     
     # Create/update vessel data
     vessel_data = {
@@ -231,7 +231,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         if hasattr(vessel, 'river_mile'):
             vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
             vessel_speed = vessel.speed
-            vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course)
+            vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course, vessel.lat, vessel.lon)
         else:
             vessel_rm = vessel.get('river_mile') or estimate_river_mile(
                 vessel.get('lat'), vessel.get('lon')
@@ -240,7 +240,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             vessel_heading = (
                 vessel.get('heading') or 
                 vessel.get('heading_direction') or 
-                determine_heading(vessel.get('speed', 0), vessel.get('course', 0))
+                determine_heading(vessel.get('speed', 0), vessel.get('course', 0), vessel.get('lat'), vessel.get('lon'))
             )
         
         # Calculate ETA to lock

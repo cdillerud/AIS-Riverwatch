@@ -1,6 +1,6 @@
 # River Watch - Tests for the lock water-condition mapping and debug endpoint
 #
-# Run with:  cd /app/backend && python -m pytest tests/test_water_stations.py -q
+# Run with:  cd backend && python -m pytest tests/test_water_stations.py -q
 
 import os
 import pytest
@@ -9,7 +9,7 @@ import requests
 API_BASE = os.environ.get("REACT_APP_BACKEND_URL")
 if not API_BASE:
     try:
-        with open("/app/frontend/.env") as f:
+        with open(__import__("pathlib").Path(__file__).resolve().parents[2] / "frontend" / ".env") as f:
             for line in f:
                 if line.startswith("REACT_APP_BACKEND_URL="):
                     API_BASE = line.split("=", 1)[1].strip()

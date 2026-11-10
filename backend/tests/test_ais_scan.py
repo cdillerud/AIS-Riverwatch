@@ -170,7 +170,7 @@ def test_proxy_reports_relay_unreachable(monkeypatch):
 
 def test_scanner_module_imports_and_detects_ais():
     """Importable + classify_sample distinguishes AIS from random bytes."""
-    sys.path.insert(0, "/app/ais_push_relay")
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2] / "ais_push_relay"))
     import scanner as relay_scanner
     info = relay_scanner._classify_sample(b"!AIVDM,1,1,,A,15RTgt0PAso;90TKcjM8h6g208CQ,0*4A\r\n")
     assert info["is_ais"] is True

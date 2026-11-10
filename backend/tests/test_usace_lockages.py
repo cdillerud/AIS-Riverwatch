@@ -217,3 +217,11 @@ def test_pending_row_after_a_completed_cut_is_locking(monkeypatch):
     assert rows["TITLETOWN USA"]["status"] == "waiting" and rows["TITLETOWN USA"]["cuts_completed"] == 0
     server.usace_lock_rows.pop("15", None)
     server._rebuild_usace_indexes()
+
+
+def test_completed_cut_of_unfinished_double_is_in_progress():
+    rows = ET.fromstring(MID_DOUBLE).findall(".//ROW")
+    recs = {r["vessel_name"]: r for r in completed_lockages(rows, "lock_15")}
+    assert recs["WISCONSIN"]["in_progress"] is True and recs["WISCONSIN"]["cuts"] == 1
+    finished = {r["vessel_name"]: r for r in completed_lockages(ET.fromstring(LOCK15).findall(".//ROW"), "lock_15")}
+    assert finished["CRIMSON GLORY"]["in_progress"] is False

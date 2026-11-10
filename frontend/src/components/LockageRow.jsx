@@ -44,8 +44,10 @@ export default function LockageRow({ lockage, title }) {
       </div>
       <div className="flex flex-wrap gap-x-3 text-slate-400 mt-0.5">
         <span>Wait <span className="text-slate-200 font-mono">{fmtDuration(l.wait_time_minutes)}</span></span>
-        <span>Lockage <span className="text-slate-200 font-mono">{fmtDuration(l.lockage_duration_minutes)}</span></span>
-        <span className={cuts === "Single" ? "text-slate-400" : "text-amber-400"}>{cuts}</span>
+        <span>Lockage <span className="text-slate-200 font-mono">{fmtDuration(l.lockage_duration_minutes)}{l.in_progress ? " so far" : ""}</span></span>
+        {l.in_progress
+          ? <span className="text-cyan-400">In progress · cut {l.cuts} done</span>
+          : <span className={cuts === "Single" ? "text-slate-400" : "text-amber-400"}>{cuts}</span>}
         {barges !== null && <span>{barges} {barges === 1 ? "barge" : "barges"}</span>}
       </div>
     </div>

@@ -412,9 +412,10 @@ export default function Dashboard({
   // Also calculate RM distance from user's vessel or watch point
   // Show all vessels (no distance filter - previously limited to 100 miles)
   const sortedNearbyVessels = useMemo(() => {
-    // For Traffic Watch users, use watch point as the center; for vessel owners, use their vessel
-    const centerRM = isTrafficWatch 
-      ? (watchPoint?.river_mile || selectedLockObj?.river_mile)
+    // Traffic Watch: distances from the lock being watched (the saved watch
+    // point is only a fallback); vessel owners: from their own boat.
+    const centerRM = isTrafficWatch
+      ? (selectedLockObj?.river_mile ?? watchPoint?.river_mile)
       : userVessel?.river_mile;
     
     return vessels.map(vessel => {
@@ -444,7 +445,11 @@ export default function Dashboard({
       return hasRiverMile(vessel);
     })
     .sort((a, b) => {
-      // Sort by River Mile descending (highest RM first, following the river downstream)
+      // Traffic Watch: nearest to the watched lock first.
+      if (isTrafficWatch && a.rmFromUser != null && b.rmFromUser != null) {
+        return a.rmFromUser - b.rmFromUser;
+      }
+      // Otherwise River Mile descending (following the river downstream)
       const rmA = a.river_mile || 0;
       const rmB = b.river_mile || 0;
       return rmB - rmA;
@@ -839,7 +844,7 @@ export default function Dashboard({
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
                     <span className="text-slate-500 font-heading uppercase text-[10px]">Watching</span>
-                    <span className="font-mono text-white font-semibold">RM {formatRiverMile(watchPoint?.river_mile ?? selectedLockObj?.river_mile)}</span>
+                    <span className="font-mono text-white font-semibold">RM {formatRiverMile(selectedLockObj?.river_mile ?? watchPoint?.river_mile)}</span>
                   </div>
                 </>
               ) : (
@@ -1282,7 +1287,9 @@ export default function Dashboard({
                             </span>
                             <span className="text-slate-500 shrink-0">
                               {v.barges ? `${v.barges} ${v.barges === 1 ? 'barge' : 'barges'}` : 'light'}
-                              {v.waiting_minutes != null ? ` · at lock ${fmtDuration(v.waiting_minutes)}` : ''}
+                              {v.started_at
+                                ? <span className="text-cyan-400">{` · locking${v.cuts_completed ? ` · cut ${v.cuts_completed} of ${v.cuts_completed + 1} done` : ''}`}</span>
+                                : (v.waiting_minutes != null ? ` · at lock ${fmtDuration(v.waiting_minutes)}` : '')}
                             </span>
                           </div>
                         ))}

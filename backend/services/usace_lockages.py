@@ -42,6 +42,15 @@ def _row_value(row, tag: str) -> Optional[str]:
 
 def completed_lockages(rows: Iterable, lock_id: str, lock_name: Optional[str] = None) -> List[dict]:
     """Group a lock's completed queue rows (cuts) into lockage records."""
+    rows = list(rows)
+    # Vessels with a cut still pending: their completed cuts are a lockage in
+    # progress (USACE posts each cut of a double lockage as it ends).
+    pending = set()
+    for row in rows:
+        if not _row_value(row, "END_OF_LOCKAGE"):
+            pending.add((_row_value(row, "VESSEL_NO") or _row_value(row, "VESSEL_NAME"),
+                         _row_value(row, "ARRIVAL_DATE")))
+
     groups = {}
     for row in rows:
         start = _row_value(row, "SOL_DATE")
@@ -68,6 +77,7 @@ def completed_lockages(rows: Iterable, lock_id: str, lock_name: Optional[str] = 
             "direction": _DIRECTIONS.get(_row_value(row, "DIRECTION") or "", "unknown"),
             "arrival": arrival, "starts": [], "ends": [], "barges": 0, "cuts": 0,
             "recreational": recreational,
+            "in_progress": (vessel_no or name, _row_value(row, "ARRIVAL_DATE")) in pending and not recreational,
         })
         g["starts"].append(sol)
         g["ends"].append(eol)
@@ -102,6 +112,8 @@ def completed_lockages(rows: Iterable, lock_id: str, lock_name: Optional[str] = 
             "is_tow": g["barges"] > 0,
             "is_recreational": g["recreational"],
             "cuts": g["cuts"],
+            # More cuts still to come: duration so far, not the full lockage.
+            "in_progress": g["in_progress"],
             "is_double_lockage": g["cuts"] > 1,
             "source": "usace_lpms",
             "confidence": "high",

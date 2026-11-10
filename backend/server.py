@@ -3793,8 +3793,10 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     
     records = await db.lockage_history.find(
         query, {"_id": 0, "lock_id": 1, "direction": 1, "lockage_duration_minutes": 1,
-                "wait_time_minutes": 1, "is_tow": 1, "cuts": 1, "is_double_lockage": 1}
+                "wait_time_minutes": 1, "is_tow": 1, "cuts": 1, "is_double_lockage": 1, "in_progress": 1}
     ).to_list(None)
+    # A double lockage with a cut still to go would count as a short single.
+    records = [r for r in records if not r.get("in_progress")]
     
     # Group by lock and direction, calculate averages
     averages = {}

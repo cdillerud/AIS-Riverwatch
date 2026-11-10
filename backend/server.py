@@ -48,8 +48,9 @@ from services import river_geometry as _river_geo
 from services.google_auth import GoogleAuthError, google_client_id, verify_google_credential
 from services import aisstream as _aisstream
 # Identify RiverWatch on outbound requests. USACE sites answer 403 to the
-# default python-httpx User-Agent (lock status never loaded because of it).
-RIVERWATCH_UA = "RiverWatch/1.0 (+https://github.com/cdillerud/AIS-Riverwatch)"
+# default python-httpx User-Agent (lock status never loaded because of it),
+# and to any User-Agent containing a URL - keep this one URL-free.
+RIVERWATCH_UA = "RiverWatch/1.0 (Upper Mississippi lock planning)"
 OUTBOUND_HEADERS = {"User-Agent": RIVERWATCH_UA}
 from services import usace_lockages as _usace_lockages
 _aisstream_task = None
@@ -4602,6 +4603,7 @@ async def get_all_lock_status():
             "downbound_queue": status.downbound_queue,
             "vessels_in_queue": status.vessels_in_queue,
             "closure_info": status.closure_info,
+            "status_source": status.status_source,
             "last_updated": status.last_updated
         })
     

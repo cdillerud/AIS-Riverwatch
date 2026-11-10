@@ -14,6 +14,14 @@ import {
 } from "lucide-react";
 import { memo } from "react";
 
+// Lock status: "OPEN" | "CLOSED" | "RESTRICTED" | "UNKNOWN". Anything other than
+// an explicit OPEN is never shown as open/green.
+const getStatusLabel = (status) => {
+  const s = status?.toUpperCase();
+  if (s === 'OPEN' || s === 'CLOSED' || s === 'RESTRICTED') return s;
+  return 'Status unknown';
+};
+
 const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, selectedLock, onSelectLock, onLockDetails, compact = false }) => {
   
   const getStatusColor = (status) => {
@@ -97,7 +105,7 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
                 <span className="text-sm text-slate-400">Status</span>
                 <Badge className={`${getStatusColor(currentStatus.status)}`}>
                   {getStatusIcon(currentStatus.status)}
-                  <span className="ml-1">{currentStatus.status || 'UNKNOWN'}</span>
+                  <span className="ml-1">{getStatusLabel(currentStatus.status)}</span>
                 </Badge>
               </div>
 
@@ -119,7 +127,7 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
               )}
 
               {/* Wait Time */}
-              {currentStatus.avg_wait_minutes > 0 && (
+              {Number(currentStatus.avg_wait_minutes) > 0 && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-400">Avg Wait</span>
                   <span className="text-amber-400 font-mono">{currentStatus.avg_wait_minutes} min</span>
@@ -221,7 +229,7 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
               </div>
               <Badge className={`${getStatusColor(currentStatus.status)} text-sm`}>
                 {getStatusIcon(currentStatus.status)}
-                <span className="ml-1">{currentStatus.status || 'UNKNOWN'}</span>
+                <span className="ml-1">{getStatusLabel(currentStatus.status)}</span>
               </Badge>
             </div>
 
@@ -247,7 +255,7 @@ const LockStatusPanelComponent = ({ locks, lockStatus, lockageTimes = {}, select
               </div>
               <div className="bg-slate-800/50 rounded-lg p-3 text-center">
                 <div className={`text-2xl font-bold ${currentStatus.avg_wait_minutes > 30 ? 'text-amber-400' : 'text-white'}`}>
-                  {currentStatus.avg_wait_minutes || 0}
+                  {currentStatus.avg_wait_minutes ?? '--'}
                 </div>
                 <div className="text-xs text-slate-400">Min Wait</div>
               </div>

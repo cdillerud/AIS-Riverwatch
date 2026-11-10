@@ -30,7 +30,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 
-const API = process.env.REACT_APP_BACKEND_URL + "/api";
+import { API } from "@/lib/api";
 
 function fmtMinutes(min) {
   if (min == null) return "—";
@@ -514,7 +514,7 @@ export default function TrafficPlanner() {
                                   </div>
                                   <div className="text-[10px] text-slate-500 font-mono">{v.mmsi}</div>
                                 </td>
-                                <td className="text-right p-2.5 font-mono text-slate-300">{v.river_mile}</td>
+                                <td className="text-right p-2.5 font-mono text-slate-300">{v.river_mile ?? "—"}</td>
                                 <td className="text-right p-2.5 font-mono text-slate-300">{v.distance_miles} mi</td>
                                 <td className="text-right p-2.5 font-mono text-slate-300">{v.speed_knots} kn</td>
                                 <td className="text-right p-2.5">

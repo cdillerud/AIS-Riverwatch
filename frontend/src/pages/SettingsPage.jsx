@@ -28,11 +28,13 @@ import VesselManagement from "@/components/VesselManagement";
 import RawDataPanel from "@/components/RawDataPanel";
 import AISFeedScanner from "@/components/AISFeedScanner";
 import { useAuth } from "@/context/AuthContext";
+import useLocks from "@/hooks/useLocks";
+import { formatRiverMile, isUpbound, isDownbound, formatSpeedMph } from "@/utils/vesselDisplay";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import { API } from "@/lib/api";
 
 export default function SettingsPage({ onBack, initialSettings = {} }) {
+  const locks = useLocks();
   const { user } = useAuth();
   
   const [settings, setSettings] = useState({
@@ -897,7 +899,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
       
       if (result?.vessel) {
         setLastPositionResult(result.vessel);
-        toast.success(`Position set! River Mile: ${result.vessel.river_mile?.toFixed(1) || 'N/A'}, MMSI: ${result.vessel.mmsi}`);
+        toast.success(`Position set! River Mile: ${result.vessel.river_mile != null ? formatRiverMile(result.vessel.river_mile) : 'N/A (not on river)'}, MMSI: ${result.vessel.mmsi}`);
         setGeoStatus("active");
       }
     } catch (error) {
@@ -1085,7 +1087,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                     data-testid="settings-maxspeed"
                   />
                   <p className="text-xs text-slate-500">
-                    Used to calculate if you can beat commercial vessels to the lock
+                    Used to estimate whether you can arrive ahead of commercial traffic at the lock
                   </p>
                 </div>
 
@@ -1303,7 +1305,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="text-slate-400">
-                        River Mile: <span className="text-white font-mono">{lastPositionResult.river_mile?.toFixed(1) || 'N/A'}</span>
+                        River Mile: <span className="text-white font-mono">{lastPositionResult.river_mile != null ? formatRiverMile(lastPositionResult.river_mile) : 'N/A'}</span>
                       </div>
                       <div className="text-slate-400">
                         Speed: <span className="text-white font-mono">{((lastPositionResult.speed || 0) * 1.15078).toFixed(1)} MPH</span>
@@ -1426,8 +1428,8 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                           }}
                           className="w-full h-8 text-sm bg-slate-950 border border-slate-600 rounded px-2 text-white"
                         >
-                          <option value="northbound">↑ Northbound</option>
-                          <option value="southbound">↓ Southbound</option>
+                          <option value="northbound">↑ Upbound</option>
+                          <option value="southbound">↓ Downbound</option>
                         </select>
                       </div>
                     </div>
@@ -1670,7 +1672,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-white font-medium text-sm">{vessel.name}</span>
                         <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
-                          RM {vessel.river_mile?.toFixed(1)}
+                          RM {formatRiverMile(vessel.river_mile)}
                         </Badge>
                       </div>
                       
@@ -1706,8 +1708,8 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                                 onChange={(e) => setDemoVesselEdit({...demoVesselEdit, heading: e.target.value})}
                                 className="w-full h-7 text-xs bg-slate-950 border border-slate-600 rounded px-2 text-white"
                               >
-                                <option value="northbound">Northbound (Upriver)</option>
-                                <option value="southbound">Southbound (Downriver)</option>
+                                <option value="northbound">Upbound (Upriver)</option>
+                                <option value="southbound">Downbound (Downriver)</option>
                               </select>
                             </div>
                             <div>
@@ -1742,7 +1744,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                       ) : (
                         <div className="flex items-center justify-between">
                           <div className="text-[10px] text-slate-400 space-x-3">
-                            <span>{vessel.heading === 'northbound' ? '↑ Upriver' : '↓ Downriver'}</span>
+                            <span>{isUpbound(vessel.heading) ? '↑ Upbound' : isDownbound(vessel.heading) ? '↓ Downbound' : '— Stationary'}</span>
                             <span>{vessel.speed?.toFixed(1)} kts</span>
                             <span>{vessel.barge_count}B</span>
                             {vessel.paused && (
@@ -1834,39 +1836,11 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                   className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-white text-sm"
                   data-testid="settings-defaultlock"
                 >
-                  <optgroup label="Upper River (MN/WI)">
-                    <option value="lock_1">Lock 1 - Minneapolis (RM 848)</option>
-                    <option value="lock_2">Lock 2 - Hastings (RM 815)</option>
-                    <option value="lock_3">Lock 3 - Red Wing (RM 797)</option>
-                    <option value="lock_4">Lock 4 - Alma (RM 753)</option>
-                    <option value="lock_5">Lock 5 - Minnesota City (RM 738)</option>
-                    <option value="lock_5a">Lock 5A - Fountain City (RM 729)</option>
-                    <option value="lock_6">Lock 6 - Trempealeau (RM 714)</option>
-                    <option value="lock_7">Lock 7 - Dresbach (RM 703)</option>
-                    <option value="lock_8">Lock 8 - Genoa (RM 679)</option>
-                    <option value="lock_9">Lock 9 - Lynxville (RM 648)</option>
-                    <option value="lock_10">Lock 10 - Guttenberg (RM 615)</option>
-                  </optgroup>
-                  <optgroup label="Middle River (IA/IL)">
-                    <option value="lock_11">Lock 11 - Dubuque (RM 583)</option>
-                    <option value="lock_12">Lock 12 - Bellevue (RM 557)</option>
-                    <option value="lock_13">Lock 13 - Fulton (RM 523)</option>
-                    <option value="lock_14">Lock 14 - Le Claire (RM 493)</option>
-                    <option value="lock_15">Lock 15 - Rock Island (RM 483)</option>
-                    <option value="lock_16">Lock 16 - Muscatine (RM 457)</option>
-                    <option value="lock_17">Lock 17 - New Boston (RM 437)</option>
-                    <option value="lock_18">Lock 18 - Gladstone (RM 411)</option>
-                  </optgroup>
-                  <optgroup label="Lower River (MO/IL)">
-                    <option value="lock_19">Lock 19 - Keokuk (RM 364)</option>
-                    <option value="lock_20">Lock 20 - Canton (RM 343)</option>
-                    <option value="lock_21">Lock 21 - Quincy (RM 325)</option>
-                    <option value="lock_22">Lock 22 - Saverton (RM 301)</option>
-                    <option value="lock_24">Lock 24 - Clarksville (RM 273)</option>
-                    <option value="lock_25">Lock 25 - Cap au Gris (RM 241)</option>
-                    <option value="melvin_price">Melvin Price - Alton (RM 201)</option>
-                    <option value="chain_of_rocks">Chain of Rocks (RM 185)</option>
-                  </optgroup>
+                  {locks.map((lock) => (
+                    <option key={lock.id} value={lock.id}>
+                      {lock.name} (RM {formatRiverMile(lock.river_mile)})
+                    </option>
+                  ))}
                 </select>
               </div>
             </CardContent>
@@ -2063,7 +2037,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="text-slate-300">Sound Alerts</Label>
-                    <p className="text-xs text-slate-500">Play audio when "Can't Beat" warning triggers</p>
+                    <p className="text-xs text-slate-500">Play audio when a traffic delay warning triggers</p>
                   </div>
                   <Switch
                     checked={settings.alert_sound_enabled}
@@ -2118,7 +2092,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                     </div>
                     <div className="text-xs text-slate-400">
                       {accountType === "vessel_owner" 
-                        ? "Track your vessel, get lock timing and race analysis" 
+                        ? "Track your vessel, get lock timing and arrival planning" 
                         : "Monitor traffic without a vessel"}
                     </div>
                   </div>
@@ -2388,14 +2362,14 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                                     {v.name || `Vessel ${v.mmsi}`}
                                   </div>
                                   <div className="text-xs text-slate-400">
-                                    MMSI: {v.mmsi} • RM {v.river_mile?.toFixed(1) || '--'}
+                                    MMSI: {v.mmsi} • RM {formatRiverMile(v.river_mile)}
                                   </div>
                                   <div className="flex items-center gap-2 mt-1">
                                     <span className={`text-[10px] ${
                                       v.heading === 'northbound' ? 'text-green-400' : 
                                       v.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'
                                     }`}>
-                                      {v.heading === 'northbound' ? '↑ North' : v.heading === 'southbound' ? '↓ South' : 'Stationary'}
+                                      {isUpbound(v.heading) ? '↑ Upbound' : isDownbound(v.heading) ? '↓ Downbound' : v.heading === 'stationary' ? 'Stationary' : 'Unknown'}
                                     </span>
                                     {v.is_tow && (
                                       <Badge className="text-[10px] bg-amber-500/20 text-amber-400">
@@ -2406,7 +2380,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                                 </div>
                               </div>
                               <div className="text-right">
-                                <div className="text-sm text-white">{(v.speed * 1.15078).toFixed(1)} mph</div>
+                                <div className="text-sm text-white">{formatSpeedMph(v.speed)} mph</div>
                                 <div className="text-xs text-slate-500">{v.speed?.toFixed(1)} kn</div>
                               </div>
                             </div>
@@ -2469,7 +2443,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
               <div>
                 <div className="text-amber-400 font-semibold">MMSI Required</div>
                 <div className="text-sm text-slate-400">
-                  Enter your vessel's MMSI number to enable tracking and race calculations.
+                  Enter your vessel's MMSI number to enable tracking and lock arrival planning.
                 </div>
               </div>
             </div>

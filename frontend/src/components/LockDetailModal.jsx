@@ -16,7 +16,15 @@ import {
   TrendingUp, Activity, RefreshCw, MapPin, Navigation
 } from "lucide-react";
 
-const API = process.env.REACT_APP_BACKEND_URL + '/api';
+import { API } from "@/lib/api";
+
+// Lock status: "OPEN" | "CLOSED" | "RESTRICTED" | "UNKNOWN". Anything other than
+// an explicit OPEN is never shown as open/green.
+const getStatusLabel = (status) => {
+  const s = status?.toUpperCase();
+  if (s === 'OPEN' || s === 'CLOSED' || s === 'RESTRICTED') return s;
+  return 'Status unknown';
+};
 
 export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap }) {
   const [lockDetails, setLockDetails] = useState(null);
@@ -86,7 +94,8 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
   };
 
   const formatWaitTime = (minutes) => {
-    if (!minutes || minutes === 0) return "No wait";
+    if (minutes === null || minutes === undefined || Number.isNaN(Number(minutes))) return "--";
+    if (Number(minutes) === 0) return "No wait";
     if (minutes < 60) return `${minutes} min`;
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
@@ -153,7 +162,7 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                 </div>
                 <Badge className={`${getStatusColor(lockDetails.status)} text-sm px-3 py-1`}>
                   {getStatusIcon(lockDetails.status)}
-                  <span className="ml-1.5">{lockDetails.status || 'UNKNOWN'}</span>
+                  <span className="ml-1.5">{getStatusLabel(lockDetails.status)}</span>
                 </Badge>
               </div>
             </DialogHeader>

@@ -14,14 +14,18 @@ import TrafficPlanner from "@/pages/TrafficPlanner";
 import TripsPage from "@/pages/TripsPage";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import useAisDriftWatch from "@/hooks/useAisDriftWatch";
+import useLocks from "@/hooks/useLocks";
+import Disclaimer from "@/components/Disclaimer";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
-// WebSocket path - Emergent preview uses /api/ws/ais, production nginx uses /ws/ais
-// Check if we're on the Emergent preview domain
-const isEmergentPreview = BACKEND_URL.includes('preview.emergentagent.com');
-const WS_PATH = isEmergentPreview ? '/api/ws/ais' : '/ws/ais';
+import { API, WS_BASE_URL, AIS_WS_PATH } from "@/lib/api";
+
+// Backend URL defaults to same-origin when REACT_APP_BACKEND_URL is unset.
+const WS_URL = WS_BASE_URL;
+const WS_PATH = AIS_WS_PATH;
+
+// Auto-reconnect backoff for the AIS WebSocket: 2s, 4s, 8s ... capped at 60s.
+const RECONNECT_BASE_MS = 2000;
+const RECONNECT_MAX_MS = 60000;
 
 // Protected Route wrapper
 function ProtectedRoute({ children }) {
@@ -98,7 +102,8 @@ function MainApp() {
   const [connectionConfig, setConnectionConfig] = useState(null);
   const [vessels, setVessels] = useState([]);
   const [userMmsi, setUserMmsi] = useState("");
-  const [locks, setLocks] = useState([]);
+  // Shared lock list (GET /api/locks, with offline fallback).
+  const locks = useLocks();
   const [lockStatus, setLockStatus] = useState({});
   const [lockageTimes, setLockageTimes] = useState({});
   const [raceAnalysis, setRaceAnalysis] = useState(null);
@@ -117,6 +122,11 @@ function MainApp() {
   });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
+  // False after a user-initiated Disconnect, logout or unmount: a closing socket
+  // must not schedule a reconnect in those cases.
+  const shouldReconnectRef = useRef(false);
+  const fullRefreshTimerRef = useRef(null);
   const geoWatchRef = useRef(null);
   const autoRefreshRef = useRef(null);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
@@ -322,10 +332,13 @@ function MainApp() {
       setIsConnected(false);
       setLockStatus({});
       setLockageTimes({});
-      // Close WebSocket if connected
+      // Close WebSocket if connected (and never auto-reconnect it)
+      shouldReconnectRef.current = false;
       if (wsRef.current) {
-        wsRef.current.close();
+        const oldWs = wsRef.current;
         wsRef.current = null;
+        oldWs.onclose = null;
+        oldWs.close();
       }
       // Clear any pending reconnect timeout
       if (reconnectTimeoutRef.current) {
@@ -347,10 +360,13 @@ function MainApp() {
     setVessels([]);
     setRaceAnalysis(null);
 
-    // Close existing WebSocket so it reconnects fresh
+    // Close existing WebSocket so it reconnects fresh (detach onclose so the
+    // close does not also schedule a backoff reconnect)
     if (wsRef.current) {
-      wsRef.current.close();
+      const oldWs = wsRef.current;
       wsRef.current = null;
+      oldWs.onclose = null;
+      oldWs.close();
     }
 
     // Update refresh timestamp
@@ -358,7 +374,9 @@ function MainApp() {
 
     // Reconnect WebSocket and refetch data (no page reload - keeps us on /dashboard)
     if (connectionConfig) {
-      setTimeout(() => {
+      if (fullRefreshTimerRef.current) clearTimeout(fullRefreshTimerRef.current);
+      fullRefreshTimerRef.current = setTimeout(() => {
+        fullRefreshTimerRef.current = null;
         connectWebSocket(connectionConfig);
       }, 250);
     }
@@ -479,20 +497,7 @@ function MainApp() {
       }
     };
 
-    const loadLocks = async () => {
-      try {
-        const response = await fetch(`${API}/locks`);
-        if (response.ok) {
-          const data = await response.json();
-          setLocks(data);
-        }
-      } catch (error) {
-        console.error("Failed to load locks:", error);
-      }
-    };
-
     loadSettings();
-    loadLocks();
   }, [userMmsi]);
 
   // Fetch lock status from USACE
@@ -585,36 +590,6 @@ function MainApp() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch race analysis periodically - EXPLICITLY scoped to session MMSI
-  // OPTIMIZED: Increased interval from 10s to 20s
-  useEffect(() => {
-    const fetchRaceAnalysis = async () => {
-      if (!activeTimingLock || !userMmsi) return;
-      try {
-        const bufferMinutes = userSettings.lock_buffer_minutes || 20;
-        // Use session-scoped endpoint
-        const response = await fetch(`${API}/session/${userMmsi}/race-analysis/${activeTimingLock}?buffer_minutes=${bufferMinutes}`);
-        if (response.ok) {
-          const data = await response.json();
-          // Only update if analysis actually changed
-          setRaceAnalysis(prev => {
-            if (prev && JSON.stringify(prev) === JSON.stringify(data)) {
-              return prev;
-            }
-            return data;
-          });
-        }
-      } catch (error) {
-        console.error("Failed to fetch race analysis:", error);
-      }
-    };
-
-    fetchRaceAnalysis();
-    // OPTIMIZED: Reduced frequency from 10s to 20s
-    const interval = setInterval(fetchRaceAnalysis, 20000);
-    return () => clearInterval(interval);
-  }, [activeTimingLock, userMmsi, userSettings.lock_buffer_minutes]);
-
   // Continuous GPS tracking (bypasses AIS self-suppression) - EXPLICITLY scoped to session MMSI
   useEffect(() => {
     // Send position update to backend
@@ -695,6 +670,7 @@ function MainApp() {
   // WebSocket connection
   const connectWebSocket = useCallback((config) => {
     if (!config) return;
+    shouldReconnectRef.current = true;
     
     // Guard against duplicate calls - if we're already connecting/connected, skip
     if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
@@ -722,6 +698,7 @@ function MainApp() {
 
     ws.onopen = () => {
       console.log("WebSocket connected, sending connection request...");
+      reconnectAttemptsRef.current = 0;
       // Don't set isConnected here - wait for actual AIS connection confirmation
       // setIsConnected(true); -- Removed: This was incorrect
       // Send connection config including boat name for proper identification
@@ -735,7 +712,13 @@ function MainApp() {
     };
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch (e) {
+        console.warn("Ignoring non-JSON WebSocket message");
+        return;
+      }
       
       if (data.type === "connected") {
         // AIS TCP connection to relay hub succeeded
@@ -803,12 +786,18 @@ function MainApp() {
       if (wsRef.current === ws) {
         wsRef.current = null;
         setIsConnected(false);
-        // Attempt reconnect after 5 seconds
+        // Reconnect only if the user has not disconnected, with exponential backoff.
+        if (!shouldReconnectRef.current) return;
+        const attempt = reconnectAttemptsRef.current;
+        reconnectAttemptsRef.current = attempt + 1;
+        const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
-          if (config) {
+          reconnectTimeoutRef.current = null;
+          if (shouldReconnectRef.current && config) {
             connectWebSocket(config);
           }
-        }, 5000);
+        }, delay);
       }
     };
   }, [userSettings.boat_name]);
@@ -823,14 +812,23 @@ function MainApp() {
     }
   }, [connectionConfig]); // Removed isConnected to prevent reconnect loops
 
-  // Cleanup on unmount
+  // Cleanup on unmount: stop reconnects, detach onclose, clear timers.
   useEffect(() => {
     return () => {
+      shouldReconnectRef.current = false;
       if (wsRef.current) {
-        wsRef.current.close();
+        const oldWs = wsRef.current;
+        wsRef.current = null;
+        oldWs.onclose = null;
+        oldWs.close();
       }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (fullRefreshTimerRef.current) {
+        clearTimeout(fullRefreshTimerRef.current);
+        fullRefreshTimerRef.current = null;
       }
     };
   }, []);
@@ -879,6 +877,13 @@ function MainApp() {
   };
 
   const handleDisconnect = () => {
+    // User-initiated: no automatic reconnect until they press Reconnect.
+    shouldReconnectRef.current = false;
+    reconnectAttemptsRef.current = 0;
+    if (fullRefreshTimerRef.current) {
+      clearTimeout(fullRefreshTimerRef.current);
+      fullRefreshTimerRef.current = null;
+    }
     if (wsRef.current) {
       // Only try to send if the socket is open (readyState === 1)
       if (wsRef.current.readyState === WebSocket.OPEN) {
@@ -888,8 +893,10 @@ function MainApp() {
           console.warn("Failed to send disconnect message:", e);
         }
       }
-      wsRef.current.close();
+      const oldWs = wsRef.current;
       wsRef.current = null;
+      oldWs.onclose = null;
+      oldWs.close();
     }
     setIsConnected(false);
     if (reconnectTimeoutRef.current) {
@@ -968,7 +975,8 @@ function MainApp() {
     }
 
     const userVessel = dashboardVessels.find(v => String(v.mmsi) === String(userMmsi));
-    const userRM = Number(userVessel?.river_mile);
+    // river_mile may be null (off-river/unknown); Number(null) would be 0.
+    const userRM = userVessel?.river_mile == null ? NaN : Number(userVessel.river_mile);
 
     if (!Number.isFinite(userRM)) {
       return selectedLock;
@@ -1009,6 +1017,38 @@ function MainApp() {
     return selectedLock;
   }, [dashboardVessels, locks, selectedLock, user?.account_type, userMmsi]);
 
+  // Fetch arrival (race) analysis periodically, scoped to session MMSI. Declared
+  // after activeTimingLock (used in its deps) to avoid a temporal-dead-zone
+  // ReferenceError during render.
+  // OPTIMIZED: Increased interval from 10s to 20s
+  useEffect(() => {
+    const fetchRaceAnalysis = async () => {
+      if (!activeTimingLock || !userMmsi) return;
+      try {
+        const bufferMinutes = userSettings.lock_buffer_minutes || 20;
+        // Use session-scoped endpoint
+        const response = await fetch(`${API}/session/${userMmsi}/race-analysis/${activeTimingLock}?buffer_minutes=${bufferMinutes}`);
+        if (response.ok) {
+          const data = await response.json();
+          // Only update if analysis actually changed
+          setRaceAnalysis(prev => {
+            if (prev && JSON.stringify(prev) === JSON.stringify(data)) {
+              return prev;
+            }
+            return data;
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch race analysis:", error);
+      }
+    };
+
+    fetchRaceAnalysis();
+    // OPTIMIZED: Reduced frequency from 10s to 20s
+    const interval = setInterval(fetchRaceAnalysis, 20000);
+    return () => clearInterval(interval);
+  }, [activeTimingLock, userMmsi, userSettings.lock_buffer_minutes]);
+
   // If showing settings page
   if (showSettings) {
     return (
@@ -1039,7 +1079,10 @@ function MainApp() {
           onSelectLock={setSelectedLock}
           onDisconnect={handleDisconnect}
           onResetConnection={handleResetConnection}
-          onReconnect={() => connectWebSocket(connectionConfig)}
+          onReconnect={() => {
+            reconnectAttemptsRef.current = 0;
+            connectWebSocket(connectionConfig);
+          }}
           onOpenSettings={() => setShowSettings(true)}
           connectionConfig={connectionConfig}
           userSettings={userSettings}
@@ -1063,6 +1106,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <AppRouter />
+        <Disclaimer />
       </AuthProvider>
       <Toaster position="top-right" theme="dark" />
     </BrowserRouter>

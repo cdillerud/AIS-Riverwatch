@@ -7,8 +7,8 @@ import { Anchor, Ship, ArrowRight, Settings, ChevronDown, ChevronUp, LogOut, Use
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import { API } from "@/lib/api";
+import useLocks from "@/hooks/useLocks";
 
 // Default connection settings - can be edited in advanced settings.
 // The relay (ais-relay:5353 inside the docker network) is the canonical
@@ -17,22 +17,15 @@ const API = `${BACKEND_URL}/api`;
 const DEFAULT_IP = "ais-relay";
 const DEFAULT_PORT = "5353";
 
-// Preset watch points for common river locations
-const WATCH_POINT_PRESETS = [
-  { name: "Lock 2 (Hastings)", rm: 815.2 },
-  { name: "Lock 3 (Red Wing)", rm: 796.9 },
-  { name: "Lock 4 (Alma)", rm: 752.8 },
-  { name: "Lock 5 (Whitman)", rm: 738.1 },
-  { name: "Lock 5A (Fountain City)", rm: 728.5 },
-  { name: "Lock 6 (Trempealeau)", rm: 714.3 },
-  { name: "Lock 7 (Dresbach)", rm: 702.5 },
-  { name: "Lock 8 (Genoa)", rm: 679.2 },
-  { name: "Lock 9 (Lynxville)", rm: 647.9 },
-  { name: "Lock 10 (Guttenberg)", rm: 615.1 },
-];
+// Preset watch points: every lock from the shared lock list (GET /api/locks).
+const lockToPreset = (lock) => ({
+  name: lock.name.replace("Lock & Dam #", "Lock "),
+  rm: Number(lock.river_mile),
+});
 
 export default function SetupPage({ onConnect }) {
   const { user, logout } = useAuth();
+  const watchPointPresets = useLocks().map(lockToPreset);
   
   // Account type selection
   const [accountType, setAccountType] = useState(null); // null = choosing, "vessel_owner", "traffic_watch"
@@ -380,11 +373,11 @@ export default function SetupPage({ onConnect }) {
                 <div>
                   <h3 className="text-white font-semibold text-lg">I Have a Vessel</h3>
                   <p className="text-slate-400 text-sm mt-1">
-                    Track your position, get lock timing calculations, and see when to speed up or slow down to beat commercial traffic.
+                    Track your position, get lock timing estimates, and plan your arrival around commercial traffic.
                   </p>
                   <div className="flex flex-wrap gap-2 mt-2">
                     <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded">Lock Timing</span>
-                    <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded">Race Analysis</span>
+                    <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded">Arrival Planning</span>
                     <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded">Position Tracking</span>
                   </div>
                 </div>
@@ -579,7 +572,7 @@ export default function SetupPage({ onConnect }) {
             <div className="space-y-2">
               <Label className="text-slate-300">Quick Select - Lock Locations</Label>
               <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto pr-1">
-                {WATCH_POINT_PRESETS.map((preset) => (
+                {watchPointPresets.map((preset) => (
                   <button
                     key={preset.rm}
                     onClick={() => handlePresetSelect(preset)}

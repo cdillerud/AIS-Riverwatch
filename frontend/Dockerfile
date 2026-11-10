@@ -4,7 +4,8 @@ WORKDIR /app
 
 ENV NODE_ENV=development
 
-ARG REACT_APP_BACKEND_URL=http://34.172.47.153:8001
+# Override per environment; leave empty for same-origin (behind a reverse proxy).
+ARG REACT_APP_BACKEND_URL=http://localhost:8001
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 
 COPY package.json ./

@@ -42,7 +42,7 @@ export default function LandingPage() {
 
           {/* Main Headline */}
           <h2 className="font-heading text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold uppercase tracking-tight mb-6 leading-none">
-            <span className="text-white">Beat the Traffic.</span>
+            <span className="text-white">Plan Your Lockage.</span>
             <br />
             <span className="text-cyan-400">Master the River.</span>
           </h2>
@@ -50,7 +50,7 @@ export default function LandingPage() {
           {/* Subheadline */}
           <p className="text-lg md:text-xl text-slate-300 max-w-2xl mx-auto mb-10 leading-relaxed">
             Real-time lock timing for Upper Mississippi River boaters. 
-            Know exactly when to depart to beat commercial tows to the next lock.
+            Plan your arrival at the next lock around commercial tow traffic.
           </p>
 
           {/* CTA Buttons */}
@@ -122,8 +122,8 @@ export default function LandingPage() {
                 Lock Timing
               </h4>
               <p className="text-slate-400 leading-relaxed">
-                Know the exact speed needed to beat commercial traffic to the next lock. 
-                Avoid hours of waiting behind tows.
+                Estimate the speed needed to arrive ahead of commercial traffic at the next lock, 
+                and avoid long waits behind tows.
               </p>
             </div>
 
@@ -203,10 +203,10 @@ export default function LandingPage() {
                 3
               </div>
               <h4 className="font-heading text-lg font-semibold uppercase tracking-wide text-white mb-2">
-                Beat Traffic
+                Plan Your Arrival
               </h4>
               <p className="text-slate-400 text-sm">
-                Follow the recommended speed to arrive before commercial vessels
+                Use the estimated speed to plan arrival ahead of commercial traffic, which has lock priority
               </p>
             </div>
           </div>
@@ -245,7 +245,7 @@ export default function LandingPage() {
               </span>
             </div>
             <p className="text-xs text-slate-600">
-              Not affiliated with USACE. For recreational use only.
+              Not affiliated with USACE.
             </p>
           </div>
         </div>

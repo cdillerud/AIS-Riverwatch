@@ -45,11 +45,11 @@ import {
   StickyNote,
 } from "lucide-react";
 
-const API = process.env.REACT_APP_BACKEND_URL + "/api";
+import { API } from "@/lib/api";
 
 const HEADING_OPTIONS = [
-  { value: "northbound", label: "Northbound (↑ NB, RM increases)" },
-  { value: "southbound", label: "Southbound (↓ SB, RM decreases)" },
+  { value: "northbound", label: "Upbound (↑ UB, RM increases)" },
+  { value: "southbound", label: "Downbound (↓ DB, RM decreases)" },
 ];
 
 const emptyTrip = {
@@ -261,7 +261,7 @@ export default function TripsPage() {
                             }
                           >
                             <Compass className="w-3 h-3 mr-1" />
-                            {t.heading === "northbound" ? "↑ NB" : "↓ SB"}
+                            {t.heading === "northbound" ? "↑ UB" : t.heading === "southbound" ? "↓ DB" : "—"}
                           </Badge>
                         )}
                       </div>

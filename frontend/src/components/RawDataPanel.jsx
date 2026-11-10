@@ -7,6 +7,7 @@ import {
   Terminal, Trash2, Pause, Play, Download, 
   Radio, Satellite, Ship, MapPin
 } from "lucide-react";
+import { WS_BASE_URL } from "@/lib/api";
 
 const MAX_LINES = 200;
 
@@ -47,6 +48,9 @@ export default function RawDataPanel({ isConnected, compact = false }) {
   const [stats, setStats] = useState({ gps: 0, ais: 0, own: 0, other: 0, demo: 0 });
   const scrollRef = useRef(null);
   const wsRef = useRef(null);
+  // onmessage is bound once per connection; read pause state through a ref.
+  const isPausedRef = useRef(isPaused);
+  isPausedRef.current = isPaused;
 
   // Connect to raw data WebSocket
   useEffect(() => {
@@ -55,17 +59,8 @@ export default function RawDataPanel({ isConnected, compact = false }) {
       return;
     }
 
-    // Build WS URL: prefer REACT_APP_BACKEND_URL if set; otherwise use same-origin
-    // (this lets the same build work on cloud, LAN/Pi, or under any hostname).
-    let WS_URL;
-    if (process.env.REACT_APP_BACKEND_URL) {
-      WS_URL = process.env.REACT_APP_BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
-    } else if (typeof window !== "undefined") {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      WS_URL = `${proto}//${window.location.host}`;
-    } else {
-      WS_URL = '';
-    }
+    // ws(s):// base derived from the backend URL (same-origin when unset).
+    const WS_URL = WS_BASE_URL;
     const wsUrl = `${WS_URL}/api/ws/raw`;
     console.log("[RawDataPanel] Connecting to WebSocket:", wsUrl);
     
@@ -85,7 +80,7 @@ export default function RawDataPanel({ isConnected, compact = false }) {
     };
 
     ws.onmessage = (event) => {
-      if (isPaused) return;
+      if (isPausedRef.current) return;
       
       try {
         const data = JSON.parse(event.data);

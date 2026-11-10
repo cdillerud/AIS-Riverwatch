@@ -3,31 +3,24 @@ import { Ship, Navigation, Gauge, Clock, ChevronUp, ChevronDown, Minus, Box, Tim
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getVesselDisplayName } from "@/utils/vesselDisplay";
+import { getVesselDisplayName, hasRiverMile, formatRiverMile, directionLabel, isVesselStale, lastSeenLabel, getLastSeenMs } from "@/utils/vesselDisplay";
+import useLocks from "@/hooks/useLocks";
 
-// Lock positions for "At Lock" detection
-const LOCK_POSITIONS = {
-  lock_1: 847.6, lock_2: 815.2, lock_3: 796.9, lock_4: 752.8,
-  lock_5: 738.1, lock_5a: 728.3, lock_6: 714.2, lock_7: 702.4,
-  lock_8: 679.1, lock_9: 647.8, lock_10: 615.1, lock_11: 583.0,
-  lock_12: 556.6, lock_13: 522.4, lock_14: 493.2, lock_15: 482.9,
-  lock_16: 457.2, lock_17: 437.1, lock_18: 410.5, lock_19: 364.2,
-  lock_20: 343.2, lock_21: 324.9, lock_22: 301.2, lock_24: 273.4,
-  lock_25: 241.4, lock_26: 202.9, lock_27: 185.0
-};
+// Check if a vessel is "at" any lock (within 0.5 miles). Locks come from GET /api/locks.
+const getVesselLockStatus = (vessel, locks) => {
+  if (!hasRiverMile(vessel)) return null;
+  const rm = Number(vessel.river_mile);
 
-// Check if a vessel is "at" any lock (within 0.5 miles)
-const getVesselLockStatus = (vessel) => {
-  if (!vessel.river_mile) return null;
-  
   const AT_LOCK_DISTANCE = 0.5; // miles
-  
-  for (const [lockId, lockRM] of Object.entries(LOCK_POSITIONS)) {
-    const distance = Math.abs(vessel.river_mile - lockRM);
+
+  for (const lock of locks) {
+    const lockRM = Number(lock.river_mile);
+    if (!Number.isFinite(lockRM)) continue;
+    const distance = Math.abs(rm - lockRM);
     if (distance <= AT_LOCK_DISTANCE) {
-      const lockNum = lockId.replace('lock_', '').toUpperCase();
+      const lockNum = lock.id === 'melvin_price' ? 'MP' : lock.id === 'chain_of_rocks' ? 'CR' : lock.id.replace('lock_', '').toUpperCase();
       return {
-        lockId,
+        lockId: lock.id,
         lockNum,
         distance: distance.toFixed(2)
       };
@@ -41,10 +34,8 @@ const getLastCheckInValue = (vessel) => (
 );
 
 const parseCheckInTime = (value) => {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
+  const ms = getLastSeenMs({ timestamp: value });
+  return ms === null ? null : new Date(ms);
 };
 
 const formatLastCheckIn = (vessel, nowMs) => {
@@ -80,6 +71,7 @@ const getCheckInTextClass = (vessel, nowMs) => {
 const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false, onVesselClick = () => {}, showVesselNames = true }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const locks = useLocks();
 
   // Keep the "last check-in" age moving even when no new vessel data arrives.
   useEffect(() => {
@@ -93,7 +85,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
     
     const query = searchQuery.toLowerCase().trim();
     return vessels.filter(vessel => {
-      const mmsiMatch = vessel.mmsi?.toLowerCase().includes(query);
+      const mmsiMatch = String(vessel.mmsi ?? '').toLowerCase().includes(query);
       const nameMatch = (vessel.name || '').toLowerCase().includes(query);
       return mmsiMatch || nameMatch;
     });
@@ -103,7 +95,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
   const isSearchMatch = (vessel) => {
     if (!searchQuery.trim()) return false;
     const query = searchQuery.toLowerCase().trim();
-    return vessel.mmsi?.toLowerCase().includes(query) || 
+    return String(vessel.mmsi ?? '').toLowerCase().includes(query) || 
            (vessel.name || '').toLowerCase().includes(query);
   };
 
@@ -118,15 +110,19 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
 
   // Calculate ETA for each vessel to selected lock
   const calculateETA = (vessel) => {
-    if (!selectedLock || !vessel.river_mile || vessel.speed < 0.1) return null;
-    
-    const distance = Math.abs(vessel.river_mile - selectedLock.river_mile);
-    const speedMph = vessel.speed * 1.15078;
-    
-    // Check if vessel is heading toward lock
+    // No ETA for unknown river mile, stopped, or stale (not-live) positions.
+    if (!selectedLock || !hasRiverMile(vessel) || !Number.isFinite(Number(selectedLock.river_mile))) return null;
+    if (!(Number(vessel.speed) >= 0.1) || isVesselStale(vessel, nowTick)) return null;
+
+    const rm = Number(vessel.river_mile);
+    const lockRM = Number(selectedLock.river_mile);
+    const distance = Math.abs(rm - lockRM);
+    const speedMph = Number(vessel.speed) * 1.15078;
+
+    // Check if vessel is heading toward lock (northbound = upbound = increasing RM)
     const isHeadingToward = (
-      (vessel.heading === "northbound" && vessel.river_mile < selectedLock.river_mile) ||
-      (vessel.heading === "southbound" && vessel.river_mile > selectedLock.river_mile)
+      (vessel.heading === "northbound" && rm < lockRM) ||
+      (vessel.heading === "southbound" && rm > lockRM)
     );
     
     if (!isHeadingToward) return null;
@@ -209,18 +205,20 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
             {sortedVessels.map(vessel => {
               // ONLY match by MMSI
               const isUser = userMmsi && vessel.mmsi === userMmsi;
-              const speedMph = (vessel.speed * 1.15078).toFixed(1);
+              const speedMph = Number.isFinite(Number(vessel.speed)) ? (Number(vessel.speed) * 1.15078).toFixed(1) : '--';
+              const stale = isVesselStale(vessel, nowTick);
               const eta = calculateETA(vessel);
               const isTow = vessel.is_tow || vessel.barge_count > 0;
-              const lockStatus = getVesselLockStatus(vessel);
+              const lockStatus = getVesselLockStatus(vessel, locks);
               const isMatch = isSearchMatch(vessel);
-              const lastCheckInDisplay = formatLastCheckIn(vessel, nowTick);
+              const lastCheckInDisplay = stale ? lastSeenLabel(vessel, nowTick) : formatLastCheckIn(vessel, nowTick);
               const lastCheckInClass = getCheckInTextClass(vessel, nowTick);
 
               return (
                 <div
                   key={vessel.mmsi}
-                  className={`p-3 ${isUser ? 'bg-cyan-500/5 border-l-2 border-l-cyan-500' : ''} ${isMatch ? 'bg-yellow-500/10 border-l-2 border-l-yellow-500' : ''}`}
+                  className={`p-3 ${isUser ? 'bg-cyan-500/5 border-l-2 border-l-cyan-500' : ''} ${isMatch ? 'bg-yellow-500/10 border-l-2 border-l-yellow-500' : ''} ${stale ? 'opacity-50' : ''}`}
+                  title={stale ? `Stale position — ${lastSeenLabel(vessel, nowTick)}` : undefined}
                   data-testid={`vessel-item-${vessel.mmsi}`}
                 >
                   <div className="flex items-center justify-between">
@@ -266,11 +264,11 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                     </div>
                   </div>
                   <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                    <span className="font-mono">RM {vessel.river_mile?.toFixed(1)}</span>
+                    <span className="font-mono">RM {formatRiverMile(vessel.river_mile)}</span>
                     <span className="font-mono">{speedMph} mph</span>
                     <span className="flex items-center gap-0.5">
                       {getDirectionIcon(vessel.heading)}
-                      {vessel.heading?.slice(0,1).toUpperCase()}
+                      {vessel.heading === 'northbound' ? 'U' : vessel.heading === 'southbound' ? 'D' : ''}
                     </span>
                     <span className={`flex items-center gap-0.5 ${lastCheckInClass}`}>
                       <Clock className="w-3 h-3" />
@@ -322,12 +320,13 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
           {sortedVessels.map(vessel => {
             // ONLY match by MMSI
             const isUser = userMmsi && vessel.mmsi === userMmsi;
-            const speedMph = (vessel.speed * 1.15078).toFixed(1);
+            const speedMph = Number.isFinite(Number(vessel.speed)) ? (Number(vessel.speed) * 1.15078).toFixed(1) : '--';
+            const stale = isVesselStale(vessel, nowTick);
             const eta = calculateETA(vessel);
             const isTow = vessel.is_tow || vessel.barge_count > 0;
-            const lockStatus = getVesselLockStatus(vessel);
+            const lockStatus = getVesselLockStatus(vessel, locks);
             const isMatch = isSearchMatch(vessel);
-            const lastCheckInDisplay = formatLastCheckIn(vessel, nowTick);
+            const lastCheckInDisplay = stale ? lastSeenLabel(vessel, nowTick) : formatLastCheckIn(vessel, nowTick);
             const lastCheckInClass = getCheckInTextClass(vessel, nowTick);
 
             return (
@@ -338,7 +337,9 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                   ${isUser ? 'user-vessel border-l-2 border-l-cyan-500' : 'hover:bg-slate-800/50'}
                   ${lockStatus ? 'bg-purple-500/5' : ''}
                   ${isMatch ? 'bg-yellow-500/10 border-l-2 border-l-yellow-500' : ''}
+                  ${stale ? 'opacity-50' : ''}
                 `}
+                title={stale ? `Stale position — ${lastSeenLabel(vessel, nowTick)}` : undefined}
                 data-testid={`vessel-item-${vessel.mmsi}`}
                 onClick={() => onVesselClick(vessel)}
               >
@@ -384,7 +385,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                     <div className="flex items-center gap-4 text-xs text-slate-400 mt-2">
                       <span className="flex items-center gap-1">
                         <Navigation className="w-3 h-3" />
-                        <span className="font-mono">RM {vessel.river_mile?.toFixed(1) || '--'}</span>
+                        <span className="font-mono">RM {formatRiverMile(vessel.river_mile)}</span>
                       </span>
                       
                       <span className="flex items-center gap-1">
@@ -394,7 +395,7 @@ const VesselListComponent = ({ vessels, userMmsi, selectedLock, compact = false,
                       
                       <span className="flex items-center gap-1">
                         {getDirectionIcon(vessel.heading)}
-                        <span className="capitalize">{vessel.heading || 'stationary'}</span>
+                        <span>{directionLabel(vessel.heading)}</span>
                       </span>
 
                       <span className={`flex items-center gap-1 ${lastCheckInClass}`}>

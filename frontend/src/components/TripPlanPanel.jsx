@@ -15,7 +15,7 @@ import {
   Anchor,
 } from "lucide-react";
 
-const API = process.env.REACT_APP_BACKEND_URL + "/api";
+import { API } from "@/lib/api";
 
 const STATUS_META = {
   clear: {
@@ -40,7 +40,7 @@ const STATUS_META = {
     rowBorder: "border-amber-500/40",
   },
   cant_beat: {
-    label: "CAN'T BEAT",
+    label: "TOW AHEAD",
     badge: "bg-red-900/40 text-red-300 border-red-500",
     icon: XCircle,
     iconColor: "text-red-400",
@@ -212,8 +212,8 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
             <div className="flex items-center justify-between text-xs text-slate-400 px-1">
               <span>
                 Heading:{" "}
-                <span className={`font-mono ${plan.heading === "northbound" ? "text-blue-400" : "text-orange-400"}`}>
-                  {plan.heading === "northbound" ? "↑ NB" : plan.heading === "southbound" ? "↓ SB" : plan.heading || "--"}
+                <span className={`font-mono ${plan.heading === "northbound" ? "text-blue-400" : plan.heading === "southbound" ? "text-orange-400" : "text-slate-400"}`}>
+                  {plan.heading === "northbound" ? "↑ UB" : plan.heading === "southbound" ? "↓ DB" : "—"}
                 </span>
               </span>
               <span>

@@ -16,29 +16,23 @@ import {
   Edit3, Check, X, Lock, History, Navigation, Clock
 } from "lucide-react";
 import { toast } from "sonner";
+import { API } from "@/lib/api";
+import useLocks from "@/hooks/useLocks";
+import { hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, getLastSeenMs } from "@/utils/vesselDisplay";
 
-const API = process.env.REACT_APP_BACKEND_URL + '/api';
-
-// Lock positions for "At Lock" detection
-const LOCK_POSITIONS = {
-  lock_1: 847.6, lock_2: 815.2, lock_3: 796.9, lock_4: 752.8,
-  lock_5: 738.1, lock_5a: 728.3, lock_6: 714.2, lock_7: 702.4,
-  lock_8: 679.1, lock_9: 647.8, lock_10: 615.1, lock_11: 583.0,
-  lock_12: 556.6, lock_13: 522.4, lock_14: 493.2, lock_15: 482.9,
-  lock_16: 457.2, lock_17: 437.1, lock_18: 410.5, lock_19: 364.2,
-  lock_20: 343.2, lock_21: 324.9, lock_22: 301.2, lock_24: 273.4,
-  lock_25: 241.4, lock_26: 202.9, lock_27: 185.0
-};
-
-const getVesselLockStatus = (vessel) => {
-  if (!vessel?.river_mile) return null;
+// "At Lock" detection uses the shared lock list (GET /api/locks).
+const getVesselLockStatus = (vessel, locks) => {
+  if (!hasRiverMile(vessel)) return null;
+  const rm = Number(vessel.river_mile);
   const AT_LOCK_DISTANCE = 0.5;
-  for (const [lockId, lockRM] of Object.entries(LOCK_POSITIONS)) {
-    const distance = Math.abs(vessel.river_mile - lockRM);
+  for (const lock of locks) {
+    const lockRM = Number(lock.river_mile);
+    if (!Number.isFinite(lockRM)) continue;
+    const distance = Math.abs(rm - lockRM);
     if (distance <= AT_LOCK_DISTANCE) {
       return {
-        lockId,
-        lockNum: lockId.replace('lock_', '').toUpperCase(),
+        lockId: lock.id,
+        lockNum: lock.id.replace('lock_', '').replace('melvin_price', 'MEL PRICE').replace('chain_of_rocks', 'CHAIN OF ROCKS').toUpperCase(),
         lockRM,
         distance: distance.toFixed(2)
       };
@@ -65,10 +59,8 @@ const getLastCheckInValue = (vessel) => (
 );
 
 const parseCheckInTime = (value) => {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
+  const ms = getLastSeenMs({ timestamp: value });
+  return ms === null ? null : new Date(ms);
 };
 
 const formatLastCheckIn = (vessel, nowMs) => {
@@ -96,6 +88,7 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
   const [lockageHistory, setLockageHistory] = useState([]);
   const [vesselData, setVesselData] = useState(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const locks = useLocks();
 
   // Keep displayed check-in age current while the modal is open.
   useEffect(() => {
@@ -124,8 +117,9 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
 
   const isUser = vessel.is_user_vessel;
   const isTow = vessel.is_tow || vessel.ship_type === 31 || vessel.ship_type === 32 || vessel.barge_count > 0;
-  const lockStatus = getVesselLockStatus(vessel);
-  const speedMph = (vessel.speed * 1.15078).toFixed(1);
+  const lockStatus = getVesselLockStatus(vessel, locks);
+  const speedMph = Number.isFinite(Number(vessel.speed)) ? (Number(vessel.speed) * 1.15078).toFixed(1) : '--';
+  const stale = isVesselStale(vessel, nowTick);
   const direction = vessel.direction || vessel.heading_direction || vessel.heading;
   const lastCheckInDisplay = formatLastCheckIn(vessel, nowTick);
 
@@ -207,9 +201,9 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
           {/* Position */}
           <div className="col-span-2 bg-slate-800/50 rounded p-2">
             <div className="flex items-center gap-1 text-slate-400 text-xs mb-1">
-              <MapPin className="w-3 h-3" /> Position
+              <MapPin className="w-3 h-3" /> {stale ? "Last known position" : "Position"}
             </div>
-            <div className="font-mono text-lg text-white">RM {vessel.river_mile?.toFixed(1)}</div>
+            <div className="font-mono text-lg text-white">RM {formatRiverMile(vessel.river_mile)}</div>
             <div className="text-[10px] text-slate-500">
               {vessel.lat?.toFixed(4)}°N, {vessel.lon?.toFixed(4)}°W
             </div>
@@ -229,26 +223,26 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
             <div className="flex items-center gap-1 text-slate-400 text-xs mb-1">
               <Clock className="w-3 h-3" /> Check-In
             </div>
-            <div className="font-mono text-sm text-white">{lastCheckInDisplay}</div>
-            <div className="text-[10px] text-slate-500">last AIS</div>
+            <div className={`font-mono text-sm ${stale ? 'text-amber-400' : 'text-white'}`}>{lastCheckInDisplay}</div>
+            <div className="text-[10px] text-slate-500">{stale ? 'stale — not live' : 'last AIS'}</div>
           </div>
 
           {/* Direction */}
           <div className="bg-slate-800/50 rounded p-2">
             <div className="text-slate-400 text-xs mb-1">Direction</div>
             <div className="flex items-center gap-1">
-              {direction === 'northbound' || direction === 'upriver' ? (
+              {isUpbound(direction) ? (
                 <ArrowUp className="w-4 h-4 text-green-400" />
-              ) : direction === 'southbound' || direction === 'downriver' ? (
+              ) : isDownbound(direction) ? (
                 <ArrowDown className="w-4 h-4 text-red-400" />
               ) : (
                 <Minus className="w-4 h-4 text-slate-400" />
               )}
-              <span className={`text-sm capitalize ${
-                direction === 'northbound' || direction === 'upriver' ? 'text-green-400' :
-                direction === 'southbound' || direction === 'downriver' ? 'text-red-400' : 'text-slate-400'
+              <span className={`text-sm ${
+                isUpbound(direction) ? 'text-green-400' :
+                isDownbound(direction) ? 'text-red-400' : 'text-slate-400'
               }`}>
-                {direction || 'Stationary'}
+                {directionLabel(direction)}
               </span>
             </div>
           </div>

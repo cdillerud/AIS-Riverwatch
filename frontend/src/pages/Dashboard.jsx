@@ -34,10 +34,10 @@ import LockDetailModal from "@/components/LockDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
 import Speedometer from "@/components/Speedometer";
 import TripPlanPanel from "@/components/TripPlanPanel";
-import { getVesselDisplayName } from "@/utils/vesselDisplay";
+import { getVesselDisplayName, hasRiverMile, formatRiverMile, formatSpeedMph, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, lockShortLabel } from "@/utils/vesselDisplay";
 import { useAuth } from "@/context/AuthContext";
 
-const API = process.env.REACT_APP_BACKEND_URL + '/api';
+import { API } from "@/lib/api";
 
 export default function Dashboard({ 
   isConnected, 
@@ -161,9 +161,9 @@ export default function Dashboard({
 
   // Calculate next lock based on vessel position and heading
   const nextLock = useMemo(() => {
-    if (!userVessel || !userVessel.river_mile || !locks.length) return null;
-    
-    const userRM = userVessel.river_mile;
+    if (!userVessel || !hasRiverMile(userVessel) || !locks.length) return null;
+
+    const userRM = Number(userVessel.river_mile);
     const heading = userVessel.heading;
     
     // Sort locks by river mile
@@ -212,8 +212,8 @@ export default function Dashboard({
   }, [vessels, userMmsi]);
 
   // Check if speed requirement is dangerous.
-  // If the user's vessel is stopped, do not treat impossible speed-to-beat values
-  // as an active traffic delay. A stopped vessel cannot race anyone to the lock.
+  // If the user's vessel is stopped, do not treat the required-speed estimate
+  // as an active traffic delay.
   const userSpeedMph = userVessel?.speed ? userVessel.speed * 1.15078 : 0;
   const maxAllowedSpeedMph = userSettings.max_speed_mph || 25;
   const isUserEffectivelyStopped = !isTrafficWatch && !!userVessel && userSpeedMph < 0.5;
@@ -244,12 +244,12 @@ export default function Dashboard({
 
   // Calculate distance to selected lock and travel time
   const lockTravelInfo = useMemo(() => {
-    if (!userVessel?.river_mile || !selectedLockObj?.river_mile) {
+    if (!hasRiverMile(userVessel) || !selectedLockObj?.river_mile) {
       return { distance: null, travelMinutes: null, estimatedWait: null };
     }
     
-    const distance = Math.abs(userVessel.river_mile - selectedLockObj.river_mile);
-    const speedMph = userVessel.speed * 1.15078; // knots to mph
+    const distance = Math.abs(Number(userVessel.river_mile) - selectedLockObj.river_mile);
+    const speedMph = (Number(userVessel.speed) || 0) * 1.15078; // knots to mph
     const travelMinutes = speedMph > 0 ? (distance / speedMph) * 60 : null;
     
     // Estimate wait time based on lockage times data
@@ -274,8 +274,10 @@ export default function Dashboard({
       .filter(v => {
         // ONLY exclude by MMSI match, not is_user_vessel flag
         if (userMmsi && v.mmsi === userMmsi) return false;
-        if (!v.river_mile) return false;
-        
+        if (!hasRiverMile(v)) return false;
+        // Stale (not live) positions are not shown as queued traffic
+        if (isVesselStale(v)) return false;
+                
         const distToLock = Math.abs(v.river_mile - lockRM);
         if (distToLock > queueRange) return false;
         
@@ -315,9 +317,9 @@ export default function Dashboard({
   // Helper function to find the nearest lock to a given vessel based on its heading
   // Wrapped with useCallback to be a stable dependency for sortedNearbyVessels
   const findNearestLock = useCallback((vessel) => {
-    if (!vessel?.river_mile || !locks.length) return null;
-    
-    const vesselRM = vessel.river_mile;
+    if (!hasRiverMile(vessel) || !locks.length) return null;
+
+    const vesselRM = Number(vessel.river_mile);
     const heading = vessel.heading;
     const sortedLocks = [...locks].sort((a, b) => a.river_mile - b.river_mile);
     
@@ -361,13 +363,13 @@ export default function Dashboard({
     return vessels.map(vessel => {
       // Find this vessel's next lock
       const nextLock = findNearestLock(vessel);
-      const rmToNextLock = nextLock && vessel.river_mile 
-        ? Math.abs(vessel.river_mile - nextLock.river_mile) 
+      const rmToNextLock = nextLock && hasRiverMile(vessel)
+        ? Math.abs(Number(vessel.river_mile) - nextLock.river_mile)
         : 0;
       
       // Calculate RM distance from center point (user vessel or watch point)
-      const rmFromUser = centerRM && vessel.river_mile 
-        ? Math.abs(vessel.river_mile - centerRM) 
+      const rmFromUser = Number.isFinite(Number(centerRM)) && centerRM !== null && centerRM !== undefined && hasRiverMile(vessel)
+        ? Math.abs(Number(vessel.river_mile) - Number(centerRM))
         : null;
       
       return {
@@ -382,7 +384,7 @@ export default function Dashboard({
       // For vessel owners, always show user's vessel first
       if (!isTrafficWatch && userMmsi && vessel.mmsi === userMmsi) return true;
       // Include all vessels with valid river_mile
-      return vessel.river_mile !== null && vessel.river_mile !== undefined;
+      return hasRiverMile(vessel);
     })
     .sort((a, b) => {
       // Sort by River Mile descending (highest RM first, following the river downstream)
@@ -433,8 +435,8 @@ export default function Dashboard({
   // Open position editor with current values
   const openPositionEditor = useCallback(() => {
     if (userVessel) {
-      setEditRM(userVessel.river_mile?.toFixed(1) || "");
-      setEditSpeed((userVessel.speed * 1.15078).toFixed(1) || "");
+      setEditRM(hasRiverMile(userVessel) ? formatRiverMile(userVessel.river_mile) : "");
+      setEditSpeed(formatSpeedMph(userVessel.speed) === '--' ? "" : formatSpeedMph(userVessel.speed));
       setEditCourse(userVessel.course?.toFixed(0) || "180");
     }
     setShowPositionEditor(true);
@@ -443,8 +445,8 @@ export default function Dashboard({
   // Handle user vessel edit from map click
   const handleUserVesselEdit = (vessel) => {
     // Pre-fill the form with current vessel data
-    setEditRM(vessel.river_mile?.toFixed(1) || "");
-    setEditSpeed((vessel.speed * 1.15078).toFixed(1) || "");
+    setEditRM(hasRiverMile(vessel) ? formatRiverMile(vessel.river_mile) : "");
+    setEditSpeed(formatSpeedMph(vessel.speed) === '--' ? "" : formatSpeedMph(vessel.speed));
     setEditCourse(vessel.course?.toFixed(0) || "180");
     setShowPositionEditor(true);
   };
@@ -775,7 +777,7 @@ export default function Dashboard({
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
                     <span className="text-slate-500 font-heading uppercase text-[10px]">Watching</span>
-                    <span className="font-mono text-white font-semibold">RM {watchPoint?.river_mile?.toFixed(1) || selectedLockObj?.river_mile}</span>
+                    <span className="font-mono text-white font-semibold">RM {formatRiverMile(watchPoint?.river_mile ?? selectedLockObj?.river_mile)}</span>
                   </div>
                 </>
               ) : (
@@ -801,10 +803,10 @@ export default function Dashboard({
                     data-testid="hud-position-edit-btn"
                     title="Edit position (P)"
                   >
-                    {userVessel?.river_mile ? (
+                    {hasRiverMile(userVessel) ? (
                       <>
                         <span className="text-slate-500 font-heading uppercase text-[10px]">RM</span>
-                        <span className="font-mono text-white font-semibold">{userVessel.river_mile?.toFixed(1)}</span>
+                        <span className="font-mono text-white font-semibold">{formatRiverMile(userVessel.river_mile)}</span>
                       </>
                     ) : (
                       <span className="text-slate-500 text-[10px]">Set Position</span>
@@ -815,7 +817,7 @@ export default function Dashboard({
                   {/* Speed - Vessel Owner only */}
                   {userVessel && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
-                      <span className="font-mono text-white font-semibold">{(userVessel.speed * 1.15078).toFixed(0)}</span>
+                      <span className="font-mono text-white font-semibold">{formatSpeedMph(userVessel.speed, 0)}</span>
                       <span className="text-slate-500 text-[10px]">mph</span>
                     </div>
                   )}
@@ -991,7 +993,7 @@ export default function Dashboard({
                     >
                       {locks.map(lock => (
                         <option key={lock.id} value={lock.id}>
-                          L{lock.id.replace('lock_', '')} (RM {lock.river_mile})
+                          {lockShortLabel(lock.id)} (RM {lock.river_mile})
                         </option>
                       ))}
                     </select>
@@ -1006,6 +1008,7 @@ export default function Dashboard({
                     locks={locks}
                     selectedLock={selectedLock}
                     raceAnalysis={raceAnalysis}
+                    maxSpeedMph={maxAllowedSpeedMph}
                     zoomRange={zoomLevel}
                     onVesselClick={handleVesselClick}
                     onLockClick={setSelectedLockDetail}
@@ -1050,11 +1053,11 @@ export default function Dashboard({
                             {userVessel.course ? `${Math.round(userVessel.course)}°` : '--'}
                           </div>
                           <div className={`text-[10px] font-semibold ${
-                            userVessel.heading === 'northbound' ? 'text-green-400' : 
-                            userVessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-400'
+                            isUpbound(userVessel.heading) ? 'text-green-400' :
+                            isDownbound(userVessel.heading) ? 'text-red-400' : 'text-slate-400'
                           }`}>
-                            {userVessel.heading === 'northbound' ? '↑ UPRIVER' : 
-                             userVessel.heading === 'southbound' ? '↓ DOWNRIVER' : 'STATIONARY'}
+                            {isUpbound(userVessel.heading) ? '↑ UPBOUND' :
+                             isDownbound(userVessel.heading) ? '↓ DOWNBOUND' : directionLabel(userVessel.heading).toUpperCase()}
                           </div>
                         </div>
                       </div>
@@ -1202,14 +1205,14 @@ export default function Dashboard({
                           <ArrowUpRight className="w-4 h-4" />
                           <span className="text-lg font-bold">{trafficSummary?.northbound || 0}</span>
                         </div>
-                        <div className="text-[10px] text-slate-400">Northbound</div>
+                        <div className="text-[10px] text-slate-400">Upbound</div>
                       </div>
                       <div className="p-2 bg-red-500/10 rounded-lg text-center">
                         <div className="flex items-center justify-center gap-1 text-red-400 mb-1">
                           <ArrowDownRight className="w-4 h-4" />
                           <span className="text-lg font-bold">{trafficSummary?.southbound || 0}</span>
                         </div>
-                        <div className="text-[10px] text-slate-400">Southbound</div>
+                        <div className="text-[10px] text-slate-400">Downbound</div>
                       </div>
                     </div>
                     
@@ -1233,8 +1236,8 @@ export default function Dashboard({
                                 {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
                               </span>
                               <div className="flex items-center gap-1.5">
-                                <span className={vessel.heading === 'northbound' ? 'text-green-400' : vessel.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'}>
-                                  {vessel.heading === 'northbound' ? '↑N' : vessel.heading === 'southbound' ? '↓S' : '—'}
+                                <span className={isUpbound(vessel.heading) ? 'text-green-400' : isDownbound(vessel.heading) ? 'text-red-400' : 'text-slate-500'}>
+                                  {isUpbound(vessel.heading) ? '↑U' : isDownbound(vessel.heading) ? '↓D' : '—'}
                                 </span>
                                 <span className="text-slate-500 font-mono">
                                   {vessel.distance_to_lock?.toFixed(1)}mi
@@ -1372,16 +1375,16 @@ export default function Dashboard({
                         </div>
                         <div className="grid grid-cols-2 gap-1 text-slate-400">
                           <span>ETA: {raceAnalysis.analysis.threatening_vessel.eta_minutes?.toFixed(0) || '--'}m</span>
-                          <span>RM: {raceAnalysis.analysis.threatening_vessel.river_mile?.toFixed(1)}</span>
+                          <span>RM: {formatRiverMile(raceAnalysis.analysis.threatening_vessel.river_mile)}</span>
                         </div>
                       </div>
                       <div className="text-center py-2">
-                        <div className="text-[10px] text-slate-500 uppercase">Speed to Beat</div>
+                        <div className="text-[10px] text-slate-500 uppercase">Speed Needed to Arrive Before Tow</div>
                         {isTimingPaused ? (
                           <>
                             <div className="text-2xl font-mono font-bold text-slate-300">Stopped</div>
                             <div className="text-[10px] text-slate-400 mt-1">
-                              Start moving or enter a speed to calculate a meaningful speed-to-beat.
+                              Start moving or enter a speed to estimate the speed needed to arrive before the tow.
                             </div>
                           </>
                         ) : (
@@ -1431,7 +1434,7 @@ export default function Dashboard({
                                 </Badge>
                               )}
                               <span className="text-slate-500 font-mono">
-                                {Math.abs(vessel.river_mile - selectedLockObj.river_mile).toFixed(1)}mi
+                                {Math.abs(Number(vessel.river_mile) - selectedLockObj.river_mile).toFixed(1)}mi
                               </span>
                             </div>
                           </div>
@@ -1513,14 +1516,16 @@ export default function Dashboard({
                               vessel.mmsi?.toString().includes(vesselSearchQuery.toLowerCase()) ||
                               vessel.name?.toLowerCase().includes(vesselSearchQuery.toLowerCase())
                             );
+                            const stale = isVesselStale(vessel);
                             return (
-                              <div 
+                              <div
                                 key={vessel.mmsi}
                                 className={`p-2 rounded cursor-pointer transition-colors ${
-                                  isUser ? 'bg-cyan-500/10 border-l-2 border-cyan-500' : 
+                                  isUser ? 'bg-cyan-500/10 border-l-2 border-cyan-500' :
                                   isSearchMatch ? 'bg-purple-500/10 border-l-2 border-purple-500' :
                                   'hover:bg-slate-800/50'
-                                }`}
+                                } ${stale ? 'opacity-50' : ''}`}
+                                title={stale ? `Stale position — ${lastSeenLabel(vessel)}` : undefined}
                                 onClick={() => handleVesselClickFromList(vessel)}
                               >
                                 <div className="flex items-center justify-between">
@@ -1532,14 +1537,15 @@ export default function Dashboard({
                                     {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
                                   </span>
                                   <span className="text-[10px] text-slate-400 font-mono">
-                                    RM {vessel.river_mile?.toFixed(1)}
+                                    RM {formatRiverMile(vessel.river_mile)}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
-                                  <span>{(vessel.speed * 1.15078).toFixed(1)} mph</span>
-                                  <span className={vessel.direction === 'upriver' || vessel.heading === 'northbound' ? 'text-green-400' : vessel.direction === 'downriver' || vessel.heading === 'southbound' ? 'text-red-400' : ''}>
-                                    {vessel.direction === 'upriver' || vessel.heading === 'northbound' ? '↑N' : vessel.direction === 'downriver' || vessel.heading === 'southbound' ? '↓S' : '—'}
+                                  <span>{formatSpeedMph(vessel.speed)} mph</span>
+                                  <span className={vessel.direction === 'upriver' || isUpbound(vessel.heading) ? 'text-green-400' : vessel.direction === 'downriver' || isDownbound(vessel.heading) ? 'text-red-400' : ''}>
+                                    {vessel.direction === 'upriver' || isUpbound(vessel.heading) ? '↑U' : vessel.direction === 'downriver' || isDownbound(vessel.heading) ? '↓D' : '—'}
                                   </span>
+                                  {stale && <span className="text-amber-400">{lastSeenLabel(vessel)}</span>}
                                   {vessel.barge_count > 0 && (
                                     <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
                                       {vessel.barge_count}B
@@ -1556,7 +1562,7 @@ export default function Dashboard({
                                   {isUser && <span className="text-cyan-400">Your vessel</span>}
                                   {vessel.nextLockInfo && (
                                     <span className="text-slate-500">
-                                      → L{vessel.nextLockInfo.id.replace('lock_', '')} in {vessel.rmToNextLock.toFixed(1)} mi
+                                      → {lockShortLabel(vessel.nextLockInfo.id)} in {vessel.rmToNextLock.toFixed(1)} mi
                                     </span>
                                   )}
                                 </div>
@@ -1679,11 +1685,11 @@ export default function Dashboard({
                     <div className="grid grid-cols-4 gap-2 text-center">
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">RM</div>
-                        <div className="text-base font-mono text-white">{userVessel.river_mile?.toFixed(1)}</div>
+                        <div className="text-base font-mono text-white">{formatRiverMile(userVessel.river_mile)}</div>
                       </div>
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">Speed</div>
-                        <div className="text-base font-mono text-white">{(userVessel.speed * 1.15078).toFixed(1)}</div>
+                        <div className="text-base font-mono text-white">{formatSpeedMph(userVessel.speed)}</div>
                       </div>
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">Course</div>
@@ -1691,7 +1697,7 @@ export default function Dashboard({
                       </div>
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">Dir</div>
-                        <div className="text-base font-mono text-white capitalize">{userVessel.heading?.slice(0,1) || '-'}</div>
+                        <div className="text-base font-mono text-white">{isUpbound(userVessel.heading) ? 'UB' : isDownbound(userVessel.heading) ? 'DB' : '—'}</div>
                       </div>
                     </div>
                   </CardContent>
@@ -1750,6 +1756,7 @@ export default function Dashboard({
                   locks={locks}
                   selectedLock={selectedLock}
                   raceAnalysis={raceAnalysis}
+                  maxSpeedMph={maxAllowedSpeedMph}
                   compact={true}
                   zoomRange={zoomLevel}
                   onVesselClick={handleVesselClick}
@@ -1844,7 +1851,7 @@ export default function Dashboard({
             <div>
               <div className="text-red-400 font-bold">Traffic Delay Expected</div>
               <div className="text-sm text-slate-300">
-                Required speed ({raceAnalysis?.analysis?.required_speed_mph?.toFixed(1)} MPH) exceeds your max (25 MPH)
+                Required speed ({raceAnalysis?.analysis?.required_speed_mph?.toFixed(1)} MPH) exceeds your max ({maxAllowedSpeedMph} MPH)
               </div>
             </div>
             <button

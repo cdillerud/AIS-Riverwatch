@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const API = process.env.REACT_APP_BACKEND_URL + "/api/ais-scan";
+import { API as API_ROOT } from "@/lib/api";
+const API = `${API_ROOT}/ais-scan`;
 
 function fmtTime(iso) {
   if (!iso) return "—";

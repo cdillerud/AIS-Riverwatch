@@ -3,7 +3,8 @@ import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gau
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { getVesselDisplayName, getVesselShortName } from "@/utils/vesselDisplay";
+import { getVesselDisplayName, getVesselShortName, hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, getLastSeenMs } from "@/utils/vesselDisplay";
+import { API } from "@/lib/api";
 
 // Default River Mile range for Upper Mississippi (Lock 1 to Chain of Rocks)
 const FULL_MIN_RM = 180;  // Chain of Rocks (RM 185) with buffer
@@ -29,10 +30,8 @@ const getLastCheckInValue = (vessel) => (
 );
 
 const parseCheckInTime = (value) => {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
+  const ms = getLastSeenMs({ timestamp: value });
+  return ms === null ? null : new Date(ms);
 };
 
 const formatLastCheckIn = (vessel, nowMs) => {
@@ -93,10 +92,10 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
   
   const isUser = userMmsi && vessel.mmsi === userMmsi;
   const isTow = vessel.is_tow || vessel.barge_count > 0;
-  const speedMph = (vessel.speed * 1.15078).toFixed(1);
+  const speedMph = Number.isFinite(Number(vessel.speed)) ? (Number(vessel.speed) * 1.15078).toFixed(1) : '--';
   const direction = vessel.direction || vessel.heading_direction || vessel.heading;
-  const API = process.env.REACT_APP_BACKEND_URL + '/api';
-  const lastCheckInDisplay = formatLastCheckInLong(vessel, nowTick);
+  const stale = isVesselStale(vessel, nowTick);
+  const lastCheckInDisplay = stale ? lastSeenLabel(vessel, nowTick) : formatLastCheckInLong(vessel, nowTick);
   const lastCheckInClass = getCheckInTextClass(vessel, nowTick);
 
   useEffect(() => {
@@ -121,7 +120,7 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
       }
     };
     if (vessel?.mmsi) fetchData();
-  }, [vessel?.mmsi, API]);
+  }, [vessel?.mmsi]);
 
   return (
     <div 
@@ -173,12 +172,12 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
           {/* POSITION */}
           <div className="glass-panel p-2 rounded border border-slate-700">
             <h3 className="text-[10px] font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
-              <MapPin className="w-3 h-3" /> POSITION
+              <MapPin className="w-3 h-3" /> {stale ? 'LAST KNOWN POSITION' : 'POSITION'}
             </h3>
             <div className="space-y-1 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">River Mile</span>
-                <span className="font-mono text-cyan-400 font-bold">{vessel.river_mile?.toFixed(1)}</span>
+                <span className="font-mono text-cyan-400 font-bold">{formatRiverMile(vessel.river_mile)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Coords</span>
@@ -213,11 +212,11 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">Direction</span>
                 <span className={`flex items-center gap-1 ${
-                  direction === 'northbound' || direction === 'upriver' ? 'text-green-400' :
-                  direction === 'southbound' || direction === 'downriver' ? 'text-red-400' : 'text-slate-400'
+                  isUpbound(direction) ? 'text-green-400' :
+                  isDownbound(direction) ? 'text-red-400' : 'text-slate-400'
                 }`}>
-                  {direction === 'northbound' || direction === 'upriver' ? '↑' : direction === 'southbound' || direction === 'downriver' ? '↓' : '—'}
-                  <span className="capitalize">{direction || 'Still'}</span>
+                  {isUpbound(direction) ? '↑' : isDownbound(direction) ? '↓' : '—'}
+                  <span>{directionLabel(direction)}</span>
                 </span>
               </div>
             </div>
@@ -359,6 +358,7 @@ const RiverVisualizationComponent = ({
   locks, 
   selectedLock,
   raceAnalysis,
+  maxSpeedMph = 25, // user's configured max speed (Settings)
   compact = false,
   zoomRange = 20, // Range in miles (10-500, 500+ = full view)
   onVesselClick = () => {},
@@ -397,8 +397,8 @@ const RiverVisualizationComponent = ({
 
   // When a focused vessel is set, calculate offset to center on it and show info
   useEffect(() => {
-    if (focusedVessel && focusedVessel.river_mile !== undefined && focusedVessel.river_mile !== null) {
-      const vesselRM = focusedVessel.river_mile;
+    if (focusedVessel && hasRiverMile(focusedVessel)) {
+      const vesselRM = Number(focusedVessel.river_mile);
       const offsetNeeded = vesselRM - selectedLockRM;
       
       // Update scroll offset to center on the vessel
@@ -455,7 +455,7 @@ const RiverVisualizationComponent = ({
 
   // Calculate position percentage for a river mile
   const getRiverPosition = (riverMile) => {
-    if (!riverMile) return 50;
+    if (riverMile == null || !Number.isFinite(Number(riverMile))) return 50;
     // Invert because higher RM is north (top of screen)
     const pct = ((riverMile - minRM) / (maxRM - minRM)) * 100;
     return Math.max(2, Math.min(98, 100 - pct)); // Invert so north is at top
@@ -463,7 +463,8 @@ const RiverVisualizationComponent = ({
 
   // Check if a river mile is in view
   const isInView = useCallback((riverMile) => {
-    if (!riverMile) return false;
+    // Null river_mile (off-river / unknown) is never drawn on the strip.
+    if (riverMile == null || !Number.isFinite(Number(riverMile))) return false;
     return riverMile >= minRM && riverMile <= maxRM;
   }, [minRM, maxRM]);
 
@@ -475,8 +476,8 @@ const RiverVisualizationComponent = ({
 
   // Check if user vessel is outside visible range
   const userOutOfRange = useMemo(() => {
-    if (!userVessel?.river_mile) return null;
-    const rm = userVessel.river_mile;
+    if (!hasRiverMile(userVessel)) return null;
+    const rm = Number(userVessel.river_mile);
     if (rm > maxRM) return 'north';
     if (rm < minRM) return 'south';
     return null;
@@ -529,7 +530,7 @@ const RiverVisualizationComponent = ({
     let currentGroup = [];
     
     for (const vessel of sorted) {
-      if (!vessel.river_mile) continue;
+      if (!hasRiverMile(vessel)) continue;
       
       if (currentGroup.length === 0) {
         currentGroup.push(vessel);
@@ -690,7 +691,7 @@ const RiverVisualizationComponent = ({
                   {showVesselNames && userVessel.name ? userVessel.name : 'YOUR BOAT'}
                 </div>
                 <div className="text-slate-400 font-mono">
-                  RM {userVessel.river_mile?.toFixed(1)} • {(userVessel.river_mile - maxRM).toFixed(1)} mi north
+                  RM {formatRiverMile(userVessel.river_mile)} • {(Number(userVessel.river_mile) - maxRM).toFixed(1)} mi upriver
                 </div>
               </div>
               <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
@@ -713,7 +714,7 @@ const RiverVisualizationComponent = ({
                   {showVesselNames && userVessel.name ? userVessel.name : 'YOUR BOAT'}
                 </div>
                 <div className="text-slate-400 font-mono">
-                  RM {userVessel.river_mile?.toFixed(1)} • {(minRM - userVessel.river_mile).toFixed(1)} mi south
+                  RM {formatRiverMile(userVessel.river_mile)} • {(minRM - Number(userVessel.river_mile)).toFixed(1)} mi downriver
                 </div>
               </div>
               <div className="w-3 h-3 rounded-full bg-cyan-400 user-vessel-pulse" />
@@ -756,10 +757,10 @@ const RiverVisualizationComponent = ({
         let lockStyle = {};
         
         if (isSelected && analysis) {
-          if (analysis.required_speed_mph > 25) {
-            // Can't beat - red
+          if (analysis.required_speed_mph > maxSpeedMph) {
+            // Required speed exceeds the user's max - red
             lockStyle = { borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.2)', boxShadow: '0 0 12px rgba(239, 68, 68, 0.5)' };
-          } else if (analysis.can_beat_at_25mph && analysis.threatening_vessel) {
+          } else if (analysis.threatening_vessel && Number.isFinite(analysis.required_speed_mph) && analysis.required_speed_mph <= maxSpeedMph) {
             // Can arrive first - green
             lockStyle = { borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.2)', boxShadow: '0 0 12px rgba(34, 197, 94, 0.5)' };
           } else if (!analysis.threatening_vessel) {
@@ -800,8 +801,9 @@ const RiverVisualizationComponent = ({
         const isUser = userMmsi && vessel.mmsi === userMmsi;
         const isFocused = focusedVessel?.mmsi === vessel.mmsi;
         const topPosition = getRiverPosition(vessel.river_mile);
-        const speedMph = (vessel.speed * 1.15078).toFixed(1);
-        const lastCheckInDisplay = formatLastCheckIn(vessel, mapNowTick);
+        const speedMph = Number.isFinite(Number(vessel.speed)) ? (Number(vessel.speed) * 1.15078).toFixed(1) : '--';
+        const stale = isVesselStale(vessel, mapNowTick);
+        const lastCheckInDisplay = stale ? lastSeenLabel(vessel, mapNowTick) : formatLastCheckIn(vessel, mapNowTick);
         const lastCheckInClass = getCheckInTextClass(vessel, mapNowTick);
         const horizontalOffset = vesselOffsets[vessel.mmsi] || 0;
         const isOffset = horizontalOffset !== 0;
@@ -809,7 +811,8 @@ const RiverVisualizationComponent = ({
         return (
           <div
             key={vessel.mmsi}
-            className={`absolute z-20 transition-all duration-500 ease-out cursor-pointer hover:z-30 ${isFocused ? 'z-40' : ''}`}
+            className={`absolute z-20 transition-all duration-500 ease-out cursor-pointer hover:z-30 ${isFocused ? 'z-40' : ''} ${stale ? 'opacity-40' : ''}`}
+            title={stale ? `Stale position — ${lastSeenLabel(vessel, mapNowTick)}` : undefined}
             style={{ 
               top: `${topPosition}%`,
               left: `calc(50% + ${horizontalOffset}px)`,
@@ -877,7 +880,7 @@ const RiverVisualizationComponent = ({
                   {compact ? getVesselShortName(vessel, showVesselNames, 10) : getVesselDisplayName(vessel, showVesselNames)}
                 </div>
                 <div className="text-slate-400 font-mono text-[9px]">
-                  {speedMph} mph {!compact && `• RM ${vessel.river_mile?.toFixed(1)}`}
+                  {speedMph} mph {!compact && `• RM ${formatRiverMile(vessel.river_mile)}`}
                 </div>
                 <div className={`font-mono text-[9px] font-semibold flex items-center gap-0.5 ${lastCheckInClass}`}>
                   <Clock className="w-2.5 h-2.5" />
@@ -889,8 +892,8 @@ const RiverVisualizationComponent = ({
         );
       })}
 
-      {/* Race path indicator - shows path from user to lock */}
-      {raceAnalysis?.user_vessel && raceAnalysis?.target_lock_rm && (
+      {/* Arrival path indicator - shows path from user to lock */}
+      {hasRiverMile(raceAnalysis?.user_vessel) && raceAnalysis?.target_lock_rm && (
         <div 
           className="absolute left-1/2 w-0.5 md:w-1 bg-gradient-to-b from-cyan-500/50 to-transparent -translate-x-1/2"
           style={{
@@ -984,6 +987,8 @@ export const RiverVisualization = memo(RiverVisualizationComponent, (prevProps, 
   if (prevProps.compact !== nextProps.compact) return false;
   if (prevProps.showVesselNames !== nextProps.showVesselNames) return false;
   if (prevProps.userMmsi !== nextProps.userMmsi) return false;
+  if (prevProps.locks !== nextProps.locks) return false;
+  if (prevProps.maxSpeedMph !== nextProps.maxSpeedMph) return false;
   
   // Check if focused vessel changed - important for centering from list clicks
   if (prevProps.focusedVessel?.mmsi !== nextProps.focusedVessel?.mmsi) return false;
@@ -1008,6 +1013,8 @@ export const RiverVisualization = memo(RiverVisualizationComponent, (prevProps, 
   // Compare race analysis
   if (prevProps.raceAnalysis?.analysis?.threatening_vessel?.mmsi !== 
       nextProps.raceAnalysis?.analysis?.threatening_vessel?.mmsi) return false;
+  if (prevProps.raceAnalysis?.analysis?.required_speed_mph !==
+      nextProps.raceAnalysis?.analysis?.required_speed_mph) return false;
   
   return true; // Props are equal, don't re-render
 });

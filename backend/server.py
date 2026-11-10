@@ -2438,6 +2438,22 @@ class AISConnectionManager:
         
         logger.info("AIS read loop ended")
     
+    async def _apply_static_to_active(self, mmsi: str, static: dict):
+        """Copy newly decoded static data onto an active vessel and push the update."""
+        vessel = active_vessels.get(mmsi)
+        if vessel is None or isinstance(vessel, dict):
+            return
+        changed = False
+        for field in ("name", "ship_type", "length", "width", "draught", "destination", "callsign", "imo", "eta"):
+            value = static.get(field)
+            if value in (None, "", 0) or not hasattr(vessel, field):
+                continue
+            if getattr(vessel, field) != value:
+                setattr(vessel, field, value)
+                changed = True
+        if changed:
+            await self._broadcast_vessel_update(prepare_vessel_for_output(vessel, ""))
+
     async def _process_line(self, line: str):
         """Process a single NMEA/AIS line."""
         # NOTE: No global user_mmsi - each subscriber tracks their own MMSI
@@ -2536,6 +2552,9 @@ class AISConnectionManager:
                         )
                     except Exception as e:
                         logger.error(f"Failed to persist vessel name to DB: {e}")
+                # A vessel already on the map got its position before its name:
+                # fill the name in now instead of waiting for its next position.
+                await self._apply_static_to_active(mmsi_parsed, vessel_data)
                 return
             
             # Always enforce main-channel filtering.
@@ -6479,28 +6498,22 @@ async def websocket_ais(websocket: WebSocket):
                 client_mmsi = msg.get("user_mmsi", "")
                 client_boat_name = msg.get("boat_name", "")
                 
-                # The TCP feed is shared by every viewer. Only a signed-in user
-                # may point it somewhere new, and only at an allowed address;
-                # anyone else just subscribes to the existing feed.
+                # The TCP feed is shared by every viewer and owned by the server
+                # (set via POST /api/connection/start, restored on restart).
+                # Opening a dashboard only subscribes: a viewer's stale browser
+                # config must never re-point the live feed for everyone. The
+                # ip_address/port fields older clients send are ignored.
                 current = ais_manager.config or {}
-                wants_change = bool(ip) and (
-                    current.get("ip_address") != ip or current.get("port") != port or not ais_manager.is_connected
-                )
-                if current.get("ip_address") == "push://relay" and ais_manager.is_connected:
-                    wants_change = False  # live push feed from a relay: don't redial
-                if wants_change:
-                    ws_user = await get_current_user(websocket)
-                    target_err = None if ws_user else "Sign in to change the AIS feed"
-                    if not target_err:
-                        target_err = await asyncio.to_thread(validate_feed_target, ip, port)
-                    if target_err:
-                        await websocket.send_json({"type": "error", "message": target_err})
-                    else:
-                        logger.info(f"Configuring AIS connection: {ip}:{port}, User MMSI: {client_mmsi}")
-                        await ais_manager.configure(ip, port, client_mmsi, client_boat_name)
-                elif ip:
-                    await ais_manager.configure(ip, port, client_mmsi, client_boat_name)
-                
+                if ip and (current.get("ip_address") != ip or current.get("port") != port):
+                    logger.info(
+                        f"WebSocket connect asked for {ip}:{port}; keeping server feed "
+                        f"{current.get('ip_address')}:{current.get('port')} (change it in Settings)"
+                    )
+                if client_mmsi:
+                    session_manager.create_session(client_mmsi)
+                    if client_boat_name:
+                        vessel_static_cache[client_mmsi] = {"name": client_boat_name, "is_user": True}
+
                 # Subscribe this WebSocket with user's MMSI for per-user vessel tracking
                 if not subscribed:
                     await ais_manager.subscribe(websocket, client_mmsi, client_boat_name)
@@ -7064,8 +7077,9 @@ async def simulate_demo_vessels():
         try:
             await asyncio.sleep(10)  # Update every 10 seconds
             
-            # Skip if demo vessels are disabled
-            if not demo_vessels_active:
+            # Skip if demo vessels are disabled, or hidden because real AIS
+            # traffic is flowing (RIVERWATCH_DEMO_VESSELS_MODE=auto).
+            if not demo_vessels_active or _should_suppress_demo_vessels():
                 # Remove demo vessels if present
                 for vessel_id, config in DEMO_VESSELS.items():
                     mmsi = config["mmsi"]

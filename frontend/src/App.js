@@ -113,6 +113,7 @@ function MainApp() {
   });
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const lastFeedErrorRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   // False after a user-initiated Disconnect, logout or unmount: a closing socket
   // must not schedule a reconnect in those cases.
@@ -692,11 +693,11 @@ function MainApp() {
       reconnectAttemptsRef.current = 0;
       // Don't set isConnected here - wait for actual AIS connection confirmation
       // setIsConnected(true); -- Removed: This was incorrect
-      // Send connection config including boat name for proper identification
+      // Subscribe to the server's shared feed. The feed address is owned by
+      // the server (Settings > AIS Connection); never send it from here, or a
+      // stale browser config would re-point the live feed for every viewer.
       ws.send(JSON.stringify({
         action: "connect",
-        ip_address: config.ip_address,
-        port: config.port,
         user_mmsi: config.user_mmsi,
         boat_name: userSettings.boat_name || config.boat_name || ""
       }));
@@ -714,16 +715,21 @@ function MainApp() {
       if (data.type === "connected") {
         // AIS TCP connection to relay hub succeeded
         console.log("AIS feed connected:", data.message);
+        lastFeedErrorRef.current = null;
         setIsConnected(true);
       } else if (data.type === "disconnected") {
         // AIS TCP connection to relay hub failed/disconnected
         console.log("AIS feed disconnected:", data.message);
         setIsConnected(false);
       } else if (data.type === "error") {
-        // Connection error (e.g., "Connection refused")
-        console.error("AIS connection error:", data.message);
+        // Connection error (e.g., "Connection refused"). The server retries on
+        // its own, so only toast when the message changes, not on every retry.
         setIsConnected(false);
-        toast.error(data.message);
+        if (lastFeedErrorRef.current !== data.message) {
+          lastFeedErrorRef.current = data.message;
+          console.warn("AIS feed error:", data.message);
+          toast.error(data.message);
+        }
       } else if (data.type === "vessel_update") {
         // OPTIMIZED: Throttle vessel updates - batch them every 2 seconds
         // This prevents excessive re-renders from rapid AIS messages
@@ -743,8 +749,9 @@ function MainApp() {
             const existingCheckIn = existing.last_ais_checkin || existing.timestamp || existing.last_update;
             const newCheckIn = data.vessel.last_ais_checkin || data.vessel.timestamp || data.vessel.last_update;
             const checkInChanged = newCheckIn && newCheckIn !== existingCheckIn;
+            const nameChanged = (data.vessel.name || "") !== (existing.name || "");
 
-            if (latDiff < 0.0001 && lonDiff < 0.0001 && speedDiff < 0.5 && !checkInChanged) {
+            if (latDiff < 0.0001 && lonDiff < 0.0001 && speedDiff < 0.5 && !checkInChanged && !nameChanged) {
               return prev; // No significant change and no fresh check-in, skip update
             }
             const updated = [...prev];
@@ -825,6 +832,29 @@ function MainApp() {
   }, []);
 
   const handleConnect = async (config) => {
+    // The setup page is an explicit feed choice: apply it on the server, which
+    // owns the shared feed. Relay/push placeholders are not dialable targets.
+    if (config.ip_address && !["ais-relay", "push://relay"].includes(config.ip_address)) {
+      try {
+        const r = await fetch(`${API}/connection/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            ip_address: config.ip_address,
+            port: Number(config.port) || 5353,
+            user_mmsi: config.user_mmsi || "",
+            boat_name: config.boat_name || "",
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          toast.error(err.detail || "Could not connect to that AIS feed");
+        }
+      } catch (e) {
+        toast.error("Could not reach the server to set the AIS feed");
+      }
+    }
     setConnectionConfig(config);
     setUserMmsi(config.user_mmsi || "");
     

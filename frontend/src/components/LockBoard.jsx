@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { API } from "@/lib/api";
 import { fmtDuration } from "@/components/LockageRow";
+import { fmtRiverTime } from "@/lib/riverTime";
 
 // Lock-first view: every lock's status, queue, estimated wait and typical
 // lockage times from USACE data. Works with no AIS feed. The boat's own
@@ -29,7 +30,7 @@ function lockLabel(lockId) {
 function fmtTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return Number.isNaN(d.getTime()) ? "" : fmtRiverTime(d);   // Central time, like the locks
 }
 
 function StatusBadge({ lock }) {

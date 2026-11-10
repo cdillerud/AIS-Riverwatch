@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gauge, Box, Timer, ExternalLink, ChevronRight, Radio, Compass, Ruler, Clock, History, Edit3, Hash } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { fmtRiverTime } from "@/lib/riverTime";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getVesselDisplayName, getVesselShortName, hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, getLastSeenMs } from "@/utils/vesselDisplay";
@@ -901,7 +902,7 @@ const RiverVisualizationComponent = ({
           .filter(p => isInView(p.est_river_mile) && !(p.mmsi && liveMmsis.has(String(p.mmsi))))
           .map((p, i) => {
             const up = p.direction === 'upbound';
-            const eta = p.eta ? new Date(p.eta).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+            const eta = p.eta ? fmtRiverTime(p.eta) : '';
             return (
               <div
                 key={`pred-${p.mmsi || p.vessel_name}-${i}`}

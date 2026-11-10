@@ -45,6 +45,8 @@ services:
       AIS_RELAY_URL: http://ais-relay:8088
       AIS_RELAY_TOKEN: ${AIS_RELAY_TOKEN:-}
       AIS_INGEST_TOKEN: ${AIS_INGEST_TOKEN:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
     depends_on:
       mongodb:
         condition: service_healthy

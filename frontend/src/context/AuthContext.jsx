@@ -89,26 +89,21 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const loginWithGoogle = () => {
-    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + '/auth/callback';
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-  };
-
-  const processGoogleCallback = async (sessionId) => {
+  // credential: the Google Identity Services ID token from GoogleSignInButton.
+  const loginWithGoogle = async (credential) => {
     setError(null);
     try {
-      const response = await fetch(`${API}/auth/google/session`, {
+      const response = await fetch(`${API}/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ session_id: sessionId })
+        body: JSON.stringify({ credential })
       });
 
       const data = await response.json();
-      
+
       if (!response.ok) {
-        throw new Error(data.detail || 'Google login failed');
+        throw new Error(data.detail || 'Google sign-in failed');
       }
 
       setUser(data.user);
@@ -226,7 +221,6 @@ export function AuthProvider({ children }) {
     login,
     register,
     loginWithGoogle,
-    processGoogleCallback,
     logout,
     addVessel,
     removeVessel,

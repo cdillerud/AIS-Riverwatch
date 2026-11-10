@@ -54,6 +54,12 @@ deployment, set at least these:
   Without it, anyone can post vessel positions.
 - `AIS_ALLOW_PRIVATE_TARGETS=false` on a hosted server, so users can't make
   it connect to internal addresses.
+- `GOOGLE_CLIENT_ID`: enables "Sign in with Google". Create a *Web
+  application* OAuth client in Google Cloud Console and add the site's origin
+  (e.g. `https://riverwatch.example.com`) under *Authorized JavaScript
+  origins*. The backend verifies Google's signed ID token itself; no third-party
+  auth broker is involved. Leave empty for email/password only.
+- `SUPER_ADMIN_EMAIL`: the account that always gets super-admin rights.
 - `CORS_ORIGINS`: explicit origins only. Leave it empty when nginx serves the
   app and the API on the same origin.
 

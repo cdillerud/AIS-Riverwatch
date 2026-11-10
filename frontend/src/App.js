@@ -9,7 +9,6 @@ import SettingsPage from "@/pages/SettingsPage";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import LandingPage from "@/pages/LandingPage";
-import AuthCallback from "@/pages/AuthCallback";
 import TrafficPlanner from "@/pages/TrafficPlanner";
 import TripsPage from "@/pages/TripsPage";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -50,15 +49,8 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-// App Router - Check for auth callback first
 function AppRouter() {
-  const location = useLocation();
   const { isAuthenticated } = useAuth();
-  
-  // Check URL hash for session_id (Google OAuth callback)
-  if (location.hash?.includes('session_id=')) {
-    return <AuthCallback />;
-  }
   
   return (
     <Routes>
@@ -72,7 +64,6 @@ function AppRouter() {
       <Route path="/register" element={
         isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />
       } />
-      <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/dashboard" element={
         <ProtectedRoute>
           <MainApp />

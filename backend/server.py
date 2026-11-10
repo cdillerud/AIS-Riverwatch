@@ -45,6 +45,7 @@ import hashlib
 import secrets
 
 from services import river_geometry as _river_geo
+from services.google_auth import GoogleAuthError, google_client_id, verify_google_credential
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
 from services.navigation_service import (
@@ -274,27 +275,46 @@ class User(BaseModel):
     last_login: Optional[str] = None
     created_at: Optional[str] = None
 
-# Super admin email - this user has full system access
-SUPER_ADMIN_EMAIL = "cdillerud@gmail.com"
+# Super admin email - this user has full system access. Override per deployment.
+SUPER_ADMIN_EMAIL = (os.environ.get("SUPER_ADMIN_EMAIL") or "cdillerud@gmail.com").strip()
 
 
 # =============================================================================
 # PASSWORD HASHING
 # =============================================================================
+# Format: "pbkdf2_sha256$<iterations>$<salt>$<hex digest>".
+# Legacy hashes ("<salt>$<sha256 hex>", one unstretched SHA-256 round) still
+# verify, and are upgraded to PBKDF2 on the user's next successful login.
+PBKDF2_ITERATIONS = 600_000
+
+
 def hash_password(password: str) -> str:
-    """Hash password with salt using SHA-256."""
+    """Hash a password with salted PBKDF2-HMAC-SHA256."""
     salt = secrets.token_hex(16)
-    hash_obj = hashlib.sha256((salt + password).encode())
-    return f"{salt}${hash_obj.hexdigest()}"
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest.hex()}"
+
 
 def verify_password(password: str, hashed: str) -> bool:
-    """Verify password against hash."""
+    """Constant-time check of a password against a stored hash (current or legacy format)."""
     try:
-        salt, hash_value = hashed.split('$')
-        hash_obj = hashlib.sha256((salt + password).encode())
-        return hash_obj.hexdigest() == hash_value
-    except:
+        parts = hashed.split("$")
+        if parts[0] == "pbkdf2_sha256" and len(parts) == 4:
+            iterations, salt, expected = int(parts[1]), parts[2], parts[3]
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), iterations).hex()
+        elif len(parts) == 2:
+            salt, expected = parts
+            digest = hashlib.sha256((salt + password).encode()).hexdigest()
+        else:
+            return False
+        return secrets.compare_digest(digest, expected)
+    except (ValueError, TypeError, AttributeError):
         return False
+
+
+def password_needs_rehash(hashed: str) -> bool:
+    parts = (hashed or "").split("$")
+    return not (parts[0] == "pbkdf2_sha256" and len(parts) == 4 and parts[1] == str(PBKDF2_ITERATIONS))
 
 
 # =============================================================================
@@ -366,7 +386,7 @@ async def register_user(data: UserRegistration, response: Response):
         "user_id": user_id,
         "email": data.email,
         "name": data.name,
-        "password_hash": hash_password(data.password),
+        "password_hash": await asyncio.to_thread(hash_password, data.password),
         "picture": None,
         "fleet_name": None,
         "vessels": [],
@@ -417,13 +437,15 @@ async def login_user(data: UserLogin, response: Response):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     # Verify password
-    if not user_doc.get("password_hash") or not verify_password(data.password, user_doc["password_hash"]):
+    if not user_doc.get("password_hash") or not await asyncio.to_thread(verify_password, data.password, user_doc["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     logger.info(f"[AUTH] User logged in: {data.email}")
     
     # Update last_login and ensure super admin has admin rights
     update_fields = {"last_login": datetime.now(timezone.utc).isoformat()}
+    if password_needs_rehash(user_doc["password_hash"]):
+        update_fields["password_hash"] = await asyncio.to_thread(hash_password, data.password)
     if data.email.lower() == SUPER_ADMIN_EMAIL.lower():
         update_fields["is_admin"] = True
         update_fields["is_super_admin"] = True
@@ -457,32 +479,36 @@ async def login_user(data: UserLogin, response: Response):
     return {"success": True, "user": user_doc}
 
 
-@api_router.post("/auth/google/session")
-async def google_auth_session(request: Request, response: Response):
-    """Exchange Google OAuth session_id for user session."""
-    body = await request.json()
-    session_id = body.get("session_id")
-    
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
-    
-    # Exchange session_id for user data from Emergent Auth
-    async with httpx.AsyncClient() as client:
-        try:
-            auth_response = await client.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": session_id},
-                timeout=10.0
-            )
-            
-            if auth_response.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid session_id")
-            
-            google_data = auth_response.json()
-        except httpx.RequestError as e:
-            logger.error(f"[AUTH] Google auth error: {e}")
-            raise HTTPException(status_code=500, detail="Authentication service unavailable")
-    
+@api_router.get("/auth/config")
+async def auth_config():
+    """Public sign-in options for the login page (no secrets)."""
+    return {"google_client_id": google_client_id()}
+
+
+@api_router.post("/auth/google")
+async def google_auth(request: Request, response: Response):
+    """Sign in with a Google Identity Services ID token ({"credential": "<jwt>"})."""
+    client_id = google_client_id()
+    if not client_id:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    credential = body.get("credential") if isinstance(body, dict) else None
+    if not credential:
+        raise HTTPException(status_code=400, detail="credential required")
+    try:
+        claims = await asyncio.to_thread(verify_google_credential, credential, client_id)
+    except GoogleAuthError as e:
+        logger.warning(f"[AUTH] Google sign-in rejected: {e}")
+        raise HTTPException(status_code=401, detail="Google sign-in failed")
+    except Exception as e:  # network trouble fetching Google's signing keys
+        logger.error(f"[AUTH] Google verification unavailable: {e}")
+        raise HTTPException(status_code=503, detail="Google sign-in is temporarily unavailable")
+    google_data = {"email": claims["email"], "name": claims["name"],
+                   "picture": claims["picture"], "id": claims["sub"]}
+
     # Find or create user
     email = google_data.get("email")
     is_super = email.lower() == SUPER_ADMIN_EMAIL.lower()

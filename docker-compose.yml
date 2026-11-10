@@ -30,6 +30,8 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - COOKIE_SECURE=false          # plain HTTP in local dev
       - AIS_INGEST_TOKEN=${AIS_INGEST_TOKEN:-}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:-}
     depends_on:
       - mongodb
     restart: unless-stopped

@@ -127,3 +127,22 @@ def test_calibrated_waits():
     down = lock_board.predict_waits("lock_14", [], waiting, TYPICAL, "downbound", NOW)
     assert both["tow"] == down["tow"] == round(26.5 + 1.264 * 244)
     assert down["recreational"] < both["recreational"]           # only the same-direction queue counts
+
+
+def test_wait_at_arrival_counts_tows_that_get_there_first():
+    from datetime import timedelta
+    typical = {"avg_single_lockage_minutes": 30.0, "avg_double_lockage_minutes": 120.0,
+               "avg_recreational_lockage_minutes": 15.0}
+    approaching = [
+        {"vessel_name": "SOON", "barges": 15, "eta": NOW + timedelta(minutes=30)},   # double, ahead of us
+        {"vessel_name": "LATE", "barges": 15, "eta": NOW + timedelta(minutes=300)},  # after us: ignored
+    ]
+    arrive = NOW + timedelta(minutes=60)
+    sim = lock_board.queue_minutes_at("lock_14", [], [], approaching, typical, arrive, NOW)
+    assert [v["vessel_name"] for v in sim["ahead"]] == ["SOON"]
+    assert sim["queue_minutes"] == 90            # SOON locks 0:30-2:30; we arrive at 1:00
+    empty = lock_board.queue_minutes_at("lock_14", [], [], [], typical, arrive, NOW)
+    assert empty == {"queue_minutes": 0, "ahead": []}
+    w = lock_board.predict_waits_at("lock_14", [], [], approaching, typical, arrive, NOW)
+    assert w["ahead_count"] == 1 and w["ahead"][0]["predicted"] is True
+    assert w["tow"] == round(26.5 + 1.264 * 90)

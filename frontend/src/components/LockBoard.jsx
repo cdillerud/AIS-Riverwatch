@@ -10,14 +10,20 @@ import { fmtDuration } from "@/components/LockageRow";
 const POLL_MS = 60000;
 
 export const WAIT_TOOLTIP =
-  "Estimated wait for a boat arriving now, from the USACE queue. Calibrated against 30 days of " +
-  "USACE lockages: typically within ~50 min for tows and ~10 min for pleasure boats, which lock " +
-  "staff usually fit in around tows. Long queues are the least predictable.";
+  "Estimated wait for a boat arriving now, from the USACE queue. The model is re-checked nightly " +
+  "against recent USACE lockages and only updated when it gets more accurate. Pleasure boats are " +
+  "usually fit in around tows, so they wait less. Long queues are the least predictable.";
 
 function headingToDirection(heading) {
   if (heading === "northbound" || heading === "upbound" || heading === "upstream") return "upbound";
   if (heading === "southbound" || heading === "downbound" || heading === "downstream") return "downbound";
   return null;
+}
+
+function lockLabel(lockId) {
+  if (lockId === "melvin_price") return "Mel Price";
+  if (lockId === "chain_of_rocks") return "L27";
+  return (lockId || "").replace("lock_", "L").toUpperCase();
 }
 
 function fmtTime(iso) {
@@ -133,6 +139,33 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
         </div>
       )}
 
+      {lock.approaching?.length > 0 && (
+        <div className="mt-2 border-t border-slate-800 pt-1.5" data-testid="lock-approaching">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
+               title="Predicted from each vessel's last USACE lockage and typical transit times between these locks (typically within ~45 min)">
+            Approaching · predicted
+          </div>
+          {lock.approaching.slice(0, 4).map((a, i) => {
+            const up = a.direction === "upbound";
+            return (
+              <div key={i} className="flex justify-between gap-2 text-xs py-0.5 text-slate-300">
+                <span className="truncate">
+                  {a.vessel_name || "Unknown"} <span className={up ? "text-green-400" : "text-red-400"}>{up ? "↑" : "↓"}</span>
+                  <span className="text-slate-500"> {a.barges ? `${a.barges}b` : "light"} · from {lockLabel(a.from_lock)}{a.via_lock ? ` via ${lockLabel(a.via_lock)}` : ""}</span>
+                </span>
+                <span className={`shrink-0 font-mono ${a.overdue ? "text-slate-500" : "text-slate-300"}`}
+                      title={`Expected ${fmtTime(a.eta_earliest)}–${fmtTime(a.eta_latest)}`}>
+                  {a.overdue ? `due ${fmtTime(a.eta)}` : `≈ ${fmtTime(a.eta)}`}
+                </span>
+              </div>
+            );
+          })}
+          {lock.approaching.length > 4 && (
+            <div className="text-[11px] text-slate-500">+{lock.approaching.length - 4} more</div>
+          )}
+        </div>
+      )}
+
       <div className="mt-2 flex flex-wrap gap-x-3 text-[11px] text-slate-500">
         {t.sample_count > 0 && !t.is_baseline ? (
           <>
@@ -242,6 +275,8 @@ export default function LockBoard({ userVessel, selectedLockId, onSelectLock, on
           ? `Next locks ${direction === "upbound" ? "upbound" : "downbound"} from RM ${position}`
           : "All Upper Mississippi locks"}
         {" · "}USACE lock queue data, refreshed every few minutes · waits are estimates
+        {data?.wait_model?.typical_error_minutes?.tow != null &&
+          ` (typically within ~${Math.round(data.wait_model.typical_error_minutes.tow)} min for tows, ~${Math.round(data.wait_model.typical_error_minutes.recreational ?? 10)} min for pleasure boats)`}
         {" · "}"At lock" = checked in; USACE reports a lockage only when it ends
         {data?.generated_at && ` · ${fmtTime(data.generated_at)}`}
       </div>

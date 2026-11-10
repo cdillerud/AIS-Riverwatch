@@ -281,12 +281,23 @@ export default function Dashboard({
   // Current queue and estimated wait at the target lock - the same USACE-based
   // estimate the Locks board shows.
   const [targetLockBoard, setTargetLockBoard] = useState(null);
+  // Minutes until the user's boat reaches the target lock (rounded to 5 so
+  // the request doesn't change on every GPS fix); null when not under way.
+  const arriveInMinutes = useMemo(() => {
+    if (!hasRiverMile(userVessel)) return null;
+    const lock = locks.find(l => l.id === activeTimingLockId);
+    const mph = (Number(userVessel?.speed) || 0) * 1.15078;
+    if (!lock || mph < 1) return null;
+    const minutes = (Math.abs(Number(userVessel.river_mile) - lock.river_mile) / mph) * 60;
+    return minutes <= 24 * 60 ? Math.round(minutes / 5) * 5 : null;
+  }, [userVessel, locks, activeTimingLockId]);
   useEffect(() => {
     if (!activeTimingLockId) { setTargetLockBoard(null); return undefined; }
     let cancelled = false;
     const load = async () => {
       try {
-        const r = await fetch(`${API}/locks/board?lock_id=${encodeURIComponent(activeTimingLockId)}`, { credentials: "include" });
+        const arrive = arriveInMinutes != null ? `&arrive_in=${arriveInMinutes}` : "";
+        const r = await fetch(`${API}/locks/board?lock_id=${encodeURIComponent(activeTimingLockId)}${arrive}`, { credentials: "include" });
         if (!r.ok) return;
         const data = await r.json();
         if (!cancelled) setTargetLockBoard(data.locks?.[0] || null);
@@ -295,10 +306,12 @@ export default function Dashboard({
     load();
     const id = setInterval(load, 60000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [activeTimingLockId]);
+  }, [activeTimingLockId, arriveInMinutes]);
 
   // USACE queues at every lock, drawn on the map beside each lock.
   const [lockQueues, setLockQueues] = useState({});
+  // Vessels predicted between locks (last USACE lockage + learned transit times)
+  const [predictedVessels, setPredictedVessels] = useState([]);
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -307,11 +320,23 @@ export default function Dashboard({
         if (!r.ok) return;
         const data = await r.json();
         const byLock = {};
+        const predicted = [];
         for (const lk of data.locks || []) {
           const entries = [...(lk.locking || []), ...(lk.waiting || [])];
           if (entries.length) byLock[lk.lock_id] = entries;
+          for (const a of lk.approaching || []) {
+            if (a.est_river_mile != null) predicted.push({ ...a, to_lock: lk.lock_id, to_lock_name: lk.name });
+          }
         }
-        if (!cancelled) setLockQueues(byLock);
+        // A vessel predicted two locks out is also predicted one lock out:
+        // draw it once, for its next lock (earliest ETA).
+        const nearest = new Map();
+        for (const p of predicted) {
+          const key = p.mmsi || p.vessel_name;
+          const prev = nearest.get(key);
+          if (!prev || new Date(p.eta) < new Date(prev.eta)) nearest.set(key, p);
+        }
+        if (!cancelled) { setLockQueues(byLock); setPredictedVessels([...nearest.values()]); }
       } catch { /* keep the last queues */ }
     };
     load();
@@ -333,7 +358,11 @@ export default function Dashboard({
     // vessel gets the tow estimate; everyone else the pleasure-boat one.
     const board = targetLockBoard?.lock_id === activeTimingLockId ? targetLockBoard : null;
     const userIsTow = !!(userVessel?.is_tow || Number(userVessel?.barge_count) > 0);
-    const wait = board ? (userIsTow ? board.wait_estimate_minutes : board.wait_estimate_recreational_minutes) : null;
+    // Prefer the wait when the boat gets there (queue simulated forward with
+    // vessels predicted to arrive first) over the wait for arriving now.
+    const atArrival = board?.wait_at_arrival || null;
+    const waitSource = atArrival || (board ? { tow: board.wait_estimate_minutes, recreational: board.wait_estimate_recreational_minutes } : null);
+    const wait = waitSource ? (userIsTow ? waitSource.tow : waitSource.recreational) : null;
 
     return {
       distance: distance.toFixed(1),
@@ -341,6 +370,8 @@ export default function Dashboard({
       estimatedWait: wait,
       queueCount: board ? board.queue_count : null,
       waitKind: userIsTow ? 'tow' : 'pleasure',
+      onArrival: !!atArrival,
+      aheadCount: atArrival ? atArrival.ahead_count : null,
       towWait: board ? board.wait_estimate_minutes : null,
       pleasureWait: board ? board.wait_estimate_recreational_minutes : null,
       totalMinutes: travelMinutes && wait != null ? (parseFloat(travelMinutes) + wait).toFixed(0) : null
@@ -1117,6 +1148,7 @@ export default function Dashboard({
                     onFocusClear={() => setFocusedVessel(null)}
                     onVesselDetails={(vessel) => setSelectedVessel(vessel)}
                     lockQueues={lockQueues}
+                    predictedVessels={predictedVessels}
                   />
                   
                   {/* Feature #4: Mini Compass/Heading Indicator - Top Right */}
@@ -1481,7 +1513,10 @@ export default function Dashboard({
                           <span className="text-amber-400 font-mono"
                                 title={`${WAIT_TOOLTIP}${lockTravelInfo.towWait != null ? ` Tow ≈ ${fmtDuration(lockTravelInfo.towWait)}, pleasure boat ≈ ${fmtDuration(lockTravelInfo.pleasureWait)}.` : ''}`}>
                             {lockTravelInfo.estimatedWait == null ? '--'
-                              : `~${fmtDuration(lockTravelInfo.estimatedWait)} ${lockTravelInfo.waitKind}${lockTravelInfo.queueCount ? ` (${lockTravelInfo.queueCount} ahead)` : ''}`}
+                              : `~${fmtDuration(lockTravelInfo.estimatedWait)} ${lockTravelInfo.waitKind}${
+                                  lockTravelInfo.onArrival
+                                    ? (lockTravelInfo.aheadCount ? ` · ${lockTravelInfo.aheadCount} ahead when you arrive` : ' · on arrival')
+                                    : (lockTravelInfo.queueCount ? ` (${lockTravelInfo.queueCount} ahead)` : '')}`}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -1898,6 +1933,7 @@ export default function Dashboard({
                   onFocusClear={() => setFocusedVessel(null)}
                   onVesselDetails={(vessel) => setSelectedVessel(vessel)}
                   lockQueues={lockQueues}
+                    predictedVessels={predictedVessels}
                 />
               </CardContent>
             </Card>

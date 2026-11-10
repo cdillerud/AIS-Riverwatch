@@ -4252,6 +4252,9 @@ TRACK_WINDOW = timedelta(minutes=15)
 TRACK_MIN_MOVE_MI = 0.2
 
 
+TRACK_MAX_MPH = 30.0
+
+
 def heading_with_track(mmsi: Optional[str], rm: Optional[float], speed, course,
                        lat: float = None, lon: float = None, now: Optional[datetime] = None) -> str:
     """Direction of travel, preferring the vessel's own track over one compass reading.
@@ -4268,6 +4271,12 @@ def heading_with_track(mmsi: Optional[str], rm: Optional[float], speed, course,
         return base
     now = now or datetime.now(timezone.utc)
     hist = _rm_track.setdefault(str(mmsi), [])
+    if hist:
+        # A jump no boat could make (manual repositioning, a GPS glitch) is not
+        # travel: restart the track so it can't flip the direction for 15 min.
+        dt_h = max((now - hist[-1][0]).total_seconds() / 3600, 0.0)
+        if abs(float(rm) - hist[-1][1]) > TRACK_MAX_MPH * dt_h + 0.5:
+            hist.clear()
     hist.append((now, float(rm)))
     while hist and now - hist[0][0] > TRACK_WINDOW:
         hist.pop(0)
@@ -6374,11 +6383,15 @@ async def convert_rm_to_coords(rm: float):
     lat, lon = river_mile_to_coords(rm)
     # Also return the estimated RM back (for verification)
     estimated_rm = estimate_river_mile(lat, lon)
+    up = _river_geo.channel_bearing_at_mile(rm)
     return {
         "river_mile": rm,
         "lat": lat,
         "lon": lon,
-        "estimated_rm_back": estimated_rm
+        "estimated_rm_back": estimated_rm,
+        # Course to steer for each direction here (the river isn't north-south)
+        "upbound_course": up,
+        "downbound_course": None if up is None else round((up + 180) % 360, 1),
     }
 
 @api_router.post("/vessel-cache/{mmsi}", dependencies=[Depends(require_user)])

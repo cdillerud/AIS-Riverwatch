@@ -1331,7 +1331,8 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
                 <p className="text-xs text-slate-500 mt-2">
                   <span className="text-amber-400/70">Quick ref:</span> Lock 2 = RM 815, Lock 3 = RM 797, Lock 4 = RM 752
                   <br />
-                  Course: 0°=North, 180°=South (downriver)
+                  Course is a compass bearing. Upbound / downbound is judged against the river's direction at that
+                  spot, not north / south (at RM 823 the river runs east-northeast).
                 </p>
               </div>
 

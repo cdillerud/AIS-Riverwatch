@@ -268,6 +268,20 @@ def coords_for_mile(rm: float) -> Optional[Tuple[float, float]]:
             round(cl.lon[lo] + (cl.lon[hi] - cl.lon[lo]) * t, 6))
 
 
+def channel_bearing_at_mile(rm: float, span_mi: float = 0.5) -> Optional[float]:
+    """Upstream bearing of the channel at a river mile, measured across
+    +/- span_mi so one short sailing-line segment can't skew it. This is the
+    course a boat steers to go upbound there; downbound is the reverse. Not
+    simply north/south: at RM 823 (Grey Cloud Island) the river runs
+    east-northeast, so 177 deg there is nearly straight across the channel."""
+    lo, hi = coverage()
+    a = coords_for_mile(min(rm + span_mi, hi))
+    b = coords_for_mile(max(rm - span_mi, lo))
+    if a is None or b is None or a == b:
+        return None
+    return round(_bearing(b[0], b[1], a[0], a[1]), 1)
+
+
 def coverage() -> Tuple[float, float]:
     cl = _load()[0]
     return cl.rm[-1], cl.rm[0]

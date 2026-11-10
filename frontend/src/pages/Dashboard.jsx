@@ -62,6 +62,23 @@ function ViewToggle({ value, onChange }) {
   );
 }
 
+function DirectionToggle({ value, onChange, size }) {
+  const btn = (v, label) => (
+    <button
+      type="button"
+      onClick={() => onChange(v)}
+      aria-pressed={value === v}
+      data-testid={`map-edit-direction-${v}`}
+      className={`flex-1 ${size} text-xs font-mono rounded border ${value === v
+        ? "border-cyan-500 bg-cyan-500/15 text-cyan-300"
+        : "border-slate-700 bg-slate-950 text-slate-400 hover:text-white"}`}
+    >
+      {label}
+    </button>
+  );
+  return <div className="flex gap-1">{btn("upbound", "↑ Up")}{btn("downbound", "↓ Down")}</div>;
+}
+
 export default function Dashboard({ 
   isConnected, 
   vessels, 
@@ -150,7 +167,9 @@ export default function Dashboard({
   const [showPositionEditor, setShowPositionEditor] = useState(false);
   const [editRM, setEditRM] = useState("");
   const [editSpeed, setEditSpeed] = useState("");
-  const [editCourse, setEditCourse] = useState("");
+  // Direction, not a compass course: the river isn't north-south (at RM 823
+  // it runs east-northeast), so the course is derived from the channel there.
+  const [editDirection, setEditDirection] = useState("downbound");
   
   // Auto next lock tracking
   const [autoNextLock, setAutoNextLock] = useState(false);
@@ -561,7 +580,7 @@ export default function Dashboard({
     if (userVessel) {
       setEditRM(hasRiverMile(userVessel) ? formatRiverMile(userVessel.river_mile) : "");
       setEditSpeed(formatSpeedMph(userVessel.speed) === '--' ? "" : formatSpeedMph(userVessel.speed));
-      setEditCourse(userVessel.course?.toFixed(0) || "180");
+      setEditDirection(userVessel.heading === "northbound" ? "upbound" : "downbound");
     }
     setShowPositionEditor(true);
   }, [userVessel]);
@@ -571,7 +590,7 @@ export default function Dashboard({
     // Pre-fill the form with current vessel data
     setEditRM(hasRiverMile(vessel) ? formatRiverMile(vessel.river_mile) : "");
     setEditSpeed(formatSpeedMph(vessel.speed) === '--' ? "" : formatSpeedMph(vessel.speed));
-    setEditCourse(vessel.course?.toFixed(0) || "180");
+    setEditDirection(vessel.heading === "northbound" ? "upbound" : "downbound");
     setShowPositionEditor(true);
   };
 
@@ -579,7 +598,6 @@ export default function Dashboard({
   const updateQuickPosition = async () => {
     const rm = parseFloat(editRM);
     const speed = parseFloat(editSpeed);
-    const course = parseFloat(editCourse);
     
     if (isNaN(rm) || rm < 100 || rm > 900) {
       toast.error("River Mile must be between 100 and 900");
@@ -594,6 +612,7 @@ export default function Dashboard({
         return;
       }
       const coords = await coordsResponse.json();
+      const course = editDirection === "upbound" ? coords.upbound_course : coords.downbound_course;
       
       // Convert speed from MPH to knots
       const speedKnots = (speed || 0) * 0.868976;
@@ -616,7 +635,7 @@ export default function Dashboard({
           lat: coords.lat,
           lon: coords.lon,
           speed: speedKnots,
-          course: course || 0,
+          course: course ?? (editDirection === "upbound" ? 0 : 180),
           source: "manual",
           mmsi: effectiveMmsi,
           name: userSettings.boat_name || userVessel?.name || "Your Vessel"
@@ -1240,15 +1259,8 @@ export default function Dashboard({
                             />
                           </div>
                           <div>
-                            <Label className="text-xs text-slate-400">Course (°)</Label>
-                            <Input
-                              type="number"
-                              placeholder="180"
-                              value={editCourse}
-                              onChange={(e) => setEditCourse(e.target.value)}
-                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                              data-testid="map-edit-course"
-                            />
+                            <Label className="text-xs text-slate-400">Direction</Label>
+                            <DirectionToggle value={editDirection} onChange={setEditDirection} size="h-9" />
                           </div>
                         </div>
                         
@@ -1273,7 +1285,7 @@ export default function Dashboard({
                         </div>
                         
                         <p className="text-[10px] text-slate-500">
-                          0°=North, 180°=South (downriver)
+                          Upbound = toward St. Paul (higher river mile). The course follows the channel at that mile.
                         </p>
                       </div>
                     </div>
@@ -1835,14 +1847,8 @@ export default function Dashboard({
                                     />
                                   </div>
                                   <div>
-                                    <Label className="text-sm text-slate-400">Course (°)</Label>
-                                    <Input
-                                      type="number"
-                                      placeholder="180"
-                                      value={editCourse}
-                                      onChange={(e) => setEditCourse(e.target.value)}
-                                      className="bg-slate-950 border-slate-700 text-white font-mono h-10"
-                                    />
+                                    <Label className="text-sm text-slate-400">Direction</Label>
+                                    <DirectionToggle value={editDirection} onChange={setEditDirection} size="h-10" />
                                   </div>
                                 </div>
                               </div>
@@ -1854,7 +1860,7 @@ export default function Dashboard({
                                 Update Position
                               </Button>
                               <p className="text-xs text-slate-500 text-center">
-                                0°=North, 180°=South (downriver)
+                                Upbound = toward St. Paul (higher river mile). The course follows the channel at that mile.
                               </p>
                             </div>
                           </SheetContent>

@@ -26,10 +26,15 @@ def test_assembler_drops_orphan_continuation_and_ignores_noise():
     assert asm.feed("garbage") is None
 
 
-def test_assembler_expires_stale_fragments():
-    asm = NmeaFragmentAssembler(timeout_s=0)
+def test_assembler_expires_stale_fragments(monkeypatch):
+    # Drive the clock directly: Windows' monotonic() ticks every ~15 ms, so a
+    # short real sleep can measure as zero elapsed time.
+    from services import ais_parser
+    now = [1000.0]
+    monkeypatch.setattr(ais_parser._time, "monotonic", lambda: now[0])
+    asm = NmeaFragmentAssembler(timeout_s=5)
     assert asm.feed(TYPE5_A) is None
-    import time; time.sleep(0.01)
+    now[0] += 6
     assert asm.feed(TYPE5_B) is None  # first half expired
 
 

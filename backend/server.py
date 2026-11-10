@@ -55,6 +55,7 @@ OUTBOUND_HEADERS = {"User-Agent": RIVERWATCH_UA}
 from services import usace_lockages as _usace_lockages
 from services import lock_board as _lock_board
 from services import transits as _transits
+from services import calibration as _calibration
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -4750,6 +4751,95 @@ async def approaching_by_lock(now: datetime) -> Dict[str, list]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Wait-estimate calibration that keeps learning (services/calibration.py).
+# Nightly: refit on the last 30 days of USACE lockages, score new vs current
+# on the same held-out recent days, adopt only if it is more accurate and
+# within sanity bounds. Every attempt is recorded in db.wait_calibration.
+# ---------------------------------------------------------------------------
+RECALIBRATE_EVERY = timedelta(hours=24)
+
+
+def _apply_calibration(model: dict, fitted_on: str, test_mae: dict) -> None:
+    _lock_board.CALIBRATION["tow"] = dict(model["tow"])
+    _lock_board.CALIBRATION["recreational"] = dict(model["recreational"])
+    _lock_board.CALIBRATION["fitted_on"] = fitted_on
+    _lock_board.CALIBRATION["test_mae_minutes"] = dict(test_mae)
+
+
+async def load_adopted_calibration() -> bool:
+    try:
+        doc = await db.wait_calibration.find_one({"adopted": True}, sort=[("ran_at", -1)])
+    except Exception as e:
+        logger.warning(f"Could not load wait calibration: {e}")
+        return False
+    if not doc or not doc.get("model"):
+        return False
+    _apply_calibration(doc["model"], doc.get("fitted_on", ""), doc.get("test_mae_minutes", {}))
+    logger.info(f"Wait model: using calibration learned {doc.get('ran_at')} ({doc.get('reason')})")
+    return True
+
+
+async def recalibrate_wait_model() -> dict:
+    now = datetime.now(timezone.utc)
+    rows = await db.lockage_history.find(
+        {"source": "usace_lpms", "in_progress": {"$ne": True}, "arrival_time": {"$gte": now - timedelta(days=30)}},
+        {"_id": 0, "lock_id": 1, "direction": 1, "barge_count": 1, "cuts": 1, "is_tow": 1, "is_recreational": 1,
+         "arrival_time": 1, "entry_time": 1, "exit_time": 1, "wait_time_minutes": 1, "lockage_duration_minutes": 1},
+    ).to_list(None)
+    current = {"tow": dict(_lock_board.CALIBRATION["tow"]),
+               "recreational": dict(_lock_board.CALIBRATION["recreational"])}
+    report = await asyncio.to_thread(_calibration.recalibrate, rows, current)
+    doc = {"ran_at": now, "adopted": bool(report.get("adopt")), **{k: v for k, v in report.items() if k != "adopt"}}
+    if report.get("adopt"):
+        fitted_on = f"{report['history_from']:%Y-%m-%d}..{report['split_at']:%Y-%m-%d}, {report['train']} USACE lockages"
+        test_mae = {"tow": report["new_score"]["tow"].get("mae"),
+                    "recreational": report["new_score"]["recreational"].get("mae")}
+        doc.update({"fitted_on": fitted_on, "test_mae_minutes": test_mae})
+        _apply_calibration(report["model"], fitted_on, test_mae)
+    try:
+        await db.wait_calibration.insert_one(doc)
+    except Exception as e:
+        logger.warning(f"Could not record wait calibration run: {e}")
+    logger.info(f"Wait model recalibration: {'ADOPTED' if doc['adopted'] else 'kept current'} - {report.get('reason')}")
+    return doc
+
+
+async def wait_model_learning_task():
+    await asyncio.sleep(20 * 60)  # let the USACE worker refresh history first
+    while True:
+        try:
+            await recalibrate_wait_model()
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.error(f"Wait model recalibration failed: {e}")
+        try:
+            await asyncio.sleep(RECALIBRATE_EVERY.total_seconds())
+        except asyncio.CancelledError:
+            return
+
+
+@api_router.get("/admin/wait-model")
+async def admin_wait_model(request: Request, runs: int = 10):
+    """Current wait-estimate calibration and the latest learning runs (admin)."""
+    await require_admin(request)
+    docs = await db.wait_calibration.find({}, {"_id": 0}).sort("ran_at", -1).limit(max(1, min(runs, 50))).to_list(None)
+    for d in docs:
+        for k, v in list(d.items()):
+            if isinstance(v, datetime):
+                d[k] = v.isoformat()
+    return {"current": _lock_board.CALIBRATION, "runs": docs}
+
+
+@api_router.post("/admin/wait-model/recalibrate")
+async def admin_recalibrate(request: Request):
+    """Run a recalibration now (admin). Adopts only if more accurate."""
+    await require_admin(request)
+    doc = await recalibrate_wait_model()
+    return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items() if k != "_id"}
+
+
 @api_router.get("/locks/board")
 async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[str] = None,
                          scope: str = "all", sort: str = "river", limit: Optional[int] = None,
@@ -7764,6 +7854,9 @@ async def startup_event():
             ais_manager._apply_static_to_active,
         ))
     
+    await load_adopted_calibration()
+    asyncio.create_task(wait_model_learning_task())
+
     restored = await load_usace_queue_snapshot()
     if restored:
         logger.info(f"Restored USACE queues for {restored} locks from the last run")

@@ -10,9 +10,9 @@ import { fmtDuration } from "@/components/LockageRow";
 const POLL_MS = 60000;
 
 export const WAIT_TOOLTIP =
-  "Estimated wait for a boat arriving now, from the USACE queue. Calibrated against 30 days of " +
-  "USACE lockages: typically within ~50 min for tows and ~10 min for pleasure boats, which lock " +
-  "staff usually fit in around tows. Long queues are the least predictable.";
+  "Estimated wait for a boat arriving now, from the USACE queue. The model is re-checked nightly " +
+  "against recent USACE lockages and only updated when it gets more accurate. Pleasure boats are " +
+  "usually fit in around tows, so they wait less. Long queues are the least predictable.";
 
 function headingToDirection(heading) {
   if (heading === "northbound" || heading === "upbound" || heading === "upstream") return "upbound";
@@ -275,6 +275,8 @@ export default function LockBoard({ userVessel, selectedLockId, onSelectLock, on
           ? `Next locks ${direction === "upbound" ? "upbound" : "downbound"} from RM ${position}`
           : "All Upper Mississippi locks"}
         {" · "}USACE lock queue data, refreshed every few minutes · waits are estimates
+        {data?.wait_model?.typical_error_minutes?.tow != null &&
+          ` (typically within ~${Math.round(data.wait_model.typical_error_minutes.tow)} min for tows, ~${Math.round(data.wait_model.typical_error_minutes.recreational ?? 10)} min for pleasure boats)`}
         {" · "}"At lock" = checked in; USACE reports a lockage only when it ends
         {data?.generated_at && ` · ${fmtTime(data.generated_at)}`}
       </div>

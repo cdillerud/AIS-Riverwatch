@@ -1,0 +1,80 @@
+# River Watch - Raspberry Pi (LAN-only) deployment.
+#
+# Self-contained stack: Mongo + Backend + AIS relay + Nginx-served static frontend,
+# all on the Pi. No SSL, no external domain — designed for boat WiFi / kiosk use.
+#
+# Boot:    docker compose -f docker-compose.pi.yml up -d --build
+# Logs:    docker compose -f docker-compose.pi.yml logs -f
+# Down:    docker compose -f docker-compose.pi.yml down
+#
+# Boat Beacon target on your phone:
+#   http://<pi-lan-ip>/api/ais/ingest
+#
+# Open the kiosk UI at: http://localhost  (or http://<pi-lan-ip> from any device)
+
+name: riverwatch-pi
+
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks: [riverwatch]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env.pi
+    environment:
+      # Override Mongo URL to point at the in-stack container
+      MONGO_URL: mongodb://mongodb:27017
+      DB_NAME: riverwatch
+      # CORS: allow LAN access from any device on the boat WiFi
+      CORS_ALLOWED_ORIGINS: "*"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks: [riverwatch]
+    expose:
+      - "8001"
+
+  ais-relay:
+    build:
+      context: ./ais-relay
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      # Optional: expose TCP push port directly on LAN for hardware AIS receivers
+      - "6000:6000"
+    networks: [riverwatch]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.pi
+      args:
+        # Empty -> frontend uses relative /api paths, so the same build works
+        # at http://raspberrypi.local, http://192.168.x.y, etc.
+        REACT_APP_BACKEND_URL: ""
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks: [riverwatch]
+
+networks:
+  riverwatch:
+    driver: bridge
+
+volumes:
+  mongo-data:

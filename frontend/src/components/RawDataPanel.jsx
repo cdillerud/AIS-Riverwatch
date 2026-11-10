@@ -55,7 +55,17 @@ export default function RawDataPanel({ isConnected, compact = false }) {
       return;
     }
 
-    const WS_URL = process.env.REACT_APP_BACKEND_URL?.replace('https://', 'wss://').replace('http://', 'ws://');
+    // Build WS URL: prefer REACT_APP_BACKEND_URL if set; otherwise use same-origin
+    // (this lets the same build work on cloud, LAN/Pi, or under any hostname).
+    let WS_URL;
+    if (process.env.REACT_APP_BACKEND_URL) {
+      WS_URL = process.env.REACT_APP_BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+    } else if (typeof window !== "undefined") {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      WS_URL = `${proto}//${window.location.host}`;
+    } else {
+      WS_URL = '';
+    }
     const wsUrl = `${WS_URL}/api/ws/raw`;
     console.log("[RawDataPanel] Connecting to WebSocket:", wsUrl);
     

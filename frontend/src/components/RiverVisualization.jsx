@@ -24,17 +24,85 @@ const getShipTypeDescription = (code) => {
   return SHIP_TYPES[base] || `Type ${code}`;
 };
 
+const getLastCheckInValue = (vessel) => (
+  vessel?.last_ais_checkin || vessel?.timestamp || vessel?.last_update || null
+);
+
+const parseCheckInTime = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const formatLastCheckIn = (vessel, nowMs) => {
+  const parsed = parseCheckInTime(getLastCheckInValue(vessel));
+  if (!parsed) return "AIS --";
+
+  const ageSeconds = Math.max(0, Math.floor((nowMs - parsed.getTime()) / 1000));
+
+  if (ageSeconds < 10) return "AIS now";
+  if (ageSeconds < 60) return `AIS ${ageSeconds}s`;
+
+  const ageMinutes = Math.floor(ageSeconds / 60);
+  if (ageMinutes < 60) return `AIS ${ageMinutes}m`;
+
+  const ageHours = Math.floor(ageMinutes / 60);
+  if (ageHours < 24) return `AIS ${ageHours}h`;
+
+  const ageDays = Math.floor(ageHours / 24);
+  return `AIS ${ageDays}d`;
+};
+
+const formatLastCheckInLong = (vessel, nowMs) => {
+  const parsed = parseCheckInTime(getLastCheckInValue(vessel));
+  if (!parsed) return "--";
+
+  const ageSeconds = Math.max(0, Math.floor((nowMs - parsed.getTime()) / 1000));
+
+  if (ageSeconds < 10) return "just now";
+  if (ageSeconds < 60) return `${ageSeconds}s ago`;
+
+  const ageMinutes = Math.floor(ageSeconds / 60);
+  if (ageMinutes < 60) return `${ageMinutes}m ago`;
+
+  const ageHours = Math.floor(ageMinutes / 60);
+  if (ageHours < 24) return `${ageHours}h ago`;
+
+  const ageDays = Math.floor(ageHours / 24);
+  return `${ageDays}d ago`;
+};
+
+const getCheckInTextClass = (vessel, nowMs) => {
+  const parsed = parseCheckInTime(getLastCheckInValue(vessel));
+  if (!parsed) return "text-slate-500";
+
+  const ageSeconds = Math.max(0, Math.floor((nowMs - parsed.getTime()) / 1000));
+
+  if (ageSeconds <= 120) return "text-emerald-400";
+  if (ageSeconds <= 300) return "text-amber-400";
+  return "text-red-400";
+};
+
 // Expandable Vessel Info Panel Component - Shows ALL data with one click
 // Clean, organized layout matching the original modal design
 const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVesselEdit, onVesselDetails }) => {
   const [lockageHistory, setLockageHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   
   const isUser = userMmsi && vessel.mmsi === userMmsi;
   const isTow = vessel.is_tow || vessel.barge_count > 0;
   const speedMph = (vessel.speed * 1.15078).toFixed(1);
   const direction = vessel.direction || vessel.heading_direction || vessel.heading;
   const API = process.env.REACT_APP_BACKEND_URL + '/api';
+  const lastCheckInDisplay = formatLastCheckInLong(vessel, nowTick);
+  const lastCheckInClass = getCheckInTextClass(vessel, nowTick);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNowTick(Date.now()), 30000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   // Fetch lockage history on mount
   useEffect(() => {
@@ -115,6 +183,12 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
               <div className="flex justify-between">
                 <span className="text-slate-500">Coords</span>
                 <span className="font-mono text-white text-[10px]">{vessel.lat?.toFixed(4)}°, {vessel.lon?.toFixed(4)}°</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> AIS Check-In
+                </span>
+                <span className={`font-mono text-[10px] font-bold ${lastCheckInClass}`}>{lastCheckInDisplay}</span>
               </div>
             </div>
           </div>
@@ -300,6 +374,20 @@ const RiverVisualizationComponent = ({
   const mapRef = useRef(null);
   // Selected vessel for info overlay on map
   const [mapSelectedVessel, setMapSelectedVessel] = useState(null);
+  const [mapNowTick, setMapNowTick] = useState(() => Date.now());
+  
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setMapNowTick(Date.now()), 30000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (!mapSelectedVessel?.mmsi) return;
+    const updatedSelectedVessel = vessels.find(v => v.mmsi === mapSelectedVessel.mmsi);
+    if (updatedSelectedVessel) {
+      setMapSelectedVessel(updatedSelectedVessel);
+    }
+  }, [vessels, mapSelectedVessel?.mmsi]);
   
   // Get the selected lock's river mile for zoom center
   const selectedLockRM = useMemo(() => {
@@ -713,6 +801,8 @@ const RiverVisualizationComponent = ({
         const isFocused = focusedVessel?.mmsi === vessel.mmsi;
         const topPosition = getRiverPosition(vessel.river_mile);
         const speedMph = (vessel.speed * 1.15078).toFixed(1);
+        const lastCheckInDisplay = formatLastCheckIn(vessel, mapNowTick);
+        const lastCheckInClass = getCheckInTextClass(vessel, mapNowTick);
         const horizontalOffset = vesselOffsets[vessel.mmsi] || 0;
         const isOffset = horizontalOffset !== 0;
 
@@ -788,6 +878,10 @@ const RiverVisualizationComponent = ({
                 </div>
                 <div className="text-slate-400 font-mono text-[9px]">
                   {speedMph} mph {!compact && `• RM ${vessel.river_mile?.toFixed(1)}`}
+                </div>
+                <div className={`font-mono text-[9px] font-semibold flex items-center gap-0.5 ${lastCheckInClass}`}>
+                  <Clock className="w-2.5 h-2.5" />
+                  {lastCheckInDisplay}
                 </div>
               </div>
             </div>
@@ -894,14 +988,21 @@ export const RiverVisualization = memo(RiverVisualizationComponent, (prevProps, 
   // Check if focused vessel changed - important for centering from list clicks
   if (prevProps.focusedVessel?.mmsi !== nextProps.focusedVessel?.mmsi) return false;
   
-  // Compare vessels array - only re-render if positions changed
+  // Compare vessels array. Re-render if position, speed, heading, or AIS check-in freshness changes.
   if (prevProps.vessels.length !== nextProps.vessels.length) return false;
-  
-  // Quick check on first vessel position to detect changes
-  if (prevProps.vessels.length > 0 && nextProps.vessels.length > 0) {
-    const prevFirst = prevProps.vessels[0];
-    const nextFirst = nextProps.vessels[0];
-    if (prevFirst.lat !== nextFirst.lat || prevFirst.lon !== nextFirst.lon) return false;
+
+  for (let i = 0; i < prevProps.vessels.length; i += 1) {
+    const prevVessel = prevProps.vessels[i];
+    const nextVessel = nextProps.vessels[i];
+
+    if (prevVessel?.mmsi !== nextVessel?.mmsi) return false;
+    if (prevVessel?.lat !== nextVessel?.lat) return false;
+    if (prevVessel?.lon !== nextVessel?.lon) return false;
+    if (prevVessel?.river_mile !== nextVessel?.river_mile) return false;
+    if (prevVessel?.speed !== nextVessel?.speed) return false;
+    if (prevVessel?.course !== nextVessel?.course) return false;
+    if (prevVessel?.heading !== nextVessel?.heading) return false;
+    if (getLastCheckInValue(prevVessel) !== getLastCheckInValue(nextVessel)) return false;
   }
   
   // Compare race analysis

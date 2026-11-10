@@ -45,7 +45,7 @@ import hashlib
 import secrets
 
 # Import from new modular structure (for reusable logic)
-from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
+from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
 from services.navigation_service import (
     estimate_river_mile as _estimate_river_mile,
     river_mile_to_coords as _river_mile_to_coords,
@@ -141,6 +141,7 @@ async def persist_vessel_sighting(vessel_data: dict):
         "course": vessel_data.get('course'),
         "heading_direction": vessel_data.get('heading_direction'),
         "ship_type": vessel_data.get('ship_type'),
+        "last_ais_checkin": vessel_data.get('last_ais_checkin') or vessel_data.get('timestamp'),
         # USACE data
         "usace_source": vessel_data.get('usace_source', False),
         "barge_count": vessel_data.get('barge_count'),
@@ -2402,6 +2403,7 @@ class AISConnectionManager:
             if config_mmsi in vessel_static_cache:
                 vessel_name = vessel_static_cache[config_mmsi].get('name', boat_name)
             
+            checkin_now = datetime.now(timezone.utc)
             vessel = VesselPosition(
                 mmsi=config_mmsi,
                 name=vessel_name,
@@ -2411,6 +2413,8 @@ class AISConnectionManager:
                 course=gps_data['course'],
                 river_mile=rm,
                 heading=heading,
+                timestamp=checkin_now,
+                last_ais_checkin=checkin_now.isoformat(),
                 is_user_vessel=True,  # Will be recalculated per-session
                 vessel_type='recreational',
             )
@@ -2462,12 +2466,15 @@ class AISConnectionManager:
                 # This is likely a static data message (type 5) - just cache the name
                 return
             
-            if illinois_filter_enabled:
-                if not is_on_upper_mississippi(lat, lon):
-                    filter_stats["filtered"] += 1
-                    logger.debug(f"Filtered vessel {mmsi_parsed} - not on Upper Mississippi (lat={lat}, lon={lon})")
-                    return
-                filter_stats["passed"] += 1
+            # Always enforce main-channel filtering.
+            # This excludes AIS targets on tributaries such as the St. Croix and Illinois River
+            # so they do not affect Mississippi lock timing, traffic ahead, trip planning,
+            # or speed-to-beat calculations.
+            if not is_on_upper_mississippi(lat, lon):
+                filter_stats["filtered"] += 1
+                logger.info(f"Filtered vessel {mmsi_parsed} - not on Mississippi main channel (lat={lat}, lon={lon})")
+                return
+            filter_stats["passed"] += 1
             
             # Calculate river mile and heading
             rm = estimate_river_mile(lat, lon)
@@ -2481,6 +2488,7 @@ class AISConnectionManager:
             # NOTE: is_user_vessel is determined PER-SESSION when sending to subscribers
             # Here we just store the raw data keyed by MMSI
             
+            checkin_now = datetime.now(timezone.utc)
             vessel = VesselPosition(
                 mmsi=mmsi_parsed,
                 name=vessel_name,
@@ -2490,6 +2498,8 @@ class AISConnectionManager:
                 course=vessel_data['course'],
                 river_mile=rm,
                 heading=heading,
+                timestamp=checkin_now,
+                last_ais_checkin=checkin_now.isoformat(),
                 is_user_vessel=False,  # Will be set per-session when broadcasting
                 vessel_type=vessel_data.get('vessel_type', 'unknown'),
                 ship_type=vessel_data.get('ship_type'),
@@ -2630,6 +2640,7 @@ class ConnectionConfig(BaseModel):
     ip_address: str
     port: int = 5353
     user_mmsi: str
+    boat_name: str = ""
 
 class VesselPosition(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -2642,6 +2653,7 @@ class VesselPosition(BaseModel):
     river_mile: Optional[float] = None
     heading: Optional[str] = None  # "northbound" or "southbound"
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_ais_checkin: Optional[str] = None  # ISO timestamp of most recent AIS/GPS position check-in
     is_user_vessel: bool = False
     vessel_type: str = "unknown"
     # Ship information
@@ -2809,8 +2821,18 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
         v_dict = vessel.model_dump()
         if v_dict.get('timestamp') and hasattr(v_dict['timestamp'], 'isoformat'):
             v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+        if v_dict.get('last_ais_checkin') and hasattr(v_dict['last_ais_checkin'], 'isoformat'):
+            v_dict['last_ais_checkin'] = v_dict['last_ais_checkin'].isoformat()
     else:
         v_dict = dict(vessel)  # Copy the dict
+        if v_dict.get('timestamp') and hasattr(v_dict['timestamp'], 'isoformat'):
+            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+        if v_dict.get('last_ais_checkin') and hasattr(v_dict['last_ais_checkin'], 'isoformat'):
+            v_dict['last_ais_checkin'] = v_dict['last_ais_checkin'].isoformat()
+
+    # Backward-compatible fallback: older/demo vessel objects may only have timestamp.
+    if not v_dict.get('last_ais_checkin') and v_dict.get('timestamp'):
+        v_dict['last_ais_checkin'] = v_dict['timestamp']
     
     # Get vessel MMSI
     vessel_mmsi = v_dict.get('mmsi', '')
@@ -4554,6 +4576,96 @@ usgs_cache = {}
 usgs_cache_time = {}
 USGS_CACHE_DURATION = 900  # 15 minutes
 
+# Cache for NWS NWPS hydrograph data (refreshes every 15 minutes)
+nws_cache: dict = {}
+nws_cache_time: dict = {}
+NWS_CACHE_DURATION = 900
+
+async def fetch_nws_gauge_data(nwsli: str) -> dict:
+    """
+    Fetch observed stage + forecast + per-gauge flood categories from the
+    NWS National Water Prediction Service (NWPS) for a given NWSLI gauge ID.
+    """
+    cache_key = f"nws_{nwsli}"
+    now = datetime.now(timezone.utc)
+
+    cached_at = nws_cache_time.get(cache_key)
+    if cached_at and (now - cached_at).total_seconds() < NWS_CACHE_DURATION:
+        return nws_cache[cache_key]
+
+    result = {
+        "nwsli": nwsli,
+        "name": None,
+        "stage": None,
+        "stage_unit": "ft",
+        "flood_category": "normal",
+        "forecast": None,
+        "categories": {},
+        "error": None,
+    }
+
+    try:
+        url = f"https://api.water.noaa.gov/nwps/v1/gauges/{nwsli}"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                result["error"] = f"NWS HTTP {response.status_code}"
+            else:
+                payload = response.json()
+                result["name"] = payload.get("name")
+                observed = (payload.get("status") or {}).get("observed") or {}
+                if observed.get("primary") is not None:
+                    try:
+                        result["stage"] = round(float(observed["primary"]), 2)
+                    except (TypeError, ValueError):
+                        pass
+                if observed.get("primaryUnit"):
+                    result["stage_unit"] = observed["primaryUnit"]
+                if observed.get("floodCategory"):
+                    cat = observed["floodCategory"]
+                    # NWPS uses "no_flooding", "action", "minor", "moderate", "major"
+                    mapping = {
+                        "no_flooding": "normal",
+                        "action": "action",
+                        "minor": "flood",
+                        "moderate": "moderate",
+                        "major": "major",
+                    }
+                    result["flood_category"] = mapping.get(cat, cat)
+
+                flood = payload.get("flood") or {}
+                cats = flood.get("categories") or {}
+                # Normalize NWPS naming -> our names
+                for nws_key, our_key in (("action", "action"), ("minor", "flood"),
+                                          ("moderate", "moderate"), ("major", "major")):
+                    stage_val = (cats.get(nws_key) or {}).get("stage")
+                    if stage_val is not None and stage_val != -9999:
+                        result["categories"][our_key] = stage_val
+
+                # Build short forecast (next ~6 points)
+                fc_payload = payload.get("forecast") or {}
+                fc_data = fc_payload.get("data") if isinstance(fc_payload, dict) else None
+                if isinstance(fc_data, list):
+                    forecast_points = []
+                    for point in fc_data[:6]:
+                        try:
+                            forecast_points.append({
+                                "time": point.get("validTime"),
+                                "stage_ft": float(point.get("primary")),
+                            })
+                        except (TypeError, ValueError):
+                            continue
+                    if forecast_points:
+                        result["forecast"] = forecast_points
+    except Exception as e:
+        logger.error(f"Error fetching NWS data for {nwsli}: {e}")
+        result["error"] = str(e)
+
+    nws_cache[cache_key] = result
+    nws_cache_time[cache_key] = now
+    return result
+
+
 async def fetch_usgs_water_data(site_id: str) -> dict:
     """
     Fetch real-time water conditions from USGS Water Services API.
@@ -4839,29 +4951,31 @@ async def get_water_condition_debug(lock_id: str):
 
 @api_router.get("/water-conditions")
 async def get_all_water_conditions():
-    """Get water conditions for all locks with available gauges."""
+    """Get water conditions for all locks using each lock's own NWS gauge."""
     results = {}
-    
-    # Get unique gauge site IDs
-    unique_sites = set(g['site_id'] for g in USGS_GAUGES.values())
-    
-    # Fetch data for each unique site
-    site_data = {}
-    for site_id in unique_sites:
-        site_data[site_id] = await fetch_usgs_water_data(site_id)
-    
-    # Build results for each lock
-    for lock_id, gauge_info in USGS_GAUGES.items():
-        if lock_id in LOCKS:
-            water_data = site_data.get(gauge_info['site_id'], {})
-            results[lock_id] = {
-                "gauge_name": gauge_info['name'],
-                "gage_height_ft": water_data.get('gage_height_ft'),
-                "water_temp_f": water_data.get('water_temp_f'),
-                "current_speed_mph": water_data.get('current_speed_mph'),
-                "flood_stage": water_data.get('flood_stage'),
-            }
-    
+    for lock_id, cfg in LOCK_GAUGES.items():
+        if lock_id not in LOCKS:
+            continue
+        nws = await fetch_nws_gauge_data(cfg["nwsli"])
+        stage = nws.get("stage")
+        category = nws.get("flood_category") or "normal"
+        if category == "normal" and stage is not None:
+            thresholds = cfg["stages"]
+            if stage >= thresholds.get("major", float("inf")):
+                category = "major"
+            elif stage >= thresholds.get("moderate", float("inf")):
+                category = "moderate"
+            elif stage >= thresholds.get("flood", float("inf")):
+                category = "flood"
+            elif stage >= thresholds.get("action", float("inf")):
+                category = "action"
+        results[lock_id] = {
+            "gauge_name": nws.get("name") or cfg["name"],
+            "nwsli": cfg["nwsli"],
+            "gage_height_ft": stage,
+            "datum": cfg["datum"],
+            "flood_stage": category,
+        }
     return results
 
 
@@ -5177,14 +5291,106 @@ async def reconnect_ais():
 
 @api_router.post("/connection/start")
 async def start_connection(config: ConnectionConfig):
-    """Start the AIS connection with the given configuration."""
+    """Start the AIS connection with the given configuration.
+
+    Also persists the config to the `settings` collection under key
+    `last_connection_config` so the connection is auto-restored on backend
+    restart (important for the Pi where the systemd service may restart
+    overnight and we don't want the user to re-enter the phone IP)."""
     await ais_manager.configure(
         config.ip_address,
         config.port,
         config.user_mmsi,
-        ""  # boat_name
+        getattr(config, "boat_name", "") or ""
     )
+
+    # Persist for auto-restore on reboot.
+    try:
+        await db.settings.update_one(
+            {"key": "last_connection_config"},
+            {"$set": {
+                "value": json.dumps({
+                    "ip_address": config.ip_address,
+                    "port": config.port,
+                    "user_mmsi": config.user_mmsi,
+                    "boat_name": getattr(config, "boat_name", "") or "",
+                }),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to persist last_connection_config: {e}")
+
     return {"success": True, "message": f"Connection started to {config.ip_address}:{config.port}"}
+
+
+@api_router.post("/connection/stop")
+async def stop_connection():
+    """Stop the AIS connection (manual disconnect from Settings page)."""
+    await ais_manager.disconnect()
+    return {"success": True, "message": "AIS connection stopped"}
+
+
+# =============================================================================
+# NMEA INGEST ENDPOINT (push-based relay)
+# =============================================================================
+# Lets a local relay script (e.g. /app/scripts/ais_relay.py) POST raw NMEA
+# lines over plain HTTPS. The VM's cloud backend cannot dial back into a
+# user's LAN (private RFC1918), so the relay pushes here instead.
+#
+# Request body:
+#   {
+#     "user_mmsi": "367123450",
+#     "boat_name": "MY BOAT",          (optional)
+#     "lines": ["$GPRMC,...", "!AIVDM,...", ...]
+#   }
+#
+# Response: {"accepted": N, "echoed": M}
+@api_router.post("/ais/ingest")
+async def ingest_nmea(payload: dict):
+    """Accept a batch of raw NMEA lines from a local relay and process them
+    through the same pipeline used by the live TCP feed.
+
+    The relay is identity-free: AIS sentences already contain MMSI, and GPS
+    sentences get attributed to whichever MMSI is configured on the AIS
+    manager (set when the dashboard user clicks Connect)."""
+    lines = payload.get("lines") or []
+    if not isinstance(lines, list):
+        raise HTTPException(status_code=400, detail="`lines` must be a list of NMEA strings")
+
+    # Mark the manager as "connected" via push so /api/connection/status
+    # and the UI reflect a live feed even without a TCP dial-in.
+    if not ais_manager._config:
+        ais_manager._config = {
+            "ip_address": "push://relay",
+            "port": 0,
+            "user_mmsi": "",
+            "boat_name": "",
+        }
+    ais_manager._connected = True
+    ais_manager._last_data_time = datetime.now(timezone.utc)
+
+    accepted = 0
+    for raw in lines:
+        if not isinstance(raw, str):
+            continue
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            await ais_manager._process_line(line)
+            accepted += 1
+        except Exception as e:
+            logger.warning(f"ingest_nmea: failed to process line: {e}")
+
+    return {
+        "accepted": accepted,
+        "received": len(lines),
+        "subscriber_count": ais_manager.subscriber_count,
+        "last_data_time": ais_manager._last_data_time.isoformat() if ais_manager._last_data_time else None,
+    }
+
 
 @api_router.get("/vessel-cache")
 async def get_vessel_cache():
@@ -5193,6 +5399,170 @@ async def get_vessel_cache():
         "cached_vessels": len(vessel_static_cache),
         "cache": vessel_static_cache
     }
+
+
+# Serve the one-click Windows relay launcher. We bake the script's
+# base64 contents into this file so it works inside the backend container
+# without needing the scripts/ directory mounted.
+from fastapi.responses import FileResponse as _FileResponse, Response as _Response  # noqa: E402
+import base64 as _b64  # noqa: E402
+
+def _generate_relay_bat(vm_url: str) -> bytes:
+    """Build RIVERWATCH.bat dynamically with the requested VM URL baked in.
+    The embedded PowerShell relay is the HTTPS-push version."""
+    ps1 = """[CmdletBinding()]
+param(
+    [string]$BoatBeaconIp   = $(if ($env:BOAT_BEACON_IP)   { $env:BOAT_BEACON_IP }   else { "192.168.0.25" }),
+    [int]   $BoatBeaconPort = $(if ($env:BOAT_BEACON_PORT) { [int]$env:BOAT_BEACON_PORT } else { 5353 }),
+    [string]$VmUrl          = $(if ($env:VM_URL)           { $env:VM_URL }           else { "__VM_URL__" }),
+    [double]$BatchSeconds   = 1.0,
+    [int]   $MaxBatchLines  = 200
+)
+$ErrorActionPreference = "Stop"
+$VmUrl = $VmUrl.TrimEnd('/')
+$IngestUrl = "$VmUrl/api/ais/ingest"
+function Write-Log([string]$msg) { Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] " + $msg) }
+Write-Log "River Watch NMEA Relay -> $IngestUrl"
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+$buffer = New-Object System.Collections.Generic.List[string]
+$lock = New-Object Object
+$stats = [pscustomobject]@{ LinesRead=0; LinesSent=0; BatchesSent=0; Errors=0 }
+function Send-Batch([System.Collections.Generic.List[string]]$lines) {
+    $body = @{ lines = @($lines) } | ConvertTo-Json -Compress
+    try {
+        $resp = Invoke-RestMethod -Uri $IngestUrl -Method Post -ContentType "application/json" -Body $body -TimeoutSec 15
+        $stats.BatchesSent++; $stats.LinesSent += $lines.Count
+        if ($stats.BatchesSent -le 3 -or ($stats.BatchesSent % 30) -eq 0) {
+            Write-Log ("POST -> 200  accepted={0}/{1}  total_sent={2}" -f $resp.accepted, $resp.received, $stats.LinesSent)
+        }
+        return $true
+    } catch { $stats.Errors++; Write-Log ("POST FAILED: " + $_.Exception.Message); return $false }
+}
+$client = $null; $stream = $null; $reader = $null
+$lastFlush = Get-Date
+try {
+    while ($true) {
+        if (-not $client -or -not $client.Connected) {
+            try {
+                Write-Log "Connecting to Boat Beacon @ ${BoatBeaconIp}:${BoatBeaconPort} ..."
+                $client = New-Object System.Net.Sockets.TcpClient
+                $client.ReceiveTimeout = 30000; $client.SendTimeout = 10000
+                $iar = $client.BeginConnect($BoatBeaconIp, $BoatBeaconPort, $null, $null)
+                if (-not $iar.AsyncWaitHandle.WaitOne(10000)) { throw "Boat Beacon connect timeout" }
+                $client.EndConnect($iar)
+                $stream = $client.GetStream(); $stream.ReadTimeout = 30000
+                $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::ASCII)
+                Write-Log "Boat Beacon connected. Streaming NMEA..."
+            } catch { $stats.Errors++; Write-Log ("Connect failed: " + $_.Exception.Message + " - retry 5s"); Start-Sleep 5; continue }
+        }
+        try {
+            $line = $reader.ReadLine()
+            if ($null -eq $line) { Write-Log "Boat Beacon closed connection."; try { $client.Close() } catch {}; $client = $null; Start-Sleep 2; continue }
+            $line = $line.Trim()
+            if ($line.Length -gt 0) {
+                [System.Threading.Monitor]::Enter($lock); try { $buffer.Add($line) | Out-Null; $stats.LinesRead++ } finally { [System.Threading.Monitor]::Exit($lock) }
+                if ($stats.LinesRead -le 5) { Write-Log ("NMEA: " + $line.Substring(0, [Math]::Min(90, $line.Length))) }
+            }
+        } catch [System.IO.IOException] { $stats.Errors++; Write-Log ("Read error: " + $_.Exception.Message); try { $client.Close() } catch {}; $client = $null; Start-Sleep 2; continue }
+        $age = ((Get-Date) - $lastFlush).TotalSeconds
+        if ($age -ge $BatchSeconds) {
+            $toSend = $null
+            [System.Threading.Monitor]::Enter($lock)
+            try {
+                if ($buffer.Count -gt 0) {
+                    $take = [Math]::Min($buffer.Count, $MaxBatchLines)
+                    $toSend = New-Object System.Collections.Generic.List[string]
+                    for ($i = 0; $i -lt $take; $i++) { $toSend.Add($buffer[$i]) | Out-Null }
+                    $buffer.RemoveRange(0, $take)
+                }
+            } finally { [System.Threading.Monitor]::Exit($lock) }
+            if ($toSend -and $toSend.Count -gt 0) {
+                if (-not (Send-Batch $toSend)) {
+                    [System.Threading.Monitor]::Enter($lock); try { $buffer.InsertRange(0, $toSend) } finally { [System.Threading.Monitor]::Exit($lock) }
+                    Start-Sleep 2
+                }
+            }
+            $lastFlush = Get-Date
+        }
+    }
+} finally {
+    foreach ($d in @($reader, $stream, $client)) { if ($d) { try { $d.Dispose() } catch {} } }
+}
+""".replace("__VM_URL__", vm_url)
+
+    b64 = _b64.b64encode(ps1.encode("utf-8")).decode("ascii")
+    chunks = [b64[i:i+200] for i in range(0, len(b64), 200)]
+    echo_lines = "\r\n".join([f"echo {c}" for c in chunks])
+
+    bat = (
+        "@echo off\r\n"
+        f'set "VM_URL={vm_url}"\r\n'
+        'set "BOAT_BEACON_IP=192.168.0.25"\r\n'
+        'set "BOAT_BEACON_PORT=5353"\r\n'
+        "setlocal enabledelayedexpansion\r\n"
+        "title River Watch Relay\r\n"
+        "echo ================================================================\r\n"
+        "echo   River Watch Relay (HTTPS push)\r\n"
+        "echo   Beacon : %BOAT_BEACON_IP%:%BOAT_BEACON_PORT%\r\n"
+        "echo   VM URL : %VM_URL%\r\n"
+        "echo ================================================================\r\n"
+        'set "RELAY_PS1=%TEMP%\\riverwatch-relay.ps1"\r\n'
+        'set "RELAY_B64=%TEMP%\\riverwatch-relay.b64"\r\n'
+        '> "%RELAY_B64%" (\r\n'
+        "echo -----BEGIN CERTIFICATE-----\r\n"
+        f"{echo_lines}\r\n"
+        "echo -----END CERTIFICATE-----\r\n"
+        ")\r\n"
+        'certutil -decode -f "%RELAY_B64%" "%RELAY_PS1%" >nul\r\n'
+        'if not exist "%RELAY_PS1%" ( echo ERROR: failed to write relay script. & pause & exit /b 1 )\r\n'
+        'powershell -NoProfile -ExecutionPolicy Bypass -File "%RELAY_PS1%" '
+        '-BoatBeaconIp "%BOAT_BEACON_IP%" -BoatBeaconPort %BOAT_BEACON_PORT% -VmUrl "%VM_URL%"\r\n'
+        "echo Relay exited. Press any key.\r\n"
+        "pause >nul\r\n"
+        "endlocal\r\n"
+    )
+    return bat.encode("utf-8")
+
+
+@api_router.get("/relay/download")
+async def download_relay_bat(request: Request):
+    """Return a freshly-generated RIVERWATCH.bat that points at THIS VM."""
+    # Use the Host header so the .bat always targets whatever URL the client used
+    host = request.headers.get("host") or "127.0.0.1"
+    scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else "http"
+    vm_url = f"{scheme}://{host}"
+    content = _generate_relay_bat(vm_url)
+    return _Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="RIVERWATCH.bat"'},
+    )
+
+
+@api_router.get("/install/tarball")
+async def download_install_tarball():
+    """Return the tarball bundle of the latest backend/frontend/scripts changes."""
+    path = "/app/dist/riverwatch-update.tar.gz"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Install bundle not built on server")
+    return _FileResponse(
+        path,
+        media_type="application/gzip",
+        filename="riverwatch-update.tar.gz",
+    )
+
+
+@api_router.get("/install/bootstrap")
+async def download_install_bootstrap():
+    """Return the one-shot installer shell script."""
+    path = "/app/dist/install.sh"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Installer not built on server")
+    return _FileResponse(
+        path,
+        media_type="text/x-shellscript",
+        filename="install.sh",
+    )
 
 @api_router.get("/river-mile-to-coords/{rm}")
 async def convert_rm_to_coords(rm: float):
@@ -5340,7 +5710,13 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
     for mmsi, vessel in active_vessels.items():
         if mmsi == session_mmsi:
             continue
-        
+
+        # Skip other users' simulated vessels (orphan "Your Vessel" entries from
+        # prior sessions). Demo tows are is_demo=True without is_simulated and
+        # remain eligible as competitors.
+        if isinstance(vessel, dict) and vessel.get('is_simulated') and vessel.get('is_user_vessel'):
+            continue
+
         # Handle both Pydantic models and dicts (demo vessels are dicts)
         if hasattr(vessel, 'river_mile'):
             # Pydantic model
@@ -5390,6 +5766,15 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         user_speed_mph = user_speed_knots * 1.15078
         
         user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm)
+
+        # If the user's vessel is stopped, do not calculate impossible "speed to beat"
+        # values. A stopped vessel obviously cannot beat traffic to the lock, and the
+        # frontend should not display panic values like 888 MPH.
+        user_stopped_for_timing = (
+            user_speed_mph < 0.5
+            or user_heading == "stationary"
+            or user_eta is None
+        )
         
         # Find most threatening competitor
         # LOGIC: Any vessel heading TOWARD the lock is a potential competitor,
@@ -5411,12 +5796,18 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             
             # Check if this competitor will arrive before user (with buffer)
             # Competitors are already sorted by ETA, so first valid one is the biggest threat
-            if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
-                # User needs to arrive buffer_minutes BEFORE the tow to get through first
+            if comp_eta and (user_stopped_for_timing or user_eta is None or comp_eta < user_eta + buffer_minutes):
+                # User needs to arrive buffer_minutes BEFORE the tow to get through first.
+                # If stopped, keep the traffic threat but suppress impossible speed math.
                 threat = comp
-                required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
-                if required_speed and required_speed > 25:
+
+                if user_stopped_for_timing:
+                    required_speed = None
                     can_beat = False
+                else:
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
+                    if required_speed and required_speed > 25:
+                        can_beat = False
                 break
         
         analysis = {
@@ -5427,7 +5818,9 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             "required_speed_mph": required_speed,
             "can_beat_at_25mph": can_beat,
             "max_speed_mph": 25,
-            "buffer_minutes": buffer_minutes
+            "buffer_minutes": buffer_minutes,
+            "timing_paused": user_stopped_for_timing,
+            "timing_paused_reason": "stopped" if user_stopped_for_timing else None
         }
     
     return RaceAnalysis(
@@ -5452,6 +5845,217 @@ async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minute
         raise HTTPException(status_code=400, detail="mmsi query parameter required. Use GET /session/{mmsi}/race-analysis/{lock_id}")
     
     return await get_session_race_analysis(mmsi, lock_id, buffer_minutes)
+
+
+# =============================================================================
+# TRIP PLAN - Chain Race Analysis Across Multiple Locks Ahead
+# =============================================================================
+@api_router.get("/session/{session_mmsi}/trip-plan")
+async def get_session_trip_plan(
+    session_mmsi: str,
+    destination_rm: Optional[float] = None,
+    buffer_minutes: int = 20,
+    max_locks: int = 5,
+):
+    """
+    Compute a multi-lock trip plan for a session's vessel.
+
+    For each lock the user will encounter (in their heading direction), this
+    returns the race-to-beat status against the most threatening commercial
+    tow targeting that same lock.
+
+    Query params:
+    - destination_rm: Optional river mile to stop the chain at (otherwise
+      uses end of river in heading direction).
+    - buffer_minutes: Minutes of buffer required before a competing tow.
+    - max_locks: Max number of locks to include in the chain (1-15).
+
+    Status values per leg:
+    - "clear":     no threatening vessel within 100 mi of the lock
+    - "on_pace":   tow detected but user already on pace at current speed
+    - "speed_up":  beatable but user must increase speed (still <= 25 mph)
+    - "cant_beat": required speed exceeds 25 mph max
+    - "no_data":   insufficient info (no speed/heading) to compute
+    """
+    session_mmsi = str(session_mmsi).strip()
+    if not session_mmsi:
+        raise HTTPException(status_code=400, detail="Session MMSI required")
+
+    max_locks = max(1, min(int(max_locks or 5), 15))
+    MAX_THREAT_DISTANCE = 100.0
+    USER_MAX_MPH = 25.0
+
+    # Find the user vessel
+    if session_mmsi not in active_vessels:
+        return {
+            "session_mmsi": session_mmsi,
+            "user_vessel": None,
+            "heading": None,
+            "destination_rm": destination_rm,
+            "legs": [],
+            "summary": {
+                "total_distance_mi": 0,
+                "cumulative_eta_minutes": None,
+                "legs_count": 0,
+                "cant_beat_count": 0,
+                "speed_up_count": 0,
+                "clear_count": 0,
+                "overall_status": "no_user",
+            },
+        }
+
+    user_vessel = prepare_vessel_for_output(active_vessels[session_mmsi], session_mmsi)
+    user_rm = user_vessel.get('river_mile') or estimate_river_mile(user_vessel.get('lat'), user_vessel.get('lon'))
+    user_speed_knots = user_vessel.get('speed') or 0
+    user_speed_mph = user_speed_knots * 1.15078
+    user_heading = user_vessel.get('heading') or determine_heading(user_speed_knots, user_vessel.get('course') or 0)
+
+    # Build ordered chain of locks ahead of the user in heading direction.
+    locks_sorted = sorted(LOCKS.items(), key=lambda kv: kv[1]['river_mile'])
+    chain: List[tuple] = []  # list of (lock_id, lock_dict)
+    if user_heading == 'northbound':
+        # River miles increase northbound. Take locks with RM > user_rm in ascending order.
+        for lid, ldata in locks_sorted:
+            if ldata['river_mile'] > (user_rm or 0):
+                if destination_rm is not None and ldata['river_mile'] > destination_rm:
+                    break
+                chain.append((lid, ldata))
+    elif user_heading == 'southbound':
+        # River miles decrease southbound. Take locks with RM < user_rm in descending order.
+        for lid, ldata in reversed(locks_sorted):
+            if ldata['river_mile'] < (user_rm or 0):
+                if destination_rm is not None and ldata['river_mile'] < destination_rm:
+                    break
+                chain.append((lid, ldata))
+    else:
+        # Stationary or unknown - no chain
+        chain = []
+
+    chain = chain[:max_locks]
+
+    # Build per-leg analysis
+    legs = []
+    cumulative_eta = 0.0 if user_speed_mph > 0 else None
+    cant_beat_count = 0
+    speed_up_count = 0
+    clear_count = 0
+    last_rm = user_rm
+
+    for lid, ldata in chain:
+        lock_rm = ldata['river_mile']
+        leg_distance = round(abs((last_rm or lock_rm) - lock_rm), 1)
+
+        user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm) if user_rm else None
+
+        # Find threatening competitor for THIS lock (bi-directional)
+        threat = None
+        threat_eta = None
+        required_speed = None
+        for mmsi, vessel in active_vessels.items():
+            if mmsi == session_mmsi:
+                continue
+            # Skip other users' simulated vessels (they are not real commercial traffic).
+            # These can show up as "Your Vessel" orphans from prior test sessions.
+            if isinstance(vessel, dict):
+                if vessel.get('is_simulated') and vessel.get('is_user_vessel'):
+                    continue
+            if hasattr(vessel, 'river_mile'):
+                vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
+                vessel_speed = vessel.speed
+                vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course)
+            else:
+                vessel_rm = vessel.get('river_mile') or estimate_river_mile(vessel.get('lat'), vessel.get('lon'))
+                vessel_speed = vessel.get('speed', 0)
+                vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0))
+
+            eta = calculate_eta_to_lock(vessel_rm, vessel_speed, vessel_heading, lock_rm)
+            if eta is None or eta <= 0:
+                continue
+
+            # Ignore competitors too far from the lock
+            if vessel_rm is not None and abs(vessel_rm - lock_rm) > MAX_THREAT_DISTANCE:
+                continue
+
+            # Earliest competitor wins; user needs to arrive buffer_minutes before them
+            if user_eta is None or eta < user_eta + buffer_minutes:
+                if threat_eta is None or eta < threat_eta:
+                    v_dict = prepare_vessel_for_output(vessel, mmsi)
+                    v_dict['eta_minutes'] = eta
+                    v_dict['distance_to_lock'] = round(abs(vessel_rm - lock_rm), 1) if vessel_rm else None
+                    threat = v_dict
+                    threat_eta = eta
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, eta, buffer_minutes)
+
+        # Determine status
+        if user_rm is None or user_speed_knots < 0.1 or user_heading not in ('northbound', 'southbound'):
+            status = 'no_data'
+        elif threat is None:
+            status = 'clear'
+            clear_count += 1
+        elif required_speed is None:
+            # Can't compute required speed - treat as can't beat
+            status = 'cant_beat'
+            cant_beat_count += 1
+        elif required_speed > USER_MAX_MPH:
+            status = 'cant_beat'
+            cant_beat_count += 1
+        elif required_speed > user_speed_mph + 0.5:
+            status = 'speed_up'
+            speed_up_count += 1
+        else:
+            status = 'on_pace'
+            clear_count += 1
+
+        legs.append({
+            "lock_id": lid,
+            "lock_name": ldata['name'],
+            "lock_rm": lock_rm,
+            "leg_distance_mi": leg_distance,
+            "user_eta_minutes": user_eta,
+            "threatening_vessel": threat,
+            "required_speed_mph": required_speed,
+            "status": status,
+            "buffer_minutes": buffer_minutes,
+        })
+
+        if cumulative_eta is not None and user_eta is not None:
+            cumulative_eta = user_eta  # Each user_eta already from current position
+        last_rm = lock_rm
+
+    # Total distance is from user position to the final lock in the chain (if any)
+    total_distance = 0.0
+    if chain and user_rm is not None:
+        total_distance = round(abs(chain[-1][1]['river_mile'] - user_rm), 1)
+
+    # Overall status: worst of the chain
+    if cant_beat_count > 0:
+        overall = 'cant_beat'
+    elif speed_up_count > 0:
+        overall = 'speed_up'
+    elif clear_count > 0:
+        overall = 'clear'
+    else:
+        overall = 'no_data'
+
+    return {
+        "session_mmsi": session_mmsi,
+        "user_vessel": user_vessel,
+        "user_rm": user_rm,
+        "user_speed_mph": round(user_speed_mph, 1),
+        "heading": user_heading,
+        "destination_rm": destination_rm,
+        "legs": legs,
+        "summary": {
+            "total_distance_mi": total_distance,
+            "cumulative_eta_minutes": legs[-1]["user_eta_minutes"] if legs else None,
+            "legs_count": len(legs),
+            "cant_beat_count": cant_beat_count,
+            "speed_up_count": speed_up_count,
+            "clear_count": clear_count,
+            "overall_status": overall,
+            "max_speed_mph": USER_MAX_MPH,
+        },
+    }
 
 
 @api_router.post("/set-user-mmsi")
@@ -5949,6 +6553,146 @@ async def broadcast_demo_nmea(mmsi: str, lat: float, lon: float, speed_knots: fl
     await broadcast_raw_line(f"[DEMO] {aivdm_comment}")
 
 
+# =============================================================================
+# TRIPS - Create / Save / Load planned trips
+# =============================================================================
+class TripCreate(BaseModel):
+    name: str
+    start_rm: Optional[float] = None
+    end_rm: Optional[float] = None
+    heading: Optional[str] = None   # "northbound" | "southbound"
+    departure_time: Optional[str] = None  # ISO 8601 string
+    notes: Optional[str] = None
+    locks: Optional[List[str]] = None  # ordered lock ids the trip traverses
+
+
+def _trip_doc_to_public(doc: dict) -> dict:
+    """Strip Mongo internals + ensure JSON-safe fields."""
+    if not doc:
+        return {}
+    out = {k: v for k, v in doc.items() if k != "_id"}
+    for k in ("created_at", "updated_at"):
+        v = out.get(k)
+        if isinstance(v, datetime):
+            out[k] = v.isoformat()
+    return out
+
+
+@api_router.post("/trips")
+async def create_trip(trip: TripCreate, request: Request):
+    """Create a new saved trip for the current user."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    name = (trip.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Trip name is required")
+
+    now = datetime.now(timezone.utc)
+    doc = {
+        "trip_id": f"trip_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "name": name,
+        "start_rm": trip.start_rm,
+        "end_rm": trip.end_rm,
+        "heading": trip.heading,
+        "departure_time": trip.departure_time,
+        "notes": (trip.notes or "").strip(),
+        "locks": list(trip.locks or []),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.trips.insert_one(doc)
+    return _trip_doc_to_public(doc)
+
+
+@api_router.get("/trips")
+async def list_trips(request: Request):
+    """List the current user's saved trips, newest first."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    cursor = db.trips.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0},
+    ).sort("created_at", -1)
+    trips = []
+    async for doc in cursor:
+        for k in ("created_at", "updated_at"):
+            v = doc.get(k)
+            if isinstance(v, datetime):
+                doc[k] = v.isoformat()
+        trips.append(doc)
+    return {"trips": trips, "count": len(trips)}
+
+
+@api_router.get("/trips/{trip_id}")
+async def get_trip(trip_id: str, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    doc = await db.trips.find_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"_id": 0},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    for k in ("created_at", "updated_at"):
+        v = doc.get(k)
+        if isinstance(v, datetime):
+            doc[k] = v.isoformat()
+    return doc
+
+
+@api_router.put("/trips/{trip_id}")
+async def update_trip(trip_id: str, trip: TripCreate, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    update_fields = {
+        "name": (trip.name or "").strip(),
+        "start_rm": trip.start_rm,
+        "end_rm": trip.end_rm,
+        "heading": trip.heading,
+        "departure_time": trip.departure_time,
+        "notes": (trip.notes or "").strip(),
+        "locks": list(trip.locks or []),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if not update_fields["name"]:
+        raise HTTPException(status_code=400, detail="Trip name is required")
+    result = await db.trips.update_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"$set": update_fields},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    doc = await db.trips.find_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"_id": 0},
+    )
+    for k in ("created_at", "updated_at"):
+        v = doc.get(k)
+        if isinstance(v, datetime):
+            doc[k] = v.isoformat()
+    return doc
+
+
+@api_router.delete("/trips/{trip_id}")
+async def delete_trip(trip_id: str, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    result = await db.trips.delete_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return {"deleted": trip_id}
+
+
+
+
 @api_router.post("/debug/inject-nmea")
 async def inject_test_nmea(request: Request):
     """
@@ -5980,6 +6724,158 @@ async def get_raw_subscribers():
         "ais_config": ais_manager.get_status().get("config"),
         "last_data_time": ais_manager.get_status().get("last_data_time")
     }
+
+
+def _generate_phone_localhost_relay_script(vm_url: str) -> bytes:
+    """Build an Android/Termux relay for Boat Beacon localhost TCP output."""
+    ingest_url = vm_url.rstrip("/") + "/api/ais/ingest"
+
+    script = r"""#!/data/data/com.termux/files/usr/bin/bash
+set -u
+
+BOAT_BEACON_HOST="${BOAT_BEACON_HOST:-127.0.0.1}"
+BOAT_BEACON_PORT="${BOAT_BEACON_PORT:-5353}"
+INGEST_URL="__INGEST_URL__"
+BATCH_SECONDS="${BATCH_SECONDS:-1}"
+MAX_BATCH_LINES="${MAX_BATCH_LINES:-200}"
+
+log() {
+  printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+json_escape() {
+  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().rstrip("\n")))'
+}
+
+send_batch() {
+  local tmpfile="$1"
+  local count
+  count=$(wc -l < "$tmpfile" | tr -d ' ')
+
+  if [ "$count" = "0" ]; then
+    return 0
+  fi
+
+  local lines_json
+  local line
+  local escaped
+  local first
+
+  lines_json="["
+  first=1
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    escaped=$(printf '%s' "$line" | json_escape)
+
+    if [ "$first" = "1" ]; then
+      lines_json="$lines_json$escaped"
+      first=0
+    else
+      lines_json="$lines_json,$escaped"
+    fi
+  done < "$tmpfile"
+
+  lines_json="$lines_json]"
+  body="{\"lines\":$lines_json}"
+
+  if curl -fsS -X POST "$INGEST_URL" \
+      -H "Content-Type: application/json" \
+      --data "$body" >/tmp/riverwatch-phone-relay-response.json 2>/tmp/riverwatch-phone-relay-error.log; then
+    log "POST ok: $count line(s)"
+    : > "$tmpfile"
+    return 0
+  else
+    log "POST failed: $(cat /tmp/riverwatch-phone-relay-error.log 2>/dev/null)"
+    return 1
+  fi
+}
+
+log "RiverWatch Phone Localhost Relay"
+log "Boat Beacon source: $BOAT_BEACON_HOST:$BOAT_BEACON_PORT"
+log "RiverWatch ingest: $INGEST_URL"
+
+if ! need_cmd python3; then
+  log "python3 not found. Installing..."
+  pkg install -y python || {
+    log "ERROR: Could not install python. Run: pkg install python"
+    exit 1
+  }
+fi
+
+if ! need_cmd curl; then
+  log "curl not found. Installing..."
+  pkg install -y curl || {
+    log "ERROR: Could not install curl. Run: pkg install curl"
+    exit 1
+  }
+fi
+
+if ! need_cmd nc; then
+  log "netcat not found. Installing..."
+  pkg install -y netcat-openbsd || pkg install -y busybox || {
+    log "ERROR: Could not install netcat. Run: pkg install netcat-openbsd"
+    exit 1
+  }
+fi
+
+batch_file="/tmp/riverwatch-phone-nmea-batch.txt"
+: > "$batch_file"
+
+while true; do
+  log "Connecting to Boat Beacon localhost feed..."
+  log "If this loops, confirm Boat Beacon is outputting TCP/NMEA on 127.0.0.1:5353."
+
+  last_flush="$(date +%s)"
+
+  nc "$BOAT_BEACON_HOST" "$BOAT_BEACON_PORT" | while IFS= read -r line || [ -n "$line" ]; do
+    line="$(printf '%s' "$line" | tr -d '\r')"
+
+    if [ -z "$line" ]; then
+      continue
+    fi
+
+    printf '%s\n' "$line" >> "$batch_file"
+
+    current_count=$(wc -l < "$batch_file" | tr -d ' ')
+    if [ "$current_count" -ge "$MAX_BATCH_LINES" ]; then
+      send_batch "$batch_file" || true
+    fi
+
+    now="$(date +%s)"
+    elapsed=$((now - last_flush))
+
+    if [ "$elapsed" -ge "$BATCH_SECONDS" ]; then
+      send_batch "$batch_file" || true
+      last_flush="$now"
+    fi
+  done
+
+  send_batch "$batch_file" || true
+  log "Boat Beacon connection closed or failed. Retrying in 5 seconds..."
+  sleep 5
+done
+"""
+
+    script = script.replace("__INGEST_URL__", ingest_url)
+    return script.encode("utf-8")
+
+
+@api_router.get("/relay/phone-localhost/download")
+async def download_phone_localhost_relay(request: Request):
+    """Return an Android/Termux relay script for Boat Beacon localhost TCP output."""
+    host = request.headers.get("host") or "127.0.0.1"
+    scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else "http"
+    vm_url = f"{scheme}://{host}"
+    content = _generate_phone_localhost_relay_script(vm_url)
+    return _Response(
+        content=content,
+        media_type="text/x-shellscript",
+        headers={"Content-Disposition": 'attachment; filename="riverwatch-phone-localhost-relay.sh"'},
+    )
 
 
 # Include the router in the main app
@@ -6240,6 +7136,23 @@ async def startup_event():
 
     # Periodic stale-vessel pruning (removes leftover test/injected MMSIs)
     asyncio.create_task(stale_vessel_sweep_task())
+    # Auto-restore last AIS connection (so the Pi reconnects to the phone
+    # automatically after a reboot without the user re-entering the IP).
+    try:
+        doc = await db.settings.find_one({"key": "last_connection_config"}, {"_id": 0})
+        if doc and doc.get("value"):
+            saved = json.loads(doc["value"])
+            ip = saved.get("ip_address")
+            port = int(saved.get("port") or 5353)
+            mmsi = saved.get("user_mmsi", "") or ""
+            boat = saved.get("boat_name", "") or ""
+            if ip and ip not in ("ais-relay", "push://relay"):
+                logger.info(f"Auto-restoring AIS connection to {ip}:{port} (mmsi={mmsi})")
+                asyncio.create_task(ais_manager.configure(ip, port, mmsi, boat))
+            else:
+                logger.info(f"Skipping AIS auto-restore (ip={ip!r} is stale/non-routable)")
+    except Exception as e:
+        logger.warning(f"Failed to auto-restore AIS connection: {e}")
 
 
 async def usace_refresh_task():

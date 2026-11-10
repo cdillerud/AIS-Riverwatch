@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
-  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
+  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings, Map,
   Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
   Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info,
   LogOut, Radio, User, Eye, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
@@ -33,6 +33,7 @@ import VesselDetailModal from "@/components/VesselDetailModal";
 import LockDetailModal from "@/components/LockDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
 import Speedometer from "@/components/Speedometer";
+import TripPlanPanel from "@/components/TripPlanPanel";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
 import { useAuth } from "@/context/AuthContext";
 
@@ -47,6 +48,7 @@ export default function Dashboard({
   lockageTimes = {},
   raceAnalysis,
   selectedLock,
+  activeTimingLock,
   onSelectLock,
   onDisconnect,
   onResetConnection,
@@ -209,17 +211,36 @@ export default function Dashboard({
     return vessels.filter(v => v.mmsi !== userMmsi);
   }, [vessels, userMmsi]);
 
-  // Check if speed requirement is dangerous
-  const isDangerous = raceAnalysis?.analysis?.required_speed_mph && 
-                      raceAnalysis.analysis.required_speed_mph > 25;
+  // Check if speed requirement is dangerous.
+  // If the user's vessel is stopped, do not treat impossible speed-to-beat values
+  // as an active traffic delay. A stopped vessel cannot race anyone to the lock.
+  const userSpeedMph = userVessel?.speed ? userVessel.speed * 1.15078 : 0;
+  const maxAllowedSpeedMph = userSettings.max_speed_mph || 25;
+  const isUserEffectivelyStopped = !isTrafficWatch && !!userVessel && userSpeedMph < 0.5;
+  const hasRequiredSpeed = Number.isFinite(raceAnalysis?.analysis?.required_speed_mph);
+  const isTimingPaused = isUserEffectivelyStopped && !!raceAnalysis?.analysis?.threatening_vessel;
+  const isDangerous = !isTimingPaused &&
+                      hasRequiredSpeed &&
+                      raceAnalysis.analysis.required_speed_mph > maxAllowedSpeedMph;
   
   // Track current threatening vessel to reset alert when it changes
   const currentThreatMmsi = raceAnalysis?.analysis?.threatening_vessel?.mmsi;
 
-  // Get the selected lock object for the modal
-  const selectedLockObj = useMemo(() => {
+  // Map lock = what the dropdown/map is looking at.
+  // Timing lock = the live navigation target used for HUD, Lock Timing, queue, and race analysis.
+  // For vessel owners, timing follows the next lock in the vessel's current direction.
+  // For Traffic Watch, selected lock remains the timing/watch target.
+  const selectedMapLockObj = useMemo(() => {
     return locks.find(l => l.id === selectedLock);
   }, [locks, selectedLock]);
+
+  const activeTimingLockId = isTrafficWatch
+    ? selectedLock
+    : (activeTimingLock || nextLock?.id || selectedLock);
+
+  const selectedLockObj = useMemo(() => {
+    return locks.find(l => l.id === activeTimingLockId) || selectedMapLockObj;
+  }, [locks, activeTimingLockId, selectedMapLockObj]);
 
   // Calculate distance to selected lock and travel time
   const lockTravelInfo = useMemo(() => {
@@ -232,7 +253,7 @@ export default function Dashboard({
     const travelMinutes = speedMph > 0 ? (distance / speedMph) * 60 : null;
     
     // Estimate wait time based on lockage times data
-    const avgLockageTime = lockageTimes?.[selectedLock]?.avg_minutes || 20; // default 20 min
+    const avgLockageTime = lockageTimes?.[activeTimingLockId]?.avg_minutes || 20; // default 20 min
     
     return {
       distance: distance.toFixed(1),
@@ -240,7 +261,7 @@ export default function Dashboard({
       estimatedWait: avgLockageTime,
       totalMinutes: travelMinutes ? (parseFloat(travelMinutes) + avgLockageTime).toFixed(0) : null
     };
-  }, [userVessel, selectedLockObj, selectedLock, lockageTimes]);
+  }, [userVessel, selectedLockObj, activeTimingLockId, lockageTimes]);
 
   // Get vessels near the target lock (within 5 RM, heading towards it)
   const lockQueue = useMemo(() => {
@@ -450,7 +471,17 @@ export default function Dashboard({
       
       // Convert speed from MPH to knots
       const speedKnots = (speed || 0) * 0.868976;
-      
+
+      // Resolve MMSI: user account vessel -> active session MMSI -> connection config
+      const effectiveMmsi = userMmsi
+        || userVessel?.mmsi
+        || connectionConfig?.user_mmsi
+        || "";
+      if (!effectiveMmsi) {
+        toast.error("No MMSI set. Open Settings > Vessels and add your MMSI first.");
+        return;
+      }
+
       // Update position
       const response = await fetch(`${API}/user-position`, {
         method: "POST",
@@ -461,11 +492,11 @@ export default function Dashboard({
           speed: speedKnots,
           course: course || 0,
           source: "manual",
-          mmsi: userMmsi || userVessel?.mmsi,
+          mmsi: effectiveMmsi,
           name: userSettings.boat_name || userVessel?.name || "Your Vessel"
         })
       });
-      
+
       if (response.ok) {
         toast.success(`Position updated to RM ${rm}`);
         setShowPositionEditor(false);
@@ -474,17 +505,18 @@ export default function Dashboard({
           await onRefresh();
         }
       } else {
-        toast.error("Failed to update position");
+        const errDetail = await response.json().catch(() => null);
+        toast.error(errDetail?.detail || `Failed to update position (HTTP ${response.status})`);
       }
     } catch (error) {
       console.error("Position update error:", error);
-      toast.error("Failed to update position");
+      toast.error(error?.message || "Failed to update position");
     }
   };
 
   // Quick stats for mobile header
-  const requiredSpeed = raceAnalysis?.analysis?.required_speed_mph;
-  const userEta = raceAnalysis?.analysis?.user_eta_minutes;
+  const requiredSpeed = isTimingPaused ? null : raceAnalysis?.analysis?.required_speed_mph;
+  const userEta = isTimingPaused ? null : raceAnalysis?.analysis?.user_eta_minutes;
 
   // Keyboard shortcuts - must be after all handler functions
   useEffect(() => {
@@ -598,6 +630,17 @@ export default function Dashboard({
                 title="River Traffic Planning"
               >
                 <Compass className="w-4 h-4" />
+              </Button>
+              {/* My Trips */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.location.assign('/trips')}
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                data-testid="trips-nav-btn"
+                title="My Trips"
+              >
+                <Map className="w-4 h-4" />
               </Button>
 
               {/* Settings - Icon only */}
@@ -802,9 +845,9 @@ export default function Dashboard({
                   </span>
                 </div>
               ) : (
-                <div className={`flex items-center gap-1 px-2.5 py-1 ${isDangerous ? 'bg-red-500/10' : 'bg-green-500/10'} rounded-r`}>
-                  <span className={`font-heading text-[10px] font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                    {isDangerous ? 'DELAY' : 'CLEAR'}
+                <div className={`flex items-center gap-1 px-2.5 py-1 ${isDangerous ? 'bg-red-500/10' : isTimingPaused ? 'bg-slate-500/10' : 'bg-green-500/10'} rounded-r`}>
+                  <span className={`font-heading text-[10px] font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : isTimingPaused ? 'text-slate-300' : 'text-green-400'}`}>
+                    {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : 'CLEAR'}
                   </span>
                   {isDangerous && <AlertTriangle className="w-3 h-3 text-red-400 animate-pulse" />}
                 </div>
@@ -1139,7 +1182,7 @@ export default function Dashboard({
                     {/* Watch Point Info - Clickable to open lock details */}
                     <div 
                       className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
-                      onClick={() => setSelectedLockDetail(selectedLock)}
+                      onClick={() => setSelectedLockDetail(activeTimingLockId)}
                       title="Click to view lock details"
                     >
                       <div className="text-[10px] text-slate-500 uppercase">Watching</div>
@@ -1248,20 +1291,22 @@ export default function Dashboard({
                     <span className="text-sm font-medium text-white">Lock Timing</span>
                   </div>
                   <Badge className={`text-[10px] ${
-                    isDangerous 
-                      ? 'bg-red-500/20 text-red-400 border-red-500/50' 
-                      : raceAnalysis?.analysis?.threatening_vessel 
-                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
-                        : 'bg-green-500/20 text-green-400 border-green-500/50'
+                    isDangerous
+                      ? 'bg-red-500/20 text-red-400 border-red-500/50'
+                      : isTimingPaused
+                        ? 'bg-slate-500/20 text-slate-300 border-slate-500/50'
+                        : raceAnalysis?.analysis?.threatening_vessel
+                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
+                          : 'bg-green-500/20 text-green-400 border-green-500/50'
                   }`}>
-                    {isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
+                    {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
                   </Badge>
                 </div>
                 <div className="p-3 space-y-3">
                   {/* Target Lock Info - Clickable to open details */}
                   <div 
                     className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
-                    onClick={() => setSelectedLockDetail(selectedLock)}
+                    onClick={() => setSelectedLockDetail(activeTimingLockId)}
                     title="Click to view lock details"
                   >
                     <div className="text-[10px] text-slate-500 uppercase">Target Lock</div>
@@ -1269,6 +1314,11 @@ export default function Dashboard({
                       <div>
                         <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
                         <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
+                        {!isTrafficWatch && selectedLock !== activeTimingLockId && (
+                          <div className="text-[10px] text-cyan-400 mt-1">
+                            Timing follows your next lock. Map view: L{selectedLock.replace('lock_', '')}.
+                          </div>
+                        )}
                       </div>
                       <ChevronDown className="w-4 h-4 text-cyan-400" />
                     </div>
@@ -1327,11 +1377,22 @@ export default function Dashboard({
                       </div>
                       <div className="text-center py-2">
                         <div className="text-[10px] text-slate-500 uppercase">Speed to Beat</div>
-                        <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                          {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
-                        </div>
-                        {isDangerous && (
-                          <div className="text-[10px] text-red-400 mt-1">Exceeds max speed (25 mph)</div>
+                        {isTimingPaused ? (
+                          <>
+                            <div className="text-2xl font-mono font-bold text-slate-300">Stopped</div>
+                            <div className="text-[10px] text-slate-400 mt-1">
+                              Start moving or enter a speed to calculate a meaningful speed-to-beat.
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                              {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
+                            </div>
+                            {isDangerous && (
+                              <div className="text-[10px] text-red-400 mt-1">Exceeds max speed ({maxAllowedSpeedMph} mph)</div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -1376,7 +1437,7 @@ export default function Dashboard({
                           </div>
                         ))}
                         {/* Show "You" in queue ONLY if this is the lock you're heading toward */}
-                        {userVessel && nextLock && selectedLock === nextLock.id && (
+                        {userVessel && nextLock && activeTimingLockId === nextLock.id && (
                           <div className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-cyan-900/30 border border-cyan-500/30">
                             <span className="text-cyan-400 font-semibold">
                               {lockQueue.length + 1}. You
@@ -1411,7 +1472,12 @@ export default function Dashboard({
                 </div>
               </Card>
               )}
-              
+
+              {/* Trip Plan - Multi-Lock Chain Analysis (vessel_owner only) */}
+              {!isTrafficWatch && userMmsi && (
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={5} bufferMinutes={20} compact={true} />
+              )}
+
               {/* Nearby Vessels Card - Expands to fill remaining space */}
               <Card className="glass-panel hud-border flex-1 flex flex-col min-h-0" data-testid="vessels-sidebar">
                 <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between flex-shrink-0">
@@ -1521,10 +1587,16 @@ export default function Dashboard({
                 raceAnalysis={raceAnalysis}
                 userVessel={userVessel}
                 isDangerous={isDangerous}
+                isTimingPaused={isTimingPaused}
+                maxAllowedSpeedMph={maxAllowedSpeedMph}
                 compact={true}
                 showVesselNames={userSettings.show_vessel_names !== false}
               />
-              
+
+              {!isTrafficWatch && userMmsi && (
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={4} bufferMinutes={20} compact={true} />
+              )}
+
               {userVessel && (
                 <Card className="glass-panel border-cyan-500/30">
                   <CardContent className="p-3">

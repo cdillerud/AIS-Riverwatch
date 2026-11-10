@@ -1,0 +1,37 @@
+# Multi-stage Dockerfile for Pi-local River Watch frontend.
+# Builds the static React bundle, then serves it via Nginx with API + WebSocket
+# proxying to the backend container on the same Docker network.
+#
+# Designed to run on linux/arm64 (Raspberry Pi 4).
+
+# -------- 1. Build stage --------
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Frontend connects via relative /api paths by default so the same build works
+# regardless of which IP/hostname is used to reach the Pi.
+ARG REACT_APP_BACKEND_URL=""
+ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
+# Disable CRA ESLint plugin during build (matches prod workflow)
+ENV DISABLE_ESLINT_PLUGIN=true
+
+COPY package.json ./
+COPY yarn.lock* package-lock.json* ./
+RUN if [ -f yarn.lock ]; then \
+        yarn install --frozen-lockfile --production=false; \
+    elif [ -f package-lock.json ]; then \
+        npm ci; \
+    else \
+        npm install; \
+    fi
+
+COPY . .
+RUN yarn build
+
+# -------- 2. Runtime stage --------
+FROM nginx:1.27-alpine
+COPY --from=build /app/build /usr/share/nginx/html
+COPY nginx.pi.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

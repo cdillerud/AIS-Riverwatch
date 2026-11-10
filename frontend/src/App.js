@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
@@ -11,7 +11,9 @@ import RegisterPage from "@/pages/RegisterPage";
 import LandingPage from "@/pages/LandingPage";
 import AuthCallback from "@/pages/AuthCallback";
 import TrafficPlanner from "@/pages/TrafficPlanner";
+import TripsPage from "@/pages/TripsPage";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import useAisDriftWatch from "@/hooks/useAisDriftWatch";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -77,6 +79,11 @@ function AppRouter() {
           <TrafficPlanner />
         </ProtectedRoute>
       } />
+      <Route path="/trips" element={
+        <ProtectedRoute>
+          <TripsPage />
+        </ProtectedRoute>
+      } />
       {/* Catch-all redirect to landing or dashboard */}
       <Route path="*" element={
         isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/" replace />
@@ -113,6 +120,12 @@ function MainApp() {
   const geoWatchRef = useRef(null);
   const autoRefreshRef = useRef(null);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
+
+  // Cross-deployment drift detector (works identically on Pi + VM).
+  // Polls /api/connection/status; warns once if NMEA stalls > 30 s, recovers
+  // automatically when sentences resume. Disabled until a connection exists
+  // so first-time users on the SetupPage don't see false alarms.
+  useAisDriftWatch({ enabled: !!connectionConfig });
 
   // Load primary vessel from user account and restore positions
   useEffect(() => {
@@ -240,9 +253,61 @@ function MainApp() {
         restoreVessels();
       }
     } else if (user && (!user.vessels || user.vessels.length === 0)) {
-      // User is logged in but has no vessels - clear any stale MMSI from localStorage
-      localStorage.removeItem('riverwatch_mmsi');
-      setUserMmsi("");
+      // User is logged in but has no vessels saved on the account.
+      // The Settings page writes MMSI to /api/settings (not to user.vessels),
+      // so read from there as a fallback before defaulting to empty.
+      (async () => {
+        let fallbackMmsi = "";
+        let fallbackBoatName = "";
+        try {
+          const settingsRes = await fetch(`${API}/settings`);
+          if (settingsRes.ok) {
+            const settingsData = await settingsRes.json();
+            fallbackMmsi = settingsData?.user_mmsi || "";
+            fallbackBoatName = settingsData?.boat_name || "";
+          }
+        } catch (e) {
+          console.warn("[APP] Couldn't load /api/settings fallback:", e);
+        }
+
+        if (fallbackMmsi) {
+          localStorage.setItem('riverwatch_mmsi', fallbackMmsi);
+          setUserMmsi(fallbackMmsi);
+        } else {
+          localStorage.removeItem('riverwatch_mmsi');
+          setUserMmsi("");
+        }
+
+        const storedConfig = localStorage.getItem('riverwatch_connection');
+        if (storedConfig) {
+          try {
+            const cfg = JSON.parse(storedConfig);
+            if (fallbackMmsi) cfg.user_mmsi = fallbackMmsi;
+            if (fallbackBoatName) cfg.boat_name = fallbackBoatName;
+            setConnectionConfig(cfg);
+          } catch {
+            const fallback = {
+              ip_address: "ais-relay",
+              port: 5353,
+              user_mmsi: fallbackMmsi,
+              boat_name: fallbackBoatName,
+              account_type: user?.account_type || "vessel_owner",
+            };
+            localStorage.setItem('riverwatch_connection', JSON.stringify(fallback));
+            setConnectionConfig(fallback);
+          }
+        } else {
+          const fallback = {
+            ip_address: "ais-relay",
+            port: 5353,
+            user_mmsi: fallbackMmsi,
+            boat_name: fallbackBoatName,
+            account_type: user?.account_type || "vessel_owner",
+          };
+          localStorage.setItem('riverwatch_connection', JSON.stringify(fallback));
+          setConnectionConfig(fallback);
+        }
+      })();
     }
   }, [user]);
 
@@ -274,25 +339,33 @@ function MainApp() {
     }
   }, [user]);
 
-  // Full app refresh - clears stale data and reconnects
+  // Full app refresh - clears stale data and reconnects WebSocket (no page reload)
   const performFullRefresh = useCallback(() => {
-    console.log("Performing full refresh...");
-    
+    console.log("Performing full refresh (in-place)...");
+
     // Clear vessels to prevent stale data accumulation
     setVessels([]);
     setRaceAnalysis(null);
-    
-    // Close and reconnect WebSocket
+
+    // Close existing WebSocket so it reconnects fresh
     if (wsRef.current) {
       wsRef.current.close();
+      wsRef.current = null;
     }
-    
+
     // Update refresh timestamp
     setLastRefresh(Date.now());
-    
-    // Refetch all data
-    window.location.reload();
-  }, []);
+
+    // Reconnect WebSocket and refetch data (no page reload - keeps us on /dashboard)
+    if (connectionConfig) {
+      setTimeout(() => {
+        connectWebSocket(connectionConfig);
+      }, 250);
+    }
+
+    // Refetch vessels, lock status, lockage times
+    performSoftRefresh();
+  }, [connectionConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Soft refresh - just refetch data without page reload
   const performSoftRefresh = useCallback(async () => {
@@ -516,11 +589,11 @@ function MainApp() {
   // OPTIMIZED: Increased interval from 10s to 20s
   useEffect(() => {
     const fetchRaceAnalysis = async () => {
-      if (!selectedLock || !userMmsi) return;
+      if (!activeTimingLock || !userMmsi) return;
       try {
         const bufferMinutes = userSettings.lock_buffer_minutes || 20;
         // Use session-scoped endpoint
-        const response = await fetch(`${API}/session/${userMmsi}/race-analysis/${selectedLock}?buffer_minutes=${bufferMinutes}`);
+        const response = await fetch(`${API}/session/${userMmsi}/race-analysis/${activeTimingLock}?buffer_minutes=${bufferMinutes}`);
         if (response.ok) {
           const data = await response.json();
           // Only update if analysis actually changed
@@ -540,7 +613,7 @@ function MainApp() {
     // OPTIMIZED: Reduced frequency from 10s to 20s
     const interval = setInterval(fetchRaceAnalysis, 20000);
     return () => clearInterval(interval);
-  }, [selectedLock, userMmsi, userSettings.lock_buffer_minutes]);
+  }, [activeTimingLock, userMmsi, userSettings.lock_buffer_minutes]);
 
   // Continuous GPS tracking (bypasses AIS self-suppression) - EXPLICITLY scoped to session MMSI
   useEffect(() => {
@@ -693,8 +766,12 @@ function MainApp() {
             const lonDiff = Math.abs((existing.lon || 0) - (data.vessel.lon || 0));
             const speedDiff = Math.abs((existing.speed || 0) - (data.vessel.speed || 0));
             
-            if (latDiff < 0.0001 && lonDiff < 0.0001 && speedDiff < 0.5) {
-              return prev; // No significant change, skip update
+            const existingCheckIn = existing.last_ais_checkin || existing.timestamp || existing.last_update;
+            const newCheckIn = data.vessel.last_ais_checkin || data.vessel.timestamp || data.vessel.last_update;
+            const checkInChanged = newCheckIn && newCheckIn !== existingCheckIn;
+
+            if (latDiff < 0.0001 && lonDiff < 0.0001 && speedDiff < 0.5 && !checkInChanged) {
+              return prev; // No significant change and no fresh check-in, skip update
             }
             const updated = [...prev];
             updated[existingIdx] = data.vessel;
@@ -871,6 +948,67 @@ function MainApp() {
     }
   };
 
+
+  const dashboardVessels = useMemo(() => {
+    return vessels
+      .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
+      .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"));
+  }, [vessels, userSettings.show_buoys]);
+
+  const activeTimingLock = useMemo(() => {
+    const accountType = user?.account_type || "vessel_owner";
+
+    // Traffic Watch mode is intentionally watch-point/selected-lock driven.
+    if (accountType === "traffic_watch") {
+      return selectedLock;
+    }
+
+    if (!userMmsi || !locks.length) {
+      return selectedLock;
+    }
+
+    const userVessel = dashboardVessels.find(v => String(v.mmsi) === String(userMmsi));
+    const userRM = Number(userVessel?.river_mile);
+
+    if (!Number.isFinite(userRM)) {
+      return selectedLock;
+    }
+
+    const rawHeading = (
+      userVessel?.heading ||
+      userVessel?.heading_direction ||
+      userVessel?.direction ||
+      ""
+    ).toString().toLowerCase();
+
+    const isDownbound = ["southbound", "downriver", "downbound", "sb"].some(term => rawHeading.includes(term));
+    const isUpbound = ["northbound", "upriver", "upbound", "nb"].some(term => rawHeading.includes(term));
+
+    const sortedLocks = [...locks]
+      .filter(lock => Number.isFinite(Number(lock.river_mile)))
+      .sort((a, b) => Number(a.river_mile) - Number(b.river_mile));
+
+    const epsilon = 0.05;
+
+    if (isDownbound) {
+      const nextDownboundLock = [...sortedLocks]
+        .reverse()
+        .find(lock => Number(lock.river_mile) < userRM - epsilon);
+
+      return nextDownboundLock?.id || selectedLock;
+    }
+
+    if (isUpbound) {
+      const nextUpboundLock = sortedLocks
+        .find(lock => Number(lock.river_mile) > userRM + epsilon);
+
+      return nextUpboundLock?.id || selectedLock;
+    }
+
+    // If heading is unknown/stationary, keep the user's selected lock.
+    return selectedLock;
+  }, [dashboardVessels, locks, selectedLock, user?.account_type, userMmsi]);
+
   // If showing settings page
   if (showSettings) {
     return (
@@ -890,16 +1028,14 @@ function MainApp() {
       {connectionConfig ? (
         <Dashboard 
           isConnected={isConnected}
-          vessels={vessels
-            .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
-            .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"))
-          }
+          vessels={dashboardVessels}
           userMmsi={userMmsi}
           locks={locks}
           lockStatus={lockStatus}
           lockageTimes={lockageTimes}
           raceAnalysis={raceAnalysis}
           selectedLock={selectedLock}
+          activeTimingLock={activeTimingLock}
           onSelectLock={setSelectedLock}
           onDisconnect={handleDisconnect}
           onResetConnection={handleResetConnection}

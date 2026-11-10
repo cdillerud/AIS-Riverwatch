@@ -33,7 +33,7 @@ import { formatRiverMile, isUpbound, isDownbound, formatSpeedMph } from "@/utils
 
 import { API } from "@/lib/api";
 
-export default function SettingsPage({ onBack, initialSettings = {} }) {
+export default function SettingsPage({ onBack, onLiveChange, initialSettings = {} }) {
   const locks = useLocks();
   const { user } = useAuth();
   
@@ -928,7 +928,11 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             map_zoom_miles: parseInt(data.map_zoom_miles) || 25,
             show_buoys: data.show_buoys === "true",
             lock_buffer_minutes: parseInt(data.lock_buffer_minutes) || 20,
-            use_device_gps: data.use_device_gps === "true",
+            // GPS sharing is per device: show what this browser is actually
+            // doing (the app's live state), not the server-wide default.
+            use_device_gps: typeof initialSettings.use_device_gps === "boolean"
+              ? initialSettings.use_device_gps
+              : data.use_device_gps === "true",
             show_vessel_names: data.show_vessel_names !== "false",
           }));
         }
@@ -997,8 +1001,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     }
   };
 
+  // Settings that drive something running right now (GPS tracking) apply
+  // immediately; the rest are applied when the user leaves the page.
+  const LIVE_SETTINGS = ["use_device_gps"];
   const updateSetting = (key, value) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+    if (LIVE_SETTINGS.includes(key)) onLiveChange?.({ [key]: value });
   };
 
   if (loading) {

@@ -110,13 +110,17 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
     setActiveTrip(null);
   };
 
+  const summary = plan?.summary;
+  // Poll faster while waiting for the boat's position or for it to get
+  // under way, so the plan appears soon after it can be computed.
+  const waiting = !plan || ["no_user", "no_data"].includes(summary?.overall_status);
+
   useEffect(() => {
     fetchPlan();
-    const id = setInterval(fetchPlan, 30000);
+    const id = setInterval(fetchPlan, waiting ? 10000 : 30000);
     return () => clearInterval(id);
-  }, [fetchPlan]);
+  }, [fetchPlan, waiting]);
 
-  const summary = plan?.summary;
   const legs = plan?.legs || [];
   const overall = OVERALL_META[summary?.overall_status] || OVERALL_META.no_data;
 
@@ -186,6 +190,13 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
           <div className="text-center py-6 text-sm text-slate-400" data-testid="trip-plan-no-vessel">
             <Navigation className="w-6 h-6 mx-auto mb-2 text-slate-500" />
             Waiting for live position data for your vessel ({userMmsi}).
+          </div>
+        )}
+
+        {userMmsi && !error && plan && summary?.overall_status === "no_data" && legs.length === 0 && (
+          <div className="text-center py-6 text-sm text-slate-400" data-testid="trip-plan-stationary">
+            <Navigation className="w-6 h-6 mx-auto mb-2 text-slate-500" />
+            Your boat is stopped. The trip plan starts once you're under way and RiverWatch knows which direction you're heading.
           </div>
         )}
 

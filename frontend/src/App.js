@@ -625,15 +625,20 @@ function MainApp() {
     };
 
     // Start/stop geolocation watch based on settings
+    let heartbeat = null;
     if (userSettings.use_device_gps && navigator.geolocation) {
       // Clear any existing watch
       if (geoWatchRef.current) {
         navigator.geolocation.clearWatch(geoWatchRef.current);
       }
       
-      // Start watching position
+      // Start watching position. Browsers only report when the position
+      // changes, so a boat sitting at a dock would go silent and age off the
+      // map; re-send the last fix every minute as a heartbeat.
+      let lastFix = null;
+      heartbeat = setInterval(() => { if (lastFix) sendPositionUpdate(lastFix); }, 60000);
       geoWatchRef.current = navigator.geolocation.watchPosition(
-        sendPositionUpdate,
+        (pos) => { lastFix = pos; sendPositionUpdate(pos); },
         (error) => {
           console.error("Geolocation error:", error.message);
         },
@@ -653,6 +658,7 @@ function MainApp() {
     }
 
     return () => {
+      if (heartbeat) clearInterval(heartbeat);
       if (geoWatchRef.current) {
         navigator.geolocation.clearWatch(geoWatchRef.current);
       }
@@ -1076,6 +1082,7 @@ function MainApp() {
       <div className="app-container bg-[#020617] min-h-screen">
         <SettingsPage 
           onBack={handleSettingsUpdate}
+          onLiveChange={(changes) => setUserSettings(prev => ({ ...prev, ...changes }))}
           initialSettings={userSettings}
         />
         <Toaster position="top-right" theme="dark" />

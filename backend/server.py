@@ -3467,6 +3467,27 @@ def match_lock_name(text: str) -> Optional[str]:
 
 
 RECENT_LOCKAGE_OPEN_HOURS = 4
+QUIET_LOOKBACK_DAYS = 30
+
+
+def lockage_gap_note(last_exit: Optional[datetime], count: int, now: datetime,
+                     lookback_days: int = QUIET_LOOKBACK_DAYS) -> Optional[str]:
+    """A note for a lock with no official status whose USACE lockages have
+    stopped for far longer than its usual spacing (e.g. Lock 1, Nov 2026: none
+    in 17 days, other locks within a day). Never claims the lock is closed -
+    USACE seasonal closures, reduced hours and outages look the same here."""
+    if last_exit is None:
+        return f"No lockages reported by USACE in {lookback_days} days - may be closed or on reduced hours; call the lock"
+    if last_exit.tzinfo is None:
+        last_exit = last_exit.replace(tzinfo=timezone.utc)
+    gap_h = (now - last_exit).total_seconds() / 3600
+    usual_h = lookback_days * 24 / max(count, 1)
+    if gap_h < max(24.0, 6 * usual_h):
+        return None
+    gap = f"{int(gap_h // 24)} days" if gap_h >= 48 else f"{int(gap_h)} h"
+    per_day = count / lookback_days
+    usual = f"usually ~{per_day:.0f} a day" if per_day >= 1 else f"usually ~{per_day * 7:.0f} a week"
+    return f"No lockages reported by USACE in {gap} ({usual}) - may be closed or on reduced hours; call the lock"
 
 
 async def _infer_status_from_recent_lockages(lock_status_data: Dict[str, "LockStatus"]) -> None:
@@ -3490,6 +3511,33 @@ async def _infer_status_from_recent_lockages(lock_status_data: Dict[str, "LockSt
         st.status = "OPEN"
         st.status_source = "recent_lockage"
         st.closure_info = f"Lockage completed {int((datetime.now(timezone.utc) - last).total_seconds() // 60)} min ago (USACE)"
+
+    # Still unknown: flag locks whose lockages have stopped unusually long ago
+    # Only locks the USACE worker has actually fetched: before that, silence
+    # in lockage_history would mean nothing (e.g. right after a fresh deploy).
+    fetched = {usace_lock_id(k) for k in usace_lock_fetched_at}
+    still = [lid for lid in unknown if lock_status_data[lid].status == "UNKNOWN" and lid in fetched]
+    if not still:
+        return
+    now = datetime.now(timezone.utc)
+    try:
+        rows = await db.lockage_history.aggregate([
+            {"$match": {"lock_id": {"$in": still}, "source": "usace_lpms",
+                        "exit_time": {"$gte": now - timedelta(days=QUIET_LOOKBACK_DAYS)}}},
+            {"$group": {"_id": "$lock_id", "last": {"$max": "$exit_time"}, "n": {"$sum": 1}}},
+        ]).to_list(None)
+    except Exception as e:
+        logger.warning(f"Could not check lockage gaps: {e}")
+        return
+    seen = {r["_id"]: r for r in rows}
+    for lid in still:
+        if lid not in seen and lid == "lock_5a":
+            continue  # USACE publishes nothing for 5A at all
+        r = seen.get(lid)
+        note = lockage_gap_note(r["last"] if r else None, r["n"] if r else 0, now)
+        if note:
+            lock_status_data[lid].status_source = "lockage_gap"
+            lock_status_data[lid].closure_info = note
 
 
 async def fetch_usace_lock_status() -> Dict[str, LockStatus]:

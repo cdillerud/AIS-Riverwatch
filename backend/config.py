@@ -16,11 +16,10 @@ def get_cors_origins():
     cors_origins_env = os.environ.get('CORS_ORIGINS', '')
     if cors_origins_env:
         return [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
-    # Default origins for development and production
-    return [
-        "http://localhost:3000",
-        "https://mississippi-kiosk.preview.emergentagent.com"
-    ]
+    # Default: local development only. Production must set CORS_ORIGINS
+    # explicitly (e.g. "https://app.example.com"); same-origin deployments
+    # behind the bundled nginx don't need CORS at all.
+    return ["http://localhost:3000"]
 
 # AIS Connection defaults
 DEFAULT_AIS_HOST = "136.116.165.255"

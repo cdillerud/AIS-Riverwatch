@@ -25,6 +25,7 @@ param(
 $ErrorActionPreference = "Stop"
 $VmUrl = $VmUrl.TrimEnd('/')
 $IngestUrl = "$VmUrl/api/ais/ingest"
+$IngestToken = $env:AIS_INGEST_TOKEN  # must match the server's AIS_INGEST_TOKEN, if set
 
 function Write-Log([string]$msg) {
     Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] " + $msg)
@@ -52,7 +53,8 @@ function Send-Batch([System.Collections.Generic.List[string]]$lines) {
     $body = @{ lines = @($lines) } | ConvertTo-Json -Compress
     try {
         $resp = Invoke-RestMethod -Uri $IngestUrl -Method Post `
-            -ContentType "application/json" -Body $body -TimeoutSec 15
+            -ContentType "application/json" -Body $body -TimeoutSec 15 `
+            -Headers @{ "X-Ingest-Token" = "$IngestToken" }
         $stats.BatchesSent++
         $stats.LinesSent += $lines.Count
         $stats.LastPostTime = Get-Date

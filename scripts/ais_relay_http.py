@@ -140,7 +140,8 @@ def _post_batch(lines: list[str]) -> bool:
     req = urlrequest.Request(
         INGEST_URL,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json",
+                 "X-Ingest-Token": os.environ.get("AIS_INGEST_TOKEN", "")},
         method="POST",
     )
     try:

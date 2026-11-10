@@ -3680,98 +3680,83 @@ async def track_vessel_lock_passage(vessel: dict):
     heading = vessel.get("heading")  # "northbound" or "southbound"
     is_tow = vessel.get("is_tow", False)
     
-    if not mmsi or not river_mile or not heading or heading == "stationary":
+    if not mmsi or river_mile is None:
         return
-    
+    # Only a moving vessel can START an approach; a stopped vessel (e.g. sitting
+    # in the chamber) still advances an existing passage toward "cleared".
+    moving = heading in ("northbound", "southbound")
+
     now = datetime.now(timezone.utc)
-    
-    # Initialize tracking for this vessel if needed
-    if mmsi not in vessel_lock_tracking:
-        vessel_lock_tracking[mmsi] = {}
-    
-    # Check each lock for potential tracking
+    per_vessel = vessel_lock_tracking.setdefault(mmsi, {})
+
     for lock_id, lock_info in LOCKS.items():
         lock_rm = lock_info["river_mile"]
-        distance_to_lock = river_mile - lock_rm  # Positive = north of lock
-        
-        # Determine if vessel is approaching this lock based on heading
-        is_approaching = False
-        direction = None
-        
-        if heading == "southbound" and distance_to_lock > 0:
-            # Going south, north of lock = approaching
-            is_approaching = distance_to_lock <= LOCK_APPROACH_DISTANCE
-            direction = "downbound"
-        elif heading == "northbound" and distance_to_lock < 0:
-            # Going north, south of lock = approaching  
-            is_approaching = abs(distance_to_lock) <= LOCK_APPROACH_DISTANCE
-            direction = "upbound"
-        
+        distance_to_lock = river_mile - lock_rm  # positive = upstream (higher RM) of the lock
         abs_distance = abs(distance_to_lock)
-        tracking = vessel_lock_tracking[mmsi].get(lock_id, {})
-        current_state = tracking.get("state")
-        
-        # State machine for lock passage tracking
-        if is_approaching and not current_state:
-            # New approach detected - start tracking
-            vessel_lock_tracking[mmsi][lock_id] = {
+        tracking = per_vessel.get(lock_id)
+
+        if tracking is None:
+            if not moving:
+                continue
+            if heading == "southbound" and 0 < distance_to_lock <= LOCK_APPROACH_DISTANCE:
+                direction = "downbound"
+            elif heading == "northbound" and -LOCK_APPROACH_DISTANCE <= distance_to_lock < 0:
+                direction = "upbound"
+            else:
+                continue
+            per_vessel[lock_id] = {
                 "state": "approaching",
                 "direction": direction,
                 "arrival_time": now,
                 "vessel_name": vessel.get("name", "Unknown"),
                 "is_tow": is_tow,
-                "barge_count": vessel.get("barge_count", 0)
+                "barge_count": vessel.get("barge_count", 0),
             }
-            logger.info(f"🔒 Vessel {mmsi} ({vessel.get('name', 'Unknown')}) approaching {lock_id} ({direction})")
-        
-        elif current_state == "approaching" and abs_distance <= LOCK_CHAMBER_DISTANCE:
-            # Vessel has entered the lock chamber area
-            tracking["state"] = "in_chamber"
-            tracking["entry_time"] = now
-            tracking["wait_time_minutes"] = (now - tracking["arrival_time"]).total_seconds() / 60
-            vessel_lock_tracking[mmsi][lock_id] = tracking
-            logger.info(f"🚢 Vessel {mmsi} entering {lock_id} chamber (waited {tracking['wait_time_minutes']:.1f} min)")
-        
-        elif current_state == "in_chamber":
-            # Check if vessel has cleared the lock
-            # Use stored direction from tracking state
-            tracked_direction = tracking.get("direction")
-            has_cleared = False
-            if tracked_direction == "downbound" and distance_to_lock < -LOCK_CLEARED_DISTANCE:
-                has_cleared = True
-            elif tracked_direction == "upbound" and distance_to_lock > LOCK_CLEARED_DISTANCE:
-                has_cleared = True
-            
-            if has_cleared:
-                # Vessel has completed the lockage!
+            logger.info(f"Vessel {mmsi} ({vessel.get('name', 'Unknown')}) approaching {lock_id} ({direction})")
+            continue
+
+        state = tracking.get("state")
+        tracked_direction = tracking.get("direction")
+        age_minutes = (now - tracking.get("arrival_time", now)).total_seconds() / 60
+
+        # Give up on passages that never complete (applies to BOTH states; the
+        # old ordering meant a stuck in_chamber entry lived forever).
+        if age_minutes > 240:
+            logger.warning(f"Abandoning stale lock tracking for {mmsi} at {lock_id} ({state})")
+            del per_vessel[lock_id]
+            continue
+
+        if state == "approaching":
+            if abs_distance <= LOCK_CHAMBER_DISTANCE:
+                tracking["state"] = "in_chamber"
+                tracking["entry_time"] = now
+                tracking["wait_time_minutes"] = age_minutes
+                logger.info(f"Vessel {mmsi} entering {lock_id} chamber (waited {age_minutes:.1f} min)")
+            elif (tracked_direction == "downbound" and distance_to_lock > LOCK_APPROACH_DISTANCE * 1.5) or \
+                 (tracked_direction == "upbound" and distance_to_lock < -LOCK_APPROACH_DISTANCE * 1.5):
+                del per_vessel[lock_id]  # turned back
+            elif (tracked_direction == "downbound" and distance_to_lock < -LOCK_CHAMBER_DISTANCE) or \
+                 (tracked_direction == "upbound" and distance_to_lock > LOCK_CHAMBER_DISTANCE):
+                del per_vessel[lock_id]  # went past without a usable chamber fix
+            continue
+
+        if state == "in_chamber":
+            cleared = (
+                (tracked_direction == "downbound" and distance_to_lock < -LOCK_CLEARED_DISTANCE) or
+                (tracked_direction == "upbound" and distance_to_lock > LOCK_CLEARED_DISTANCE)
+            )
+            if cleared:
                 tracking["state"] = "cleared"
                 tracking["exit_time"] = now
                 tracking["lockage_duration_minutes"] = (now - tracking["entry_time"]).total_seconds() / 60
-                tracking["total_time_minutes"] = (now - tracking["arrival_time"]).total_seconds() / 60
-                
-                # Save to database
+                tracking["total_time_minutes"] = age_minutes
                 await save_lockage_record(lock_id, tracking)
-                
-                logger.info(f"✅ Vessel {mmsi} cleared {lock_id}: lockage={tracking['lockage_duration_minutes']:.1f}min, wait={tracking['wait_time_minutes']:.1f}min")
-                
-                # Clear tracking for this lock
-                del vessel_lock_tracking[mmsi][lock_id]
-        
-        elif current_state in ["approaching", "in_chamber"]:
-            # Check for abandoned tracking (vessel went the wrong way or timed out)
-            tracking_age = (now - tracking.get("arrival_time", now)).total_seconds() / 60
-            
-            # If tracking for more than 4 hours, abandon it
-            if tracking_age > 240:
-                logger.warning(f"⚠️ Abandoning stale lock tracking for {mmsi} at {lock_id}")
-                del vessel_lock_tracking[mmsi][lock_id]
-            
-            # If vessel is now far from lock in wrong direction, abandon
-            elif current_state == "approaching":
-                if direction == "downbound" and distance_to_lock < -LOCK_APPROACH_DISTANCE:
-                    del vessel_lock_tracking[mmsi][lock_id]
-                elif direction == "upbound" and distance_to_lock > LOCK_APPROACH_DISTANCE:
-                    del vessel_lock_tracking[mmsi][lock_id]
+                logger.info(f"Vessel {mmsi} cleared {lock_id}: lockage={tracking['lockage_duration_minutes']:.1f}min, "
+                            f"wait={tracking['wait_time_minutes']:.1f}min")
+                del per_vessel[lock_id]
+
+    if not per_vessel:
+        vessel_lock_tracking.pop(mmsi, None)
 
 
 async def save_lockage_record(lock_id: str, tracking: dict):

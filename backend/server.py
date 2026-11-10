@@ -47,6 +47,7 @@ import secrets
 from services import river_geometry as _river_geo
 from services.google_auth import GoogleAuthError, google_client_id, verify_google_credential
 from services import aisstream as _aisstream
+from services import usace_lockages as _usace_lockages
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -1070,7 +1071,7 @@ async def get_traffic_summary(lock_id: str):
         cursor = db.lockage_history.find(
             {"lock_id": lock_id},
             {"_id": 0}
-        ).sort("timestamp", -1).limit(5)
+        ).sort("recorded_at", -1).limit(5)
         recent_lockages = await cursor.to_list(length=5)
     except Exception as e:
         logger.error(f"Failed to fetch lockage history: {e}")
@@ -3133,127 +3134,127 @@ def estimate_tow_info(vessel_data: dict) -> dict:
     }
 
 
+# The USACE lock queue service allows 5 requests per minute; above that it
+# answers HTTP 200 with a JSON "Rate limit exceeded" body instead of XML.
+# A background worker therefore walks the locks one at a time (USACE_SPACING_S
+# apart, ~6 min per full pass) and keeps the latest rows per lock; request
+# handlers only read that cache and never call USACE themselves.
+USACE_SPACING_S = float(os.environ.get("USACE_SPACING_SECONDS", "13"))
+usace_lock_rows: Dict[str, list] = {}       # lock_no -> active (waiting/locking) vessel infos
+usace_lock_fetched_at: Dict[str, datetime] = {}
+
+
+class UsaceRateLimited(Exception):
+    pass
+
+
+def _normalize_vessel_name(vessel_name: str) -> str:
+    normalized = vessel_name.upper().replace('-', ' ').replace('/', ' ').strip()
+    for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix):]
+    return normalized
+
+
+def _rebuild_usace_indexes() -> None:
+    by_mmsi, by_name = {}, {}
+    for infos in usace_lock_rows.values():
+        for info in infos:
+            if info.get("mmsi"):
+                by_mmsi[info["mmsi"]] = info
+            name = info.get("vessel_name")
+            if name:
+                by_name[_normalize_vessel_name(name)] = info
+                by_name[name.upper()] = info
+    usace_lock_queue_cache["data"] = by_mmsi
+    usace_lock_queue_cache["data_by_name"] = by_name
+    usace_lock_queue_cache["last_updated"] = datetime.now(timezone.utc)
+
+
+async def fetch_usace_lock(client, lock_no: str) -> int:
+    """Fetch one lock's queue: refresh its active vessels and store completed lockages.
+
+    Returns the number of active vessels. Raises UsaceRateLimited when USACE
+    refuses the request."""
+    import xml.etree.ElementTree as ET
+
+    url = f"https://ndc.ops.usace.army.mil/ords/lockqueue_xml?in_river=MI&in_lock={lock_no}"
+    response = await client.get(url)
+    text = (response.text or "").strip()
+    if response.status_code == 429 or "rate limit" in text[:200].lower():
+        raise UsaceRateLimited(text[:120])
+    if response.status_code != 200 or text.startswith("{"):
+        logger.warning(f"USACE lock {lock_no}: HTTP {response.status_code} {text[:120]}")
+        return len(usace_lock_rows.get(lock_no, []))
+
+    rows = []
+    if "<ROW>" in text:
+        try:
+            rows = ET.fromstring(text).findall('.//ROW')
+        except ET.ParseError:
+            logger.warning(f"USACE lock {lock_no}: unparseable XML")
+            return len(usace_lock_rows.get(lock_no, []))
+
+    # The feed also lists every lockage completed in the last ~24 h.
+    await _store_usace_lockages(rows, lock_no)
+
+    def val(row, tag):
+        el = row.find(tag)
+        return el.text.strip() if el is not None and el.text else None
+
+    lock_id = f"lock_{lock_no}" if lock_no.isdigit() else f"lock_{lock_no.lower()}"
+    active = []
+    for row in rows:
+        sol, eol = val(row, 'SOL_DATE'), val(row, 'END_OF_LOCKAGE')
+        if eol:
+            # Completed: history only. Applying its barge count to the vessel
+            # now would be stale.
+            continue
+        try:
+            num_barges = int(val(row, 'NUM_BARGES')) if val(row, 'NUM_BARGES') else None
+        except ValueError:
+            num_barges = None
+        active.append({
+            'vessel_name': val(row, 'VESSEL_NAME'),
+            'vessel_no': val(row, 'VESSEL_NO'),
+            'num_barges': num_barges,
+            'direction': val(row, 'DIRECTION'),
+            'lock_no': lock_no,
+            'lock_id': lock_id,
+            'arrival_date': val(row, 'ARRIVAL_DATE'),
+            'sol_date': sol,
+            'end_of_lockage': None,
+            'status': 'locking' if sol else 'waiting',
+            'mmsi': val(row, 'MMSI'),
+            'source': 'USACE_LPMS',
+        })
+    usace_lock_rows[lock_no] = active
+    usace_lock_fetched_at[lock_no] = datetime.now(timezone.utc)
+    _rebuild_usace_indexes()
+    return len(active)
+
+
 async def fetch_usace_lock_queue_data():
-    """
-    Fetch lock queue data from USACE XML API for all Upper Mississippi locks.
-    This provides REAL barge counts and vessel info from the authoritative source.
-    
-    API: https://ndc.ops.usace.army.mil/ords/lockqueue_xml?in_river=MI&in_lock={lock_no}
-    
-    Returns dict of {mmsi: vessel_data} with:
-        - vessel_name
-        - num_barges (REAL count!)
-        - direction (U=upbound, D=downbound)
-        - lock_id
-        - arrival_date
-        - status (waiting, locking, completed)
-    
-    Also maintains a name->data index for matching vessels without MMSI.
-    """
-    global usace_lock_queue_cache
-    
-    # Check cache
-    if usace_lock_queue_cache["last_updated"]:
-        age = (datetime.now(timezone.utc) - usace_lock_queue_cache["last_updated"]).total_seconds()
-        if age < usace_lock_queue_cache["cache_duration_seconds"] and usace_lock_queue_cache["data"]:
-            logger.debug(f"Using cached USACE lock queue data ({len(usace_lock_queue_cache['data'])} vessels)")
-            return usace_lock_queue_cache["data"]
-    
-    vessel_data_by_mmsi = {}
-    vessel_data_by_name = {}  # Also index by name for fallback matching
-    
-    try:
-        import xml.etree.ElementTree as ET
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            for lock_no in UPPER_MISS_LOCKS:
-                try:
-                    url = f"https://ndc.ops.usace.army.mil/ords/lockqueue_xml?in_river=MI&in_lock={lock_no}"
-                    response = await client.get(url)
-                    
-                    if response.status_code == 200 and response.text.strip():
-                        try:
-                            root = ET.fromstring(response.text)
-                            rows = root.findall('.//ROW')
-                            
-                            for row in rows:
-                                vessel_name_el = row.find('VESSEL_NAME')
-                                vessel_name = vessel_name_el.text.strip() if vessel_name_el is not None and vessel_name_el.text else None
-                                
-                                mmsi_el = row.find('MMSI')
-                                mmsi = mmsi_el.text.strip() if mmsi_el is not None and mmsi_el.text else None
-                                
-                                # Determine status
-                                has_sol = row.find('SOL_DATE') is not None and row.find('SOL_DATE').text
-                                has_eol = row.find('END_OF_LOCKAGE') is not None and row.find('END_OF_LOCKAGE').text
-                                
-                                if has_eol:
-                                    status = 'completed'
-                                elif has_sol:
-                                    status = 'locking'
-                                else:
-                                    status = 'waiting'
-                                
-                                # Parse barge count
-                                num_barges_el = row.find('NUM_BARGES')
-                                num_barges = int(num_barges_el.text) if num_barges_el is not None and num_barges_el.text else None
-                                
-                                vessel_info = {
-                                    'vessel_name': vessel_name,
-                                    'vessel_no': row.find('VESSEL_NO').text.strip() if row.find('VESSEL_NO') is not None else None,
-                                    'num_barges': num_barges,
-                                    'direction': row.find('DIRECTION').text.strip() if row.find('DIRECTION') is not None else None,
-                                    'lock_no': lock_no,
-                                    'lock_id': f"lock_{lock_no}" if lock_no.isdigit() else f"lock_{lock_no.lower()}",
-                                    'arrival_date': row.find('ARRIVAL_DATE').text.strip() if row.find('ARRIVAL_DATE') is not None else None,
-                                    'sol_date': row.find('SOL_DATE').text.strip() if row.find('SOL_DATE') is not None else None,
-                                    'end_of_lockage': row.find('END_OF_LOCKAGE').text.strip() if row.find('END_OF_LOCKAGE') is not None else None,
-                                    'status': status,
-                                    'mmsi': mmsi,
-                                    'source': 'USACE_LPMS'
-                                }
-                                
-                                # CRITICAL FIX: Only cache ACTIVE lockages (waiting or locking)
-                                # Skip completed lockages - they show old historical data that
-                                # would incorrectly apply barge counts to vessels no longer at locks
-                                if status == 'completed':
-                                    logger.debug(f"Skipping completed lockage for {vessel_name} at lock {lock_no}")
-                                    continue
-                                
-                                # Index by MMSI if available
-                                if mmsi:
-                                    vessel_data_by_mmsi[mmsi] = vessel_info
-                                
-                                # Also index by normalized vessel name for fallback
-                                if vessel_name:
-                                    # Normalize name: uppercase, remove special chars
-                                    normalized_name = vessel_name.upper().replace('-', ' ').replace('/', ' ').strip()
-                                    # Remove common prefixes
-                                    for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
-                                        if normalized_name.startswith(prefix):
-                                            normalized_name = normalized_name[len(prefix):]
-                                    vessel_data_by_name[normalized_name] = vessel_info
-                                    # Also store with original name
-                                    vessel_data_by_name[vessel_name.upper()] = vessel_info
-                                    
-                        except ET.ParseError as e:
-                            logger.debug(f"Empty or invalid XML for lock {lock_no}")
-                            
-                except Exception as e:
-                    logger.warning(f"Failed to fetch lock queue for lock {lock_no}: {e}")
-                    continue
-        
-        # Store both indexes in cache
-        usace_lock_queue_cache["data"] = vessel_data_by_mmsi
-        usace_lock_queue_cache["data_by_name"] = vessel_data_by_name
-        usace_lock_queue_cache["last_updated"] = datetime.now(timezone.utc)
-        
-        logger.info(f"Fetched USACE lock queue data: {len(vessel_data_by_mmsi)} by MMSI, {len(vessel_data_by_name)} by name")
-        
-    except Exception as e:
-        logger.error(f"Failed to fetch USACE lock queue data: {e}")
-    
-    return vessel_data_by_mmsi
+    """Current USACE queue data {mmsi: vessel_info}, as last fetched by the worker.
+
+    Never calls USACE (see usace_refresh_task); safe to use in request handlers."""
+    return usace_lock_queue_cache.get("data") or {}
+
+
+async def _store_usace_lockages(rows, lock_no: str) -> int:
+    """Upsert completed lockages from one lock's queue feed into lockage_history."""
+    lock_id = f"lock_{lock_no}" if str(lock_no).isdigit() else f"lock_{str(lock_no).lower()}"
+    lock_name = (LOCKS.get(lock_id) or {}).get("name")
+    stored = 0
+    for record in _usace_lockages.completed_lockages(rows, lock_id, lock_name):
+        try:
+            await db.lockage_history.update_one(
+                _usace_lockages.record_key(record), {"$set": record}, upsert=True
+            )
+            stored += 1
+        except Exception as e:
+            logger.warning(f"Could not store USACE lockage for {lock_id}: {e}")
+    return stored
 
 
 def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional[dict]:
@@ -5180,14 +5181,17 @@ async def get_usace_lock_queue():
 
 @api_router.post("/usace/refresh", dependencies=[Depends(require_admin)])
 async def refresh_usace_data():
-    """Force refresh of USACE lock queue data."""
-    # Clear cache to force refresh
-    usace_lock_queue_cache["last_updated"] = None
+    """USACE queue data status. Refreshing is continuous (one lock every
+    USACE_SPACING_S, within USACE's 5-requests-per-minute limit), so this
+    reports the current state rather than forcing a burst of requests."""
     data = await fetch_usace_lock_queue_data()
+    oldest = min(usace_lock_fetched_at.values()) if usace_lock_fetched_at else None
     return {
         "success": True,
         "vessel_count": len(data),
-        "message": f"Refreshed USACE data: {len(data)} vessels found"
+        "locks_fetched": len(usace_lock_fetched_at),
+        "oldest_lock_data": oldest.isoformat() if oldest else None,
+        "message": f"USACE data: {len(data)} vessels in queues; refreshed continuously",
     }
 
 
@@ -5353,11 +5357,22 @@ async def get_vessel_history(mmsi: str, days: int = 30):
             if current.get(key) and isinstance(current[key], datetime):
                 current[key] = current[key].isoformat()
     
+    # Lockages this vessel made (USACE-reported and AIS-detected), newest first
+    lockages = await db.lockage_history.find(
+        {"mmsi": mmsi, "recorded_at": {"$gte": cutoff}}, {"_id": 0}
+    ).sort("recorded_at", -1).to_list(100)
+    for lk in lockages:
+        lk.setdefault("lock_name", (LOCKS.get(lk.get("lock_id")) or {}).get("name"))
+        for key, value in list(lk.items()):
+            if isinstance(value, datetime):
+                lk[key] = value.isoformat()
+
     return {
         "mmsi": mmsi,
         "current": current,
         "history_count": len(records),
-        "history": records
+        "history": records,
+        "lockage_history": lockages,
     }
 
 
@@ -7342,14 +7357,8 @@ async def startup_event():
             ais_manager._apply_static_to_active,
         ))
     
-    # Initial fetch of USACE lock queue data
-    try:
-        await fetch_usace_lock_queue_data()
-        logger.info("Initial USACE lock queue data fetched")
-    except Exception as e:
-        logger.error(f"Failed to fetch initial USACE lock queue data: {e}")
-    
-    # Start background task to periodically refresh USACE data
+    # USACE lock queues + lockage history: refreshed continuously in the
+    # background, one lock at a time (USACE allows 5 requests per minute).
     asyncio.create_task(usace_refresh_task())
     
     # Start demo vessel simulation
@@ -7378,17 +7387,30 @@ async def startup_event():
 
 
 async def usace_refresh_task():
-    """Background task to periodically refresh USACE lock queue data."""
-    while True:
-        try:
-            await asyncio.sleep(900)  # Every 15 minutes (matches USACE update frequency)
-            await fetch_usace_lock_queue_data()
-            logger.info("USACE lock queue data refreshed")
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error(f"Error refreshing USACE data: {e}")
-            await asyncio.sleep(60)  # Wait a minute before retrying on error
+    """Walk the Upper Mississippi locks forever, one USACE request at a time."""
+    passes = 0
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while True:
+            total = 0
+            for lock_no in UPPER_MISS_LOCKS:
+                while True:
+                    try:
+                        total += await fetch_usace_lock(client, lock_no)
+                        break
+                    except UsaceRateLimited:
+                        logger.info(f"USACE rate limit hit at lock {lock_no}; pausing 65 s")
+                        await asyncio.sleep(65)
+                    except asyncio.CancelledError:
+                        return
+                    except Exception as e:
+                        logger.warning(f"USACE lock {lock_no} fetch failed: {e}")
+                        break
+                try:
+                    await asyncio.sleep(USACE_SPACING_S)
+                except asyncio.CancelledError:
+                    return
+            passes += 1
+            logger.info(f"USACE pass {passes} complete: {total} vessels waiting/locking across {len(usace_lock_fetched_at)} locks")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

@@ -1,16 +1,22 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import Dashboard from "@/pages/Dashboard";
-import SetupPage from "@/pages/SetupPage";
-import SettingsPage from "@/pages/SettingsPage";
 import LoginPage from "@/pages/LoginPage";
-import RegisterPage from "@/pages/RegisterPage";
 import LandingPage from "@/pages/LandingPage";
-import TrafficPlanner from "@/pages/TrafficPlanner";
-import TripsPage from "@/pages/TripsPage";
+// Loaded on demand: most visits only need the dashboard (smaller first load
+// on a phone with weak signal on the river).
+const SetupPage = lazy(() => import("@/pages/SetupPage"));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
+const TrafficPlanner = lazy(() => import("@/pages/TrafficPlanner"));
+const TripsPage = lazy(() => import("@/pages/TripsPage"));
+
+function PageLoading() {
+  return <div className="min-h-screen bg-[#020617] flex items-center justify-center text-sm text-slate-500">Loading...</div>;
+}
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import useAisDriftWatch from "@/hooks/useAisDriftWatch";
 import useLocks from "@/hooks/useLocks";
@@ -53,6 +59,7 @@ function AppRouter() {
   const { isAuthenticated } = useAuth();
   
   return (
+    <Suspense fallback={<PageLoading />}>
     <Routes>
       {/* Landing page - redirect to dashboard if already logged in */}
       <Route path="/" element={
@@ -84,6 +91,7 @@ function AppRouter() {
         isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/" replace />
       } />
     </Routes>
+    </Suspense>
   );
 }
 
@@ -1080,11 +1088,13 @@ function MainApp() {
   if (showSettings) {
     return (
       <div className="app-container bg-[#020617] min-h-screen">
-        <SettingsPage 
-          onBack={handleSettingsUpdate}
-          onLiveChange={(changes) => setUserSettings(prev => ({ ...prev, ...changes }))}
-          initialSettings={userSettings}
-        />
+        <Suspense fallback={<PageLoading />}>
+          <SettingsPage 
+            onBack={handleSettingsUpdate}
+            onLiveChange={(changes) => setUserSettings(prev => ({ ...prev, ...changes }))}
+            initialSettings={userSettings}
+          />
+        </Suspense>
         <Toaster position="top-right" theme="dark" />
       </div>
     );
@@ -1121,7 +1131,9 @@ function MainApp() {
           watchPoint={user?.watch_point || connectionConfig?.watch_point}
         />
       ) : (
-        <SetupPage onConnect={handleConnect} />
+        <Suspense fallback={<PageLoading />}>
+          <SetupPage onConnect={handleConnect} />
+        </Suspense>
       )}
       <Toaster position="top-right" theme="dark" />
     </div>

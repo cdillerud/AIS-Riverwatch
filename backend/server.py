@@ -4843,7 +4843,7 @@ async def admin_recalibrate(request: Request):
 @api_router.get("/locks/board")
 async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[str] = None,
                          scope: str = "all", sort: str = "river", limit: Optional[int] = None,
-                         lock_id: Optional[str] = None):
+                         lock_id: Optional[str] = None, arrive_in: Optional[float] = None):
     """Lock-first view: every lock's status, queue, estimated wait and typical
     lockage times, from USACE data only (works without any AIS feed).
 
@@ -4918,6 +4918,19 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
                 waiting.append(entry)
         waiting.sort(key=lambda e: e["arrived_at"] or now)
         waits = _lock_board.predict_waits(lid, locking, waiting, typical, direction, now)
+        wait_at_arrival = None
+        if arrive_in is not None and 0 <= arrive_in <= 24 * 60:
+            # Wait for a boat arriving in `arrive_in` minutes: simulate the queue
+            # forward, including vessels predicted to get there first.
+            appr = []
+            for a in approaching.get(lid, []):
+                try:
+                    appr.append({**a, "eta": datetime.fromisoformat(a["eta"])})
+                except (KeyError, TypeError, ValueError):
+                    continue
+            wait_at_arrival = _lock_board.predict_waits_at(
+                lid, locking, waiting, appr, typical, now + timedelta(minutes=arrive_in), now)
+            wait_at_arrival["arrive_in_minutes"] = round(arrive_in)
 
         st = status_data.get(lid)
         last = last_by_lock.get(lid)
@@ -4946,6 +4959,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             "wait_estimate_minutes": waits["tow"],
             "wait_estimate_recreational_minutes": waits["recreational"],
             "queue_minutes": waits["queue_minutes"],
+            "wait_at_arrival": wait_at_arrival,
             "queue_count": len(locking) + len(waiting),
             "locking": [out(e) for e in locking],
             "waiting": [out(e, i + 1) for i, e in enumerate(waiting)],

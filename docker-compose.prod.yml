@@ -32,6 +32,12 @@ services:
       - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:-}
       # Hosted server: never dial private/LAN addresses on users' behalf.
       - AIS_ALLOW_PRIVATE_TARGETS=${AIS_ALLOW_PRIVATE_TARGETS:-false}
+      # Optional second live AIS source (https://aisstream.io); empty = off.
+      - AISSTREAM_API_KEY=${AISSTREAM_API_KEY:-}
+      # Session cookies only over HTTPS (nginx terminates TLS).
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      # Demo boats: off unless an admin enables them ("on" for a sales demo instance).
+      - RIVERWATCH_DEMO_VESSELS_MODE=${RIVERWATCH_DEMO_VESSELS_MODE:-auto}
     depends_on:
       - mongodb
     restart: unless-stopped

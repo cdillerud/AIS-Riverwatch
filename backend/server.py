@@ -1595,7 +1595,8 @@ async def admin_feed_coverage(request: Request, hours: float = 24.0):
     return {
         "window_hours": hours,
         "all_sources_vessels": len(union),
-        "seen_by_every_source": len(set.intersection(*sets.values())) if sets else 0,
+        # Overlap only means something with two or more sources reporting.
+        "seen_by_every_source": len(set.intersection(*sets.values())) if len(sets) > 1 else None,
         "sources": sources,
         "aisstream": {k: v for k, v in _aisstream.status.items()},
         "vessels": sorted(
@@ -6412,6 +6413,9 @@ async def get_session_trip_plan(
 
     # Build ordered chain of locks ahead of the user in heading direction.
     locks_sorted = sorted(LOCKS.items(), key=lambda kv: kv[1]['river_mile'])
+    # Per-lock lockage times, so a competitor that will already be through the
+    # lock when the user arrives isn't flagged as a threat.
+    lock_averages = await get_lockage_averages()
     chain: List[tuple] = []  # list of (lock_id, lock_dict)
     if user_heading == 'northbound':
         # River miles increase northbound. Take locks with RM > user_rm in ascending order.
@@ -6476,12 +6480,31 @@ async def get_session_trip_plan(
             if vessel_rm is not None and abs(vessel_rm - lock_rm) > MAX_THREAT_DISTANCE:
                 continue
 
+            # Only a competitor still at the lock (arriving or locking) when the
+            # user gets there can delay them. One that arrives and locks through
+            # well before the user is not a threat.
+            comp_barges = getattr(vessel, 'barge_count', None) if not isinstance(vessel, dict) else vessel.get('barge_count')
+            comp_is_tow = getattr(vessel, 'is_tow', False) if not isinstance(vessel, dict) else vessel.get('is_tow', False)
+            lock_avg = lock_averages.get(lid, {})
+            if comp_barges:
+                comp_lockage = _lock_board.expected_lockage_minutes(lid, comp_barges, lock_avg)
+            elif comp_is_tow:
+                comp_lockage = float(lock_avg.get('avg_tow_lockage_minutes') or _lock_board.DEFAULT_SINGLE)
+            else:
+                comp_lockage = float(lock_avg.get('avg_recreational_lockage_minutes') or _lock_board.DEFAULT_LIGHT)
+            if user_eta is not None and user_eta >= eta + comp_lockage:
+                continue
             # Earliest competitor wins; user needs to arrive buffer_minutes before them
             if user_eta is None or eta < user_eta + buffer_minutes:
                 if threat_eta is None or eta < threat_eta:
                     v_dict = prepare_vessel_for_output(vessel, mmsi)
                     v_dict['eta_minutes'] = eta
                     v_dict['distance_to_lock'] = round(abs(vessel_rm - lock_rm), 1) if vessel_rm else None
+                    v_dict['expected_lockage_minutes'] = round(comp_lockage)
+                    # Minutes the user would wait for this vessel to clear the lock
+                    v_dict['expected_delay_minutes'] = (
+                        round(max(0.0, eta + comp_lockage - user_eta)) if user_eta is not None else None
+                    )
                     threat = v_dict
                     threat_eta = eta
                     required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, eta, buffer_minutes)
@@ -6514,6 +6537,7 @@ async def get_session_trip_plan(
             "user_eta_minutes": user_eta,
             "threatening_vessel": threat,
             "required_speed_mph": required_speed,
+            "expected_delay_minutes": (threat or {}).get('expected_delay_minutes'),
             "status": status,
             "buffer_minutes": buffer_minutes,
         })

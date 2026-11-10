@@ -268,7 +268,7 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                           </div>
                         </div>
                         <div>
-                          <div className="text-slate-500">Need</div>
+                          <div className="text-slate-500">{leg.status === "cant_beat" ? "Delay" : "Need"}</div>
                           <div
                             className={`font-mono ${
                               leg.status === "cant_beat"
@@ -278,7 +278,9 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                                 : "text-slate-300"
                             }`}
                           >
-                            {leg.required_speed_mph ? `${leg.required_speed_mph.toFixed(1)} mph` : "--"}
+                            {leg.status === "cant_beat" && leg.expected_delay_minutes != null
+                              ? `≈ ${fmtMinutes(leg.expected_delay_minutes)}`
+                              : leg.required_speed_mph ? `${leg.required_speed_mph.toFixed(1)} mph` : "--"}
                           </div>
                         </div>
                       </div>
@@ -288,7 +290,7 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                           <span className="text-amber-400 flex items-center gap-1 min-w-0">
                             <AlertTriangle className="w-3 h-3 flex-shrink-0" />
                             <span className="truncate">
-                              Threat: {leg.threatening_vessel.name || leg.threatening_vessel.mmsi}
+                              {leg.status === "cant_beat" ? "Ahead of you: " : "Race: "}{leg.threatening_vessel.name || leg.threatening_vessel.mmsi}
                             </span>
                           </span>
                           <span className="text-slate-400 font-mono">

@@ -103,7 +103,7 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-sm text-white font-medium truncate">{lock.name}</div>
+          <div className="text-sm text-white font-medium break-words">{lock.name}</div>
           <div className="text-[11px] text-slate-500 font-mono">
             RM {lock.river_mile}{lock.distance_mi != null ? ` · ${lock.distance_mi} mi away` : ""}
           </div>

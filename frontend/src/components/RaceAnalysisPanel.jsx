@@ -6,28 +6,31 @@ import {
   Target, AlertTriangle, Gauge, Clock, TrendingUp, 
   CheckCircle2, XCircle, Zap, Navigation 
 } from "lucide-react";
-import { getVesselDisplayName } from "@/utils/vesselDisplay";
+import { getVesselDisplayName, formatRiverMile, isUpbound, isDownbound } from "@/utils/vesselDisplay";
 
-const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, compact = false, showVesselNames = true }) => {
+const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, isTimingPaused = false, maxAllowedSpeedMph = 25, compact = false, showVesselNames = true }) => {
   const analysis = raceAnalysis?.analysis;
   const threat = analysis?.threatening_vessel;
+  // User's configured max speed (Settings), default 25 mph.
+  const maxSpeed = Number(maxAllowedSpeedMph) > 0 ? Number(maxAllowedSpeedMph) : 25;
+  const gaugeScale = Math.max(30, maxSpeed * 1.2);
+  // Backend's can_beat_at_25mph assumes 25 mph; judge against the user's own max instead.
+  const canArriveFirst = Number.isFinite(analysis?.required_speed_mph) && analysis.required_speed_mph <= maxSpeed;
 
-  // Calculate speed gauge percentage (max 30 mph for display)
-  const requiredSpeedPct = analysis?.required_speed_mph 
-    ? Math.min((analysis.required_speed_mph / 30) * 100, 100) 
-    : 0;
-
-  const currentSpeedPct = analysis?.user_current_speed_mph
-    ? Math.min((analysis.user_current_speed_mph / 30) * 100, 100)
+  // Calculate speed gauge percentage
+  const requiredSpeedPct = analysis?.required_speed_mph && !isTimingPaused
+    ? Math.min((analysis.required_speed_mph / gaugeScale) * 100, 100)
     : 0;
 
   // Determine gauge color
   const getGaugeColor = (speed) => {
     if (!speed) return 'safe';
-    if (speed > 25) return 'danger';
-    if (speed > 20) return 'warning';
+    if (speed > maxSpeed) return 'danger';
+    if (speed > maxSpeed * 0.8) return 'warning';
     return 'safe';
   };
+
+  const threatArrow = (h) => (isUpbound(h) ? '↑' : isDownbound(h) ? '↓' : '—');
 
   // Compact mobile version
   if (compact) {
@@ -41,15 +44,19 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Target className="w-4 h-4 text-cyan-400" />
-              <span className="font-semibold text-white text-sm">Lock Timing</span>
+              <span className="font-semibold text-white text-sm">Lock Arrival Planner</span>
             </div>
-            {isDangerous ? (
+            {isTimingPaused ? (
+              <Badge className="bg-slate-700 text-slate-300 text-xs">
+                STOPPED
+              </Badge>
+            ) : isDangerous ? (
               <Badge className="bg-red-900/50 text-red-300 border border-red-500 text-xs">
                 TRAFFIC DELAY
               </Badge>
-            ) : analysis?.can_beat_at_25mph ? (
+            ) : canArriveFirst && threat ? (
               <Badge className="bg-green-900/50 text-green-300 border border-green-500 text-xs">
-                ARRIVE FIRST
+                CAN ARRIVE AHEAD
               </Badge>
             ) : (
               <Badge className="bg-slate-700 text-slate-300 text-xs">
@@ -64,9 +71,19 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           </div>
 
           {/* Speed Required - Big Display */}
-          {analysis?.required_speed_mph && (
+          {isTimingPaused && threat && (
+            <div className="text-center py-3 rounded-lg mb-3 bg-slate-800/60 border border-slate-600">
+              <div className="text-xs text-slate-400 uppercase mb-1">Speed Needed to Arrive Before Tow</div>
+              <div className="text-3xl font-mono font-bold text-slate-300">Stopped</div>
+              <div className="text-xs text-slate-500 mt-2">
+                Start moving or enter a speed to estimate the speed needed to arrive before the tow.
+              </div>
+            </div>
+          )}
+
+          {analysis?.required_speed_mph && !isTimingPaused && (
             <div className={`text-center py-3 rounded-lg mb-3 ${isDangerous ? 'bg-red-900/20' : 'bg-cyan-900/20'}`}>
-              <div className="text-xs text-slate-400 uppercase mb-1">Speed Needed</div>
+              <div className="text-xs text-slate-400 uppercase mb-1">Speed Needed to Arrive Before Tow</div>
               <div className={`text-4xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
                 {analysis.required_speed_mph?.toFixed(1)}
                 <span className="text-lg ml-1">MPH</span>
@@ -77,7 +94,7 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
                   style={{ width: `${requiredSpeedPct}%` }}
                 />
               </div>
-              <div className="text-xs text-slate-500 mt-1">Max: 25 mph</div>
+              <div className="text-xs text-slate-500 mt-1">Max: {maxSpeed} mph</div>
             </div>
           )}
 
@@ -88,10 +105,17 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
                 <div className="flex items-center gap-1 text-amber-400 text-xs">
                   <AlertTriangle className="w-3 h-3" />
                   <span className="font-semibold">{getVesselDisplayName(threat, showVesselNames)}</span>
+                  <span className={`ml-1 ${isUpbound(threat.heading) ? 'text-blue-400' : isDownbound(threat.heading) ? 'text-orange-400' : 'text-slate-400'}`}>
+                    {threatArrow(threat.heading)}
+                  </span>
                 </div>
                 <span className="text-amber-400 text-xs font-mono">
                   ETA: {threat.eta_minutes?.toFixed(0)}min
                 </span>
+              </div>
+              <div className="text-xs text-slate-500 mt-1 flex gap-2">
+                {threat.distance_to_lock && <span>{threat.distance_to_lock}mi to lock</span>}
+                {threat.distance_from_user && <span>• {threat.distance_from_user}mi from you</span>}
               </div>
             </div>
           )}
@@ -117,14 +141,18 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
         <CardTitle className="text-lg text-white flex items-center justify-between">
           <span className="flex items-center gap-2">
             <Target className="w-5 h-5 text-cyan-400" />
-            Lock Timing
+            Lock Arrival Planner
           </span>
-          {isDangerous ? (
+          {isTimingPaused ? (
+            <Badge className="bg-slate-700 text-slate-300">
+              Stopped
+            </Badge>
+          ) : isDangerous ? (
             <Badge className="bg-red-900/50 text-red-300 border border-red-500">
               <AlertTriangle className="w-3 h-3 mr-1" />
               Traffic Delay
             </Badge>
-          ) : analysis?.can_beat_at_25mph ? (
+          ) : canArriveFirst && threat ? (
             <Badge className="bg-green-900/50 text-green-300 border border-green-500">
               <CheckCircle2 className="w-3 h-3 mr-1" />
               Arrive Before Traffic
@@ -165,7 +193,7 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
           </div>
         )}
 
-        {/* Threatening Vessel */}
+        {/* Commercial Traffic Ahead */}
         {threat && (
           <div className="p-3 rounded-lg bg-amber-900/20 border border-amber-500/30">
             <div className="flex items-center gap-2 mb-2">
@@ -173,37 +201,67 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
               <span className="text-xs text-amber-400 uppercase tracking-wider">Threatening Vessel</span>
             </div>
             <div className="text-white font-semibold">{getVesselDisplayName(threat, showVesselNames)}</div>
-            <div className="flex items-center gap-4 mt-2 text-sm">
+            <div className="flex items-center gap-4 mt-2 text-sm flex-wrap">
               <span className="text-slate-400">
                 <Navigation className="w-3 h-3 inline mr-1" />
-                RM {threat.river_mile?.toFixed(1)}
+                RM {formatRiverMile(threat.river_mile)}
               </span>
               <span className="text-slate-400">
                 <Gauge className="w-3 h-3 inline mr-1" />
-                {(threat.speed * 1.15078).toFixed(1)} mph
+                {Number.isFinite(Number(threat.speed)) ? (Number(threat.speed) * 1.15078).toFixed(1) : '--'} mph
+              </span>
+              <span className={`font-mono ${isUpbound(threat.heading) ? 'text-blue-400' : isDownbound(threat.heading) ? 'text-orange-400' : 'text-slate-400'}`}>
+                {isUpbound(threat.heading) ? '↑ UB' : isDownbound(threat.heading) ? '↓ DB' : '— Unknown'}
               </span>
               <span className="text-amber-400 font-mono">
                 <Clock className="w-3 h-3 inline mr-1" />
                 ETA: {threat.eta_minutes?.toFixed(0)} min
               </span>
             </div>
+            <div className="mt-2 text-xs text-slate-500 space-y-1">
+              {threat.distance_to_lock && (
+                <div>{threat.distance_to_lock} mi from lock</div>
+              )}
+              {threat.distance_from_user && (
+                <div>{threat.distance_from_user} mi from you</div>
+              )}
+            </div>
             {analysis?.buffer_minutes && (
-              <div className="mt-2 text-xs text-slate-500">
-                You need to arrive {analysis.buffer_minutes} min before tow (commercial priority)
+              <div className="mt-1 text-xs text-slate-500">
+                Plan to arrive {analysis.buffer_minutes} min ahead of the tow — commercial tows have lock priority
               </div>
             )}
           </div>
         )}
 
         {/* Required Speed */}
-        {analysis?.required_speed_mph && (
+        {isTimingPaused && threat && (
+          <div className="p-4 rounded-lg bg-slate-800/60 border border-slate-600">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs uppercase tracking-wider text-slate-400">
+                Speed Needed to Arrive Before Tow
+              </span>
+              <span className="text-xs font-mono text-slate-400">
+                Stopped
+              </span>
+            </div>
+            <div className="text-3xl font-mono font-bold text-slate-300">
+              Awaiting movement
+            </div>
+            <div className="text-sm text-slate-500 mt-2">
+              Start moving or enter a speed to estimate the speed needed to arrive before the tow.
+            </div>
+          </div>
+        )}
+
+        {analysis?.required_speed_mph && !isTimingPaused && (
           <div className={`p-4 rounded-lg ${isDangerous ? 'bg-red-900/20 border border-red-500/30' : 'bg-cyan-900/20 border border-cyan-500/30'}`}>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs uppercase tracking-wider text-slate-400">
-                Speed to Arrive First
+                Speed Needed to Arrive Before Tow
               </span>
               <span className={`text-xs font-mono ${isDangerous ? 'text-red-400' : 'text-cyan-400'}`}>
-                Max: 25 mph
+                Max: {maxSpeed} mph
               </span>
             </div>
             
@@ -230,17 +288,17 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
                 {isDangerous ? (
                   <span className="flex items-center gap-1">
                     <XCircle className="w-4 h-4" />
-                    Too slow!
+                    Above your max
                   </span>
                 ) : analysis.required_speed_mph > analysis.user_current_speed_mph ? (
                   <span className="flex items-center gap-1">
                     <TrendingUp className="w-4 h-4" />
-                    Speed up!
+                    Above current speed
                   </span>
                 ) : (
                   <span className="flex items-center gap-1">
                     <CheckCircle2 className="w-4 h-4" />
-                    On pace!
+                    On pace
                   </span>
                 )}
               </div>
@@ -254,7 +312,7 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
             <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto mb-2" />
             <div className="text-green-400 font-semibold">No Traffic</div>
             <div className="text-sm text-slate-400 mt-1">
-              No commercial traffic ahead
+              No commercial traffic ahead within 100 mi
             </div>
           </div>
         )}
@@ -262,7 +320,7 @@ const RaceAnalysisPanelComponent = ({ raceAnalysis, userVessel, isDangerous, com
         {/* Competitors count */}
         {raceAnalysis?.competitors?.length > 0 && (
           <div className="text-xs text-slate-500 text-center">
-            {raceAnalysis.competitors.length} vessel(s) heading to this lock
+            {raceAnalysis.competitors.length} other vessel(s) heading to this lock
           </div>
         )}
       </CardContent>

@@ -1,0 +1,75 @@
+# River Watch - single VM stack with the AIS push relay (scanner + TCP fanout).
+#
+#   PUBLIC_HOST=203.0.113.10 AIS_RELAY_TOKEN=... AIS_INGEST_TOKEN=... \
+#     docker compose -f docker-compose.clean.yml up -d --build
+#
+# PUBLIC_HOST is the address browsers use to reach this VM.
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: riverwatchclean-mongodb-1
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  ais-relay:
+    build:
+      context: ./ais_push_relay
+      dockerfile: Dockerfile
+    container_name: riverwatchclean-ais-relay-1
+    environment:
+      - AIS_RELAY_TOKEN=${AIS_RELAY_TOKEN:-}
+      - WS_HOST=0.0.0.0
+      - WS_PORT=8088
+      - TCP_HOST=0.0.0.0
+      - TCP_PORT=5353
+      - INGEST_HOST=0.0.0.0
+      - INGEST_PORT=6000
+      - INGEST_IDLE_TIMEOUT=120
+      - STATE_PATH=/data/state.json
+    volumes:
+      - ais_relay_state:/data
+    ports:
+      # 8088 (scanner API) stays internal: the backend proxies it behind login.
+      - "6000:6000"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: riverwatchclean-backend-1
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=riverwatch
+      - CORS_ORIGINS=http://${PUBLIC_HOST:?set PUBLIC_HOST}:3000
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      - AIS_RELAY_URL=http://ais-relay:8088
+      - AIS_RELAY_TOKEN=${AIS_RELAY_TOKEN:-}
+      - AIS_INGEST_TOKEN=${AIS_INGEST_TOKEN:-}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:-}
+    depends_on:
+      - mongodb
+      - ais-relay
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_BACKEND_URL=http://${PUBLIC_HOST:?set PUBLIC_HOST}:8001
+    container_name: riverwatchclean-frontend-1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  ais_relay_state:

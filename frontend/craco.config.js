@@ -2,24 +2,11 @@
 const path = require("path");
 require("dotenv").config();
 
-// Check if we're in development/preview mode (not production build)
-// Craco sets NODE_ENV=development for start, NODE_ENV=production for build
-const isDevServer = process.env.NODE_ENV !== "production";
-
 // Environment variable overrides
 const config = {
+  // Optional dev-server health endpoints (ENABLE_HEALTH_CHECK=true).
   enableHealthCheck: process.env.ENABLE_HEALTH_CHECK === "true",
-  enableVisualEdits: isDevServer, // Only enable during dev server
 };
-
-// Conditionally load visual edits modules only in dev mode
-let setupDevServer;
-let babelMetadataPlugin;
-
-if (config.enableVisualEdits) {
-  setupDevServer = require("./plugins/visual-edits/dev-server-setup");
-  babelMetadataPlugin = require("./plugins/visual-edits/babel-metadata-plugin");
-}
 
 // Conditionally load health check modules only if enabled
 let WebpackHealthPlugin;
@@ -70,19 +57,16 @@ const webpackConfig = {
   },
 };
 
-// Only add babel metadata plugin during dev server
-if (config.enableVisualEdits && babelMetadataPlugin) {
-  webpackConfig.babel = {
-    plugins: [babelMetadataPlugin],
-  };
-}
-
 webpackConfig.devServer = (devServerConfig) => {
-  // Apply visual edits dev server setup only if enabled
-  if (config.enableVisualEdits && setupDevServer) {
-    devServerConfig = setupDevServer(devServerConfig);
+  // DEV_ALLOWED_HOSTS: extra hostnames the dev server accepts (comma-separated,
+  // a leading "." matches subdomains), e.g. ".trycloudflare.com" to open the
+  // dev app on a phone through an HTTPS tunnel. Keeps the host check on.
+  const extraHosts = (process.env.DEV_ALLOWED_HOSTS || "")
+    .split(",").map((h) => h.trim()).filter(Boolean);
+  if (extraHosts.length) {
+    const current = Array.isArray(devServerConfig.allowedHosts) ? devServerConfig.allowedHosts : [];
+    devServerConfig.allowedHosts = [...current, "localhost", "127.0.0.1", ...extraHosts];
   }
-
   // Add health check endpoints if enabled
   if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
     const originalSetupMiddlewares = devServerConfig.setupMiddlewares;

@@ -6,17 +6,37 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { 
   Settings, Ship, Gauge, Anchor, Save, ArrowLeft, 
   Wifi, Bell, MapPin, AlertTriangle, Plus, Trash2, Users,
-  Navigation, Crosshair, Loader2, Ban
+  Navigation, Crosshair, Loader2, Ban, Terminal, Shield,
+  UserPlus, UserMinus, Eye, EyeOff, RefreshCw, BarChart3,
+  Key, Search, ChevronRight, Play
 } from "lucide-react";
 import { toast } from "sonner";
+import VesselManagement from "@/components/VesselManagement";
+import RawDataPanel from "@/components/RawDataPanel";
+import AISFeedScanner from "@/components/AISFeedScanner";
+import { useAuth } from "@/context/AuthContext";
+import useLocks from "@/hooks/useLocks";
+import { formatRiverMile, isUpbound, isDownbound, formatSpeedMph } from "@/utils/vesselDisplay";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import { API } from "@/lib/api";
 
-export default function SettingsPage({ onBack, initialSettings = {} }) {
+export default function SettingsPage({ onBack, onLiveChange, initialSettings = {} }) {
+  const locks = useLocks();
+  const { user } = useAuth();
+  
   const [settings, setSettings] = useState({
     user_mmsi: "",
     boat_name: "",
@@ -38,6 +58,20 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   
+  // Demo vessel toggle
+  const [demoVesselsEnabled, setDemoVesselsEnabled] = useState(true);
+  const [demoToggleLoading, setDemoToggleLoading] = useState(false);
+  
+  // Illinois River filter toggle
+  const [illinoisFilterEnabled, setIllinoisFilterEnabled] = useState(true);
+  const [filterStats, setFilterStats] = useState({ passed: 0, filtered: 0 });
+  
+  // User vessel simulation
+  const [userSimEnabled, setUserSimEnabled] = useState(false);
+  const [userSimRiverMile, setUserSimRiverMile] = useState("815.0");
+  const [userSimSpeed, setUserSimSpeed] = useState("5.0");
+  const [userSimHeading, setUserSimHeading] = useState("southbound");
+  
   // Vessel name cache management
   const [vesselCache, setVesselCache] = useState({});
   const [newVesselMmsi, setNewVesselMmsi] = useState("");
@@ -57,6 +91,408 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
   const [geoStatus, setGeoStatus] = useState("idle"); // "idle", "getting", "active", "error"
   const [lastGeoUpdate, setLastGeoUpdate] = useState(null);
   const [lastPositionResult, setLastPositionResult] = useState(null);
+
+  // Admin state
+  const [adminStats, setAdminStats] = useState(null);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminVessels, setAdminVessels] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [showCreateUserDialog, setShowCreateUserDialog] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserIsAdmin, setNewUserIsAdmin] = useState(false);
+  const [selectedUserForAction, setSelectedUserForAction] = useState(null);
+  const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  
+  // Account type (mode toggle)
+  const [accountType, setAccountType] = useState(user?.account_type || "vessel_owner");
+  const [modeToggleLoading, setModeToggleLoading] = useState(false);
+
+  // Live AIS connection state (polled from /api/connection/status every 3s)
+  const [connStatus, setConnStatus] = useState(null);
+  const [connEdit, setConnEdit] = useState({ ip_address: "", port: "5353", user_mmsi: "", boat_name: "" });
+  const [connBusy, setConnBusy] = useState(false);
+  const [connDirty, setConnDirty] = useState(false);
+
+  // Demo vessel editor
+  const [demoVessels, setDemoVessels] = useState([]);
+  const [editingDemoVessel, setEditingDemoVessel] = useState(null);
+  const [demoVesselEdit, setDemoVesselEdit] = useState({
+    river_mile: "",
+    speed: "",
+    heading: "southbound",
+    barge_count: ""
+  });
+
+  // Load demo vessel status on mount
+  const loadDemoVesselsStatus = async () => {
+    try {
+      const response = await fetch(`${API}/demo-vessels/status`);
+      if (response.ok) {
+        const data = await response.json();
+        setDemoVesselsEnabled(data.enabled);
+      }
+    } catch (error) {
+      console.error("Failed to load demo vessels status:", error);
+    }
+  };
+
+  // Toggle demo vessels
+  const toggleDemoVessels = async (enabled) => {
+    setDemoToggleLoading(true);
+    try {
+      const response = await fetch(`${API}/demo-vessels/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setDemoVesselsEnabled(data.enabled);
+        toast.success(data.enabled ? "Demo vessels enabled" : "Demo vessels disabled");
+      } else {
+        toast.error("Failed to toggle demo vessels");
+      }
+    } catch (error) {
+      console.error("Failed to toggle demo vessels:", error);
+      toast.error("Failed to toggle demo vessels");
+    } finally {
+      setDemoToggleLoading(false);
+    }
+  };
+
+  // Toggle account type (vessel owner <-> traffic watch)
+  const toggleAccountType = async () => {
+    setModeToggleLoading(true);
+    const newType = accountType === "vessel_owner" ? "traffic_watch" : "vessel_owner";
+    
+    try {
+      const response = await fetch(`${API}/user/account-type`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ account_type: newType })
+      });
+      
+      if (response.ok) {
+        setAccountType(newType);
+        toast.success(`Switched to ${newType === "vessel_owner" ? "Vessel Owner" : "Traffic Watch"} mode`);
+        // Reload page to apply changes
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast.error("Failed to switch mode");
+      }
+    } catch (error) {
+      console.error("Failed to toggle account type:", error);
+      toast.error("Failed to switch mode");
+    } finally {
+      setModeToggleLoading(false);
+    }
+  };
+
+  // Admin functions
+  const loadAdminStats = async () => {
+    try {
+      const response = await fetch(`${API}/admin/stats`, { credentials: "include" });
+      if (response.ok) {
+        const data = await response.json();
+        setAdminStats(data);
+      }
+    } catch (error) {
+      console.error("Failed to load admin stats:", error);
+    }
+  };
+
+  const loadAdminUsers = async (search = "") => {
+    setAdminLoading(true);
+    try {
+      const url = search ? `${API}/admin/users?search=${encodeURIComponent(search)}` : `${API}/admin/users`;
+      const response = await fetch(url, { credentials: "include" });
+      if (response.ok) {
+        const data = await response.json();
+        setAdminUsers(data.users);
+      }
+    } catch (error) {
+      console.error("Failed to load admin users:", error);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const loadAdminVessels = async () => {
+    try {
+      const response = await fetch(`${API}/admin/vessels`, { credentials: "include" });
+      if (response.ok) {
+        const data = await response.json();
+        setAdminVessels(data.vessels);
+      }
+    } catch (error) {
+      console.error("Failed to load admin vessels:", error);
+    }
+  };
+
+  const createUser = async () => {
+    if (!newUserEmail) {
+      toast.error("Email is required");
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API}/admin/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          email: newUserEmail,
+          name: newUserName,
+          password: newUserPassword,
+          is_admin: newUserIsAdmin
+        })
+      });
+      
+      if (response.ok) {
+        toast.success("User created successfully");
+        setShowCreateUserDialog(false);
+        setNewUserEmail("");
+        setNewUserName("");
+        setNewUserPassword("");
+        setNewUserIsAdmin(false);
+        loadAdminUsers();
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to create user");
+      }
+    } catch (error) {
+      console.error("Failed to create user:", error);
+      toast.error("Failed to create user");
+    }
+  };
+
+  const deleteUser = async (userId) => {
+    if (!window.confirm("Are you sure you want to delete this user?")) return;
+    
+    try {
+      const response = await fetch(`${API}/admin/users/${userId}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+      
+      if (response.ok) {
+        toast.success("User deleted");
+        loadAdminUsers();
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to delete user");
+      }
+    } catch (error) {
+      console.error("Failed to delete user:", error);
+      toast.error("Failed to delete user");
+    }
+  };
+
+  const toggleUserAdmin = async (userId, currentIsAdmin) => {
+    const endpoint = currentIsAdmin ? "demote" : "promote";
+    
+    try {
+      const response = await fetch(`${API}/admin/users/${userId}/${endpoint}`, {
+        method: "POST",
+        credentials: "include"
+      });
+      
+      if (response.ok) {
+        toast.success(currentIsAdmin ? "User demoted from admin" : "User promoted to admin");
+        loadAdminUsers();
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to update user");
+      }
+    } catch (error) {
+      console.error("Failed to toggle admin:", error);
+      toast.error("Failed to update user");
+    }
+  };
+
+  const resetUserPassword = async () => {
+    if (!selectedUserForAction || !resetPasswordValue) {
+      toast.error("Password is required");
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API}/admin/users/${selectedUserForAction.user_id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password: resetPasswordValue })
+      });
+      
+      if (response.ok) {
+        toast.success("Password reset successfully");
+        setShowResetPasswordDialog(false);
+        setResetPasswordValue("");
+        setSelectedUserForAction(null);
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to reset password");
+      }
+    } catch (error) {
+      console.error("Failed to reset password:", error);
+      toast.error("Failed to reset password");
+    }
+  };
+
+  const impersonateUser = async (userId) => {
+    if (!window.confirm("You will be logged in as this user. Continue?")) return;
+    
+    try {
+      const response = await fetch(`${API}/admin/impersonate/${userId}`, {
+        method: "POST",
+        credentials: "include"
+      });
+      
+      if (response.ok) {
+        toast.success("Impersonating user - reloading...");
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || "Failed to impersonate user");
+      }
+    } catch (error) {
+      console.error("Failed to impersonate:", error);
+      toast.error("Failed to impersonate user");
+    }
+  };
+
+  // Load admin data when admin tab is visible
+  useEffect(() => {
+    if (user?.is_admin || user?.is_super_admin) {
+      loadAdminStats();
+      loadAdminUsers();
+      loadAdminVessels();
+    }
+  }, [user]);
+
+  // Load account type on mount
+  useEffect(() => {
+    const loadAccountType = async () => {
+      try {
+        const response = await fetch(`${API}/user/account-type`, { credentials: "include" });
+        if (response.ok) {
+          const data = await response.json();
+          setAccountType(data.account_type);
+        }
+      } catch (error) {
+        console.error("Failed to load account type:", error);
+      }
+    };
+    loadAccountType();
+  }, []);
+
+  // Poll live AIS connection status every 3s + seed editor fields once.
+  useEffect(() => {
+    let cancelled = false;
+    let interval = null;
+
+    const pull = async () => {
+      try {
+        const r = await fetch(`${API}/connection/status`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (cancelled) return;
+        setConnStatus(data);
+        // Seed editor from backend only if user hasn't started typing.
+        setConnEdit((prev) => {
+          if (connDirty) return prev;
+          const cfg = data?.config || {};
+          // Don't seed obviously stale Docker hostnames.
+          const ip = cfg.ip_address && cfg.ip_address !== "ais-relay" && cfg.ip_address !== "push://relay"
+            ? cfg.ip_address
+            : prev.ip_address;
+          return {
+            ip_address: ip || "",
+            port: (cfg.port || prev.port || 5353).toString(),
+            user_mmsi: cfg.user_mmsi || prev.user_mmsi || "",
+            boat_name: cfg.boat_name || prev.boat_name || "",
+          };
+        });
+      } catch (_) {
+        /* network blip - keep prior state */
+      }
+    };
+
+    pull();
+    interval = setInterval(pull, 3000);
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [connDirty]);
+
+  const handleApplyConnection = async () => {
+    const ip = (connEdit.ip_address || "").trim();
+    const port = parseInt(connEdit.port, 10);
+    const mmsi = (connEdit.user_mmsi || "").trim();
+    if (!ip) { toast.error("IP address is required"); return; }
+    if (!port || port <= 0 || port > 65535) { toast.error("Port must be 1-65535"); return; }
+    setConnBusy(true);
+    try {
+      const r = await fetch(`${API}/connection/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ip_address: ip,
+          port,
+          user_mmsi: mmsi,
+          boat_name: (connEdit.boat_name || "").trim(),
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.success) {
+        toast.success(`Reconnecting to ${ip}:${port}…`);
+        setConnDirty(false);
+        // Also save to local settings so last_ip / last_port stays in sync
+        setSettings((prev) => ({ ...prev, last_ip: ip, last_port: port.toString() }));
+      } else {
+        toast.error(body?.message || "Failed to apply connection");
+      }
+    } catch (e) {
+      toast.error(`Connection failed: ${e.message}`);
+    } finally {
+      setConnBusy(false);
+    }
+  };
+
+  const handleReconnect = async () => {
+    setConnBusy(true);
+    try {
+      const r = await fetch(`${API}/connection/reconnect`, { method: "POST" });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && body.success) toast.success("Reconnecting…");
+      else toast.error(body?.message || "No connection configured yet");
+    } catch (e) {
+      toast.error(`Reconnect failed: ${e.message}`);
+    } finally {
+      setConnBusy(false);
+    }
+  };
+
+  const handleStopConnection = async () => {
+    setConnBusy(true);
+    try {
+      const r = await fetch(`${API}/connection/stop`, { method: "POST" });
+      if (r.ok) toast.success("AIS connection stopped");
+      else toast.error("Failed to stop");
+    } catch (e) {
+      toast.error(`Stop failed: ${e.message}`);
+    } finally {
+      setConnBusy(false);
+    }
+  };
 
   // Convert River Mile to lat/lon
   const convertRiverMileToCoords = async (rm) => {
@@ -84,6 +520,38 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     }
   };
 
+  // Load Illinois River filter status
+  const loadFilterStatus = async () => {
+    try {
+      const response = await fetch(`${API}/filter/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setIllinoisFilterEnabled(data.enabled);
+        setFilterStats({ passed: data.passed, filtered: data.filtered });
+      }
+    } catch (error) {
+      console.error("Failed to load filter status:", error);
+    }
+  };
+
+  // Toggle Illinois River filter
+  const toggleIllinoisFilter = async (enabled) => {
+    try {
+      const response = await fetch(`${API}/filter/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setIllinoisFilterEnabled(data.enabled);
+        toast.success(`Illinois River filter ${data.enabled ? 'enabled' : 'disabled'}`);
+      }
+    } catch (error) {
+      toast.error("Failed to toggle filter");
+    }
+  };
+
   // Load blocked MMSIs
   const loadBlockedMmsi = async () => {
     try {
@@ -94,6 +562,49 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
       }
     } catch (error) {
       console.error("Failed to load blocked MMSIs:", error);
+    }
+  };
+
+  // Load user vessel simulation status
+  const loadUserSimulation = async () => {
+    if (!settings.user_mmsi) return;
+    try {
+      const response = await fetch(`${API}/user-vessel/simulation/${settings.user_mmsi}`);
+      if (response.ok) {
+        const data = await response.json();
+        setUserSimEnabled(data.simulation_enabled || false);
+        setUserSimRiverMile(data.river_mile?.toString() || "815.0");
+        setUserSimSpeed(data.speed_knots?.toString() || "5.0");
+        setUserSimHeading(data.heading || "southbound");
+      }
+    } catch (error) {
+      console.error("Failed to load user simulation:", error);
+    }
+  };
+
+  // Update user vessel simulation
+  const updateUserSimulation = async (enabled) => {
+    if (!settings.user_mmsi) {
+      toast.error("No vessel MMSI configured");
+      return;
+    }
+    try {
+      const response = await fetch(`${API}/user-vessel/simulation/${settings.user_mmsi}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: enabled,
+          river_mile: parseFloat(userSimRiverMile) || 815.0,
+          speed_knots: parseFloat(userSimSpeed) || 5.0,
+          heading: userSimHeading
+        })
+      });
+      if (response.ok) {
+        setUserSimEnabled(enabled);
+        toast.success(enabled ? "Vessel simulation started" : "Vessel simulation stopped");
+      }
+    } catch (error) {
+      toast.error("Failed to update simulation");
     }
   };
 
@@ -138,6 +649,87 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
       }
     } catch (error) {
       toast.error("Failed to unblock MMSI");
+    }
+  };
+
+  // Load demo vessels for editing
+  const loadDemoVessels = async () => {
+    try {
+      const response = await fetch(`${API}/demo-vessels`);
+      if (response.ok) {
+        const data = await response.json();
+        setDemoVessels(data.demo_vessels || []);
+      }
+    } catch (error) {
+      console.error("Failed to load demo vessels:", error);
+    }
+  };
+
+  // Update demo vessel position
+  const updateDemoVesselPosition = async (mmsi) => {
+    try {
+      const updates = {};
+      if (demoVesselEdit.river_mile) updates.river_mile = parseFloat(demoVesselEdit.river_mile);
+      if (demoVesselEdit.speed) updates.speed = parseFloat(demoVesselEdit.speed);
+      if (demoVesselEdit.heading) updates.heading = demoVesselEdit.heading;
+      if (demoVesselEdit.barge_count) updates.barge_count = parseInt(demoVesselEdit.barge_count);
+
+      const response = await fetch(`${API}/demo-vessels/${mmsi}/position`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates)
+      });
+
+      if (response.ok) {
+        toast.success("Demo vessel position updated");
+        setEditingDemoVessel(null);
+        loadDemoVessels();
+      } else {
+        toast.error("Failed to update position");
+      }
+    } catch (error) {
+      toast.error("Failed to update demo vessel");
+    }
+  };
+
+  // Start editing a demo vessel
+  const startEditDemoVessel = (vessel) => {
+    setEditingDemoVessel(vessel.mmsi);
+    setDemoVesselEdit({
+      river_mile: vessel.river_mile?.toString() || "",
+      speed: vessel.speed?.toString() || "",
+      heading: vessel.heading || "southbound",
+      barge_count: vessel.barge_count?.toString() || ""
+    });
+  };
+
+  // Resume auto-movement for a demo vessel
+  const resumeDemoVessel = async (mmsi) => {
+    try {
+      const response = await fetch(`${API}/demo-vessels/${mmsi}/resume`, {
+        method: "POST"
+      });
+      if (response.ok) {
+        toast.success("Resumed auto-movement");
+        loadDemoVessels();
+      }
+    } catch (error) {
+      toast.error("Failed to resume");
+    }
+  };
+
+  // Resume all demo vessels
+  const resumeAllDemoVessels = async () => {
+    try {
+      const response = await fetch(`${API}/demo-vessels/resume-all`, {
+        method: "POST"
+      });
+      if (response.ok) {
+        toast.success("Resumed all demo vessels");
+        loadDemoVessels();
+      }
+    } catch (error) {
+      toast.error("Failed to resume");
     }
   };
 
@@ -307,7 +899,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
       
       if (result?.vessel) {
         setLastPositionResult(result.vessel);
-        toast.success(`Position set! River Mile: ${result.vessel.river_mile?.toFixed(1) || 'N/A'}, MMSI: ${result.vessel.mmsi}`);
+        toast.success(`Position set! River Mile: ${result.vessel.river_mile != null ? formatRiverMile(result.vessel.river_mile) : 'N/A (not on river)'}, MMSI: ${result.vessel.mmsi}`);
         setGeoStatus("active");
       }
     } catch (error) {
@@ -336,7 +928,11 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             map_zoom_miles: parseInt(data.map_zoom_miles) || 25,
             show_buoys: data.show_buoys === "true",
             lock_buffer_minutes: parseInt(data.lock_buffer_minutes) || 20,
-            use_device_gps: data.use_device_gps === "true",
+            // GPS sharing is per device: show what this browser is actually
+            // doing (the app's live state), not the server-wide default.
+            use_device_gps: typeof initialSettings.use_device_gps === "boolean"
+              ? initialSettings.use_device_gps
+              : data.use_device_gps === "true",
             show_vessel_names: data.show_vessel_names !== "false",
           }));
         }
@@ -349,7 +945,11 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     loadSettings();
     loadVesselCache();
     loadBlockedMmsi();
-  }, []);
+    loadDemoVesselsStatus();
+    loadDemoVessels();
+    loadFilterStatus();
+    loadUserSimulation();
+  }, [settings.user_mmsi]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -401,8 +1001,12 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
     }
   };
 
+  // Settings that drive something running right now (GPS tracking) apply
+  // immediately; the rest are applied when the user leaves the page.
+  const LIVE_SETTINGS = ["use_device_gps"];
   const updateSetting = (key, value) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+    if (LIVE_SETTINGS.includes(key)) onLiveChange?.({ [key]: value });
   };
 
   if (loading) {
@@ -435,89 +1039,95 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
         </div>
 
         <div className="space-y-6">
-          {/* Vessel Information */}
-          <Card className="glass-panel border-white/10">
-            <CardHeader>
-              <CardTitle className="text-lg text-white flex items-center gap-2">
-                <Ship className="w-5 h-5 text-cyan-400" />
-                Your Vessel
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Information about your boat for tracking and identification
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Vessel Information - Only show for Vessel Owners */}
+          {accountType !== "traffic_watch" && (
+            <Card className="glass-panel border-white/10">
+              <CardHeader>
+                <CardTitle className="text-lg text-white flex items-center gap-2">
+                  <Ship className="w-5 h-5 text-cyan-400" />
+                  Your Vessel
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  Information about your boat for tracking and identification
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="mmsi" className="text-slate-300">
+                      MMSI Number <span className="text-red-400">*</span>
+                    </Label>
+                    <Input
+                      id="mmsi"
+                      data-testid="settings-mmsi"
+                      placeholder="123456789"
+                      value={settings.user_mmsi}
+                      onChange={(e) => updateSetting("user_mmsi", e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white font-mono"
+                    />
+                    <p className="text-xs text-slate-500">9-digit Maritime Mobile Service Identity</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="boatname" className="text-slate-300">Boat Name</Label>
+                    <Input
+                      id="boatname"
+                      data-testid="settings-boatname"
+                      placeholder="My Boat"
+                      value={settings.boat_name}
+                      onChange={(e) => updateSetting("boat_name", e.target.value)}
+                      className="bg-slate-950 border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="mmsi" className="text-slate-300">
-                    MMSI Number <span className="text-red-400">*</span>
+                  <Label className="text-slate-300">
+                    Maximum Speed: <span className="text-cyan-400 font-mono">{settings.max_speed_mph} MPH</span>
                   </Label>
-                  <Input
-                    id="mmsi"
-                    data-testid="settings-mmsi"
-                    placeholder="123456789"
-                    value={settings.user_mmsi}
-                    onChange={(e) => updateSetting("user_mmsi", e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white font-mono"
+                  <Slider
+                    value={[settings.max_speed_mph]}
+                    onValueChange={([value]) => updateSetting("max_speed_mph", value)}
+                    min={5}
+                    max={50}
+                    step={1}
+                    className="w-full"
+                    data-testid="settings-maxspeed"
                   />
-                  <p className="text-xs text-slate-500">9-digit Maritime Mobile Service Identity</p>
+                  <p className="text-xs text-slate-500">
+                    Used to estimate whether you can arrive ahead of commercial traffic at the lock
+                  </p>
                 </div>
-                
+
                 <div className="space-y-2">
-                  <Label htmlFor="boatname" className="text-slate-300">Boat Name</Label>
-                  <Input
-                    id="boatname"
-                    data-testid="settings-boatname"
-                    placeholder="My Boat"
-                    value={settings.boat_name}
-                    onChange={(e) => updateSetting("boat_name", e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white"
+                  <Label className="text-slate-300">
+                    Lock Priority Buffer: <span className="text-cyan-400 font-mono">{settings.lock_buffer_minutes} min</span>
+                  </Label>
+                  <Slider
+                    value={[settings.lock_buffer_minutes]}
+                    onValueChange={([value]) => updateSetting("lock_buffer_minutes", value)}
+                    min={10}
+                    max={45}
+                    step={5}
+                    className="w-full"
+                    data-testid="settings-lockbuffer"
                   />
+                  <p className="text-xs text-slate-500">
+                    Minutes you need to arrive BEFORE a commercial tow to get through first. 
+                    Tows always have priority - you need time to complete your lockage before they arrive.
+                  </p>
                 </div>
-              </div>
+              </CardContent>
+            </Card>
+          )}
 
-              <div className="space-y-2">
-                <Label className="text-slate-300">
-                  Maximum Speed: <span className="text-cyan-400 font-mono">{settings.max_speed_mph} MPH</span>
-                </Label>
-                <Slider
-                  value={[settings.max_speed_mph]}
-                  onValueChange={([value]) => updateSetting("max_speed_mph", value)}
-                  min={5}
-                  max={50}
-                  step={1}
-                  className="w-full"
-                  data-testid="settings-maxspeed"
-                />
-                <p className="text-xs text-slate-500">
-                  Used to calculate if you can beat commercial vessels to the lock
-                </p>
-              </div>
+          {/* Fleet Management - Only show for Vessel Owners */}
+          {accountType !== "traffic_watch" && <VesselManagement />}
 
-              <div className="space-y-2">
-                <Label className="text-slate-300">
-                  Lock Priority Buffer: <span className="text-cyan-400 font-mono">{settings.lock_buffer_minutes} min</span>
-                </Label>
-                <Slider
-                  value={[settings.lock_buffer_minutes]}
-                  onValueChange={([value]) => updateSetting("lock_buffer_minutes", value)}
-                  min={10}
-                  max={45}
-                  step={5}
-                  className="w-full"
-                  data-testid="settings-lockbuffer"
-                />
-                <p className="text-xs text-slate-500">
-                  Minutes you need to arrive BEFORE a commercial tow to get through first. 
-                  Tows always have priority - you need time to complete your lockage before they arrive.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Self Position - Bypasses AIS self-suppression */}
-          <Card className="glass-panel border-white/10 border-l-4 border-l-green-500">
-            <CardHeader>
+          {/* Self Position - Only show for Vessel Owners */}
+          {accountType !== "traffic_watch" && (
+            <Card className="glass-panel border-white/10 border-l-4 border-l-green-500">
+              <CardHeader>
               <CardTitle className="text-lg text-white flex items-center gap-2">
                 <Crosshair className="w-5 h-5 text-green-400" />
                 Self Position
@@ -703,7 +1313,7 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="text-slate-400">
-                        River Mile: <span className="text-white font-mono">{lastPositionResult.river_mile?.toFixed(1) || 'N/A'}</span>
+                        River Mile: <span className="text-white font-mono">{lastPositionResult.river_mile != null ? formatRiverMile(lastPositionResult.river_mile) : 'N/A'}</span>
                       </div>
                       <div className="text-slate-400">
                         Speed: <span className="text-white font-mono">{((lastPositionResult.speed || 0) * 1.15078).toFixed(1)} MPH</span>
@@ -735,46 +1345,256 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                   Use one of the options above to manually inject your position.
                 </p>
               </div>
+
+              {/* Vessel Simulation Mode */}
+              <div className="p-4 rounded-lg bg-purple-900/20 border border-purple-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Play className="w-5 h-5 text-purple-400" />
+                    <Label className="text-white font-medium">Simulate Vessel Movement</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        if (!settings.user_mmsi) {
+                          toast.error("Please set your MMSI in 'Your Vessel' section first");
+                          return;
+                        }
+                        // Quick test preset: RM 820, 8 knots, southbound
+                        setUserSimRiverMile("820.0");
+                        setUserSimSpeed("8.0");
+                        setUserSimHeading("southbound");
+                        try {
+                          const response = await fetch(`${API}/user-vessel/simulation/${settings.user_mmsi}`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              enabled: true,
+                              river_mile: 820.0,
+                              speed_knots: 8.0,
+                              heading: "southbound"
+                            })
+                          });
+                          if (response.ok) {
+                            setUserSimEnabled(true);
+                            toast.success("Quick Test started! Vessel at RM 820, 8 kts southbound");
+                          }
+                        } catch (error) {
+                          toast.error("Failed to start simulation");
+                        }
+                      }}
+                      className="h-7 px-2 text-xs border-purple-500/50 text-purple-400 hover:bg-purple-500/20"
+                      data-testid="quick-test-btn"
+                    >
+                      Quick Test
+                    </Button>
+                    <Switch
+                      checked={userSimEnabled}
+                      onCheckedChange={(checked) => updateUserSimulation(checked)}
+                      data-testid="user-simulation-toggle"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Automatically move your vessel based on speed and heading for testing when no AIS feed is available.
+                </p>
+                
+                {userSimEnabled && (
+                  <div className="space-y-3 pt-2 border-t border-purple-500/20">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <Label className="text-[10px] text-slate-500">River Mile</Label>
+                        <Input
+                          type="number"
+                          value={userSimRiverMile}
+                          onChange={(e) => setUserSimRiverMile(e.target.value)}
+                          onBlur={() => updateUserSimulation(true)}
+                          className="h-8 text-sm bg-slate-950 border-slate-600"
+                          placeholder="815.0"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-slate-500">Speed (kts)</Label>
+                        <Input
+                          type="number"
+                          value={userSimSpeed}
+                          onChange={(e) => setUserSimSpeed(e.target.value)}
+                          onBlur={() => updateUserSimulation(true)}
+                          className="h-8 text-sm bg-slate-950 border-slate-600"
+                          placeholder="5.0"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-slate-500">Heading</Label>
+                        <select
+                          value={userSimHeading}
+                          onChange={(e) => {
+                            setUserSimHeading(e.target.value);
+                            setTimeout(() => updateUserSimulation(true), 100);
+                          }}
+                          className="w-full h-8 text-sm bg-slate-950 border border-slate-600 rounded px-2 text-white"
+                        >
+                          <option value="northbound">↑ Upbound</option>
+                          <option value="southbound">↓ Downbound</option>
+                        </select>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-purple-400">
+                      Your vessel will move automatically every 10 seconds based on these settings.
+                    </p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
+          )}
 
-          {/* Connection Settings */}
-          <Card className="glass-panel border-white/10">
+          {/* AIS Feed Scanner (Boat Beacon discovery) */}
+          <AISFeedScanner />
+
+          {/* AIS Connection - LIVE control */}
+          <Card className="glass-panel border-white/10" data-testid="ais-connection-card">
             <CardHeader>
               <CardTitle className="text-lg text-white flex items-center gap-2">
                 <Wifi className="w-5 h-5 text-cyan-400" />
                 AIS Connection
+                {connStatus?.connected ? (
+                  <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 ml-2" data-testid="ais-conn-pill-live">
+                    LIVE
+                  </Badge>
+                ) : (
+                  <Badge className="bg-rose-500/20 text-rose-300 border border-rose-500/40 ml-2" data-testid="ais-conn-pill-offline">
+                    OFFLINE
+                  </Badge>
+                )}
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Boat Beacon TCP connection settings
+                Boat Beacon TCP source. Update the IP whenever your phone's address changes,
+                then tap <span className="text-cyan-300 font-semibold">Apply &amp; Reconnect</span>.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              {/* Live status strip */}
+              <div className="rounded-md border border-slate-700 bg-slate-900/60 p-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs" data-testid="ais-conn-status-strip">
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wider">In use</div>
+                  <div className="text-white font-mono" data-testid="ais-conn-current-target">
+                    {connStatus?.config?.ip_address && connStatus.config.ip_address !== "ais-relay"
+                      ? `${connStatus.config.ip_address}:${connStatus.config.port || "—"}`
+                      : "— not set —"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wider">MMSI</div>
+                  <div className="text-white font-mono">
+                    {connStatus?.config?.user_mmsi || "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wider">Subscribers</div>
+                  <div className="text-white font-mono">{connStatus?.subscriber_count ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wider">Last NMEA</div>
+                  <div className="text-white font-mono" data-testid="ais-conn-last-data">
+                    {connStatus?.last_data_time
+                      ? new Date(connStatus.last_data_time).toLocaleTimeString()
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Editable fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="ip" className="text-slate-300">Default IP Address</Label>
+                  <Label htmlFor="conn-ip" className="text-slate-300">Phone IP address</Label>
                   <Input
-                    id="ip"
-                    data-testid="settings-ip"
-                    placeholder="192.168.1.100"
-                    value={settings.last_ip}
-                    onChange={(e) => updateSetting("last_ip", e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white font-mono"
+                    id="conn-ip"
+                    data-testid="conn-ip-input"
+                    inputMode="decimal"
+                    placeholder="192.168.0.105"
+                    value={connEdit.ip_address}
+                    onChange={(e) => { setConnEdit({ ...connEdit, ip_address: e.target.value }); setConnDirty(true); }}
+                    className="bg-slate-950 border-slate-700 text-white font-mono h-12 text-base"
                   />
                 </div>
-                
                 <div className="space-y-2">
-                  <Label htmlFor="port" className="text-slate-300">Port</Label>
+                  <Label htmlFor="conn-port" className="text-slate-300">Port</Label>
                   <Input
-                    id="port"
-                    data-testid="settings-port"
+                    id="conn-port"
+                    data-testid="conn-port-input"
+                    inputMode="numeric"
                     placeholder="5353"
-                    value={settings.last_port}
-                    onChange={(e) => updateSetting("last_port", e.target.value)}
-                    className="bg-slate-950 border-slate-700 text-white font-mono"
+                    value={connEdit.port}
+                    onChange={(e) => { setConnEdit({ ...connEdit, port: e.target.value }); setConnDirty(true); }}
+                    className="bg-slate-950 border-slate-700 text-white font-mono h-12 text-base"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="conn-mmsi" className="text-slate-300">Your MMSI</Label>
+                  <Input
+                    id="conn-mmsi"
+                    data-testid="conn-mmsi-input"
+                    inputMode="numeric"
+                    placeholder="338414076"
+                    value={connEdit.user_mmsi}
+                    onChange={(e) => { setConnEdit({ ...connEdit, user_mmsi: e.target.value }); setConnDirty(true); }}
+                    className="bg-slate-950 border-slate-700 text-white font-mono h-12 text-base"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="conn-boat" className="text-slate-300">Boat name <span className="text-slate-500 text-xs">(optional)</span></Label>
+                  <Input
+                    id="conn-boat"
+                    data-testid="conn-boat-input"
+                    placeholder="REBOOT"
+                    value={connEdit.boat_name}
+                    onChange={(e) => { setConnEdit({ ...connEdit, boat_name: e.target.value }); setConnDirty(true); }}
+                    className="bg-slate-950 border-slate-700 text-white h-12 text-base"
                   />
                 </div>
               </div>
+
+              {/* Action buttons - touch-friendly heights for the Pi */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <Button
+                  onClick={handleApplyConnection}
+                  disabled={connBusy}
+                  data-testid="conn-apply-btn"
+                  className="bg-cyan-600 hover:bg-cyan-500 text-white h-12 flex-1"
+                >
+                  {connBusy ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                  Apply &amp; Reconnect
+                </Button>
+                <Button
+                  onClick={handleReconnect}
+                  disabled={connBusy || !connStatus?.config?.ip_address || connStatus.config.ip_address === "ais-relay"}
+                  data-testid="conn-reconnect-btn"
+                  variant="outline"
+                  className="border-slate-600 text-slate-200 hover:bg-slate-800 h-12 sm:w-auto"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Reconnect
+                </Button>
+                <Button
+                  onClick={handleStopConnection}
+                  disabled={connBusy || !connStatus?.connected}
+                  data-testid="conn-stop-btn"
+                  variant="outline"
+                  className="border-rose-700/60 text-rose-300 hover:bg-rose-900/30 h-12 sm:w-auto"
+                >
+                  <Ban className="w-4 h-4 mr-2" />
+                  Disconnect
+                </Button>
+              </div>
+
+              {connDirty && (
+                <p className="text-amber-400 text-xs" data-testid="conn-dirty-hint">
+                  Unsaved changes — tap Apply &amp; Reconnect to switch the live feed.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -826,6 +1646,181 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                 />
               </div>
 
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300">Show Demo Vessels</Label>
+                  <p className="text-xs text-slate-500">
+                    Simulated towboats for demos (M/V DELTA QUEEN, M/V RIVER RUNNER). Shown to everyone,
+                    and hidden automatically while real AIS traffic is flowing.
+                    {!(user?.is_admin || user?.is_super_admin) && " Admins only."}
+                  </p>
+                </div>
+                <Switch
+                  checked={demoVesselsEnabled}
+                  onCheckedChange={(checked) => toggleDemoVessels(checked)}
+                  disabled={demoToggleLoading || !(user?.is_admin || user?.is_super_admin)}
+                  data-testid="settings-demovessels"
+                />
+              </div>
+
+              {/* Demo Vessel Position Editor */}
+              {demoVesselsEnabled && demoVessels.length > 0 && (
+                <div className="space-y-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-cyan-400 text-sm font-semibold">Edit Demo Vessel Positions</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={loadDemoVessels}
+                      className="h-6 px-2 text-slate-400 hover:text-white"
+                    >
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      Refresh
+                    </Button>
+                  </div>
+                  
+                  {demoVessels.map((vessel) => (
+                    <div key={vessel.mmsi} className="p-2 bg-slate-900 rounded border border-slate-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-white font-medium text-sm">{vessel.name}</span>
+                        <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
+                          RM {formatRiverMile(vessel.river_mile)}
+                        </Badge>
+                      </div>
+                      
+                      {editingDemoVessel === vessel.mmsi ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[10px] text-slate-500">River Mile</Label>
+                              <Input
+                                type="number"
+                                value={demoVesselEdit.river_mile}
+                                onChange={(e) => setDemoVesselEdit({...demoVesselEdit, river_mile: e.target.value})}
+                                className="h-7 text-xs bg-slate-950 border-slate-600"
+                                placeholder="e.g., 815.0"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-slate-500">Speed (knots)</Label>
+                              <Input
+                                type="number"
+                                value={demoVesselEdit.speed}
+                                onChange={(e) => setDemoVesselEdit({...demoVesselEdit, speed: e.target.value})}
+                                className="h-7 text-xs bg-slate-950 border-slate-600"
+                                placeholder="e.g., 5.0"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[10px] text-slate-500">Heading</Label>
+                              <select
+                                value={demoVesselEdit.heading}
+                                onChange={(e) => setDemoVesselEdit({...demoVesselEdit, heading: e.target.value})}
+                                className="w-full h-7 text-xs bg-slate-950 border border-slate-600 rounded px-2 text-white"
+                              >
+                                <option value="northbound">Upbound (Upriver)</option>
+                                <option value="southbound">Downbound (Downriver)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-slate-500">Barge Count</Label>
+                              <Input
+                                type="number"
+                                value={demoVesselEdit.barge_count}
+                                onChange={(e) => setDemoVesselEdit({...demoVesselEdit, barge_count: e.target.value})}
+                                className="h-7 text-xs bg-slate-950 border-slate-600"
+                                placeholder="e.g., 6"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              onClick={() => updateDemoVesselPosition(vessel.mmsi)}
+                              className="h-6 px-2 text-xs bg-cyan-600 hover:bg-cyan-500"
+                            >
+                              Save (Pauses Auto)
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setEditingDemoVessel(null)}
+                              className="h-6 px-2 text-xs text-slate-400"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="text-[10px] text-slate-400 space-x-3">
+                            <span>{isUpbound(vessel.heading) ? '↑ Upbound' : isDownbound(vessel.heading) ? '↓ Downbound' : '— Stationary'}</span>
+                            <span>{vessel.speed?.toFixed(1)} kts</span>
+                            <span>{vessel.barge_count}B</span>
+                            {vessel.paused && (
+                              <span className="text-amber-400 font-semibold">⏸ PAUSED</span>
+                            )}
+                          </div>
+                          <div className="flex gap-1">
+                            {vessel.paused && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => resumeDemoVessel(vessel.mmsi)}
+                                className="h-6 px-2 text-xs text-green-400 hover:text-white"
+                              >
+                                Resume
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => startEditDemoVessel(vessel)}
+                              className="h-6 px-2 text-xs text-cyan-400 hover:text-white"
+                            >
+                              Edit
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {/* Resume All button if any are paused */}
+                  {demoVessels.some(v => v.paused) && (
+                    <Button
+                      size="sm"
+                      onClick={resumeAllDemoVessels}
+                      className="w-full h-7 text-xs bg-green-600 hover:bg-green-500"
+                    >
+                      Resume All Auto-Movement
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {/* Illinois River Filter Toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300">Filter Illinois River</Label>
+                  <p className="text-xs text-slate-500">
+                    Only show vessels on Upper Mississippi (hide Illinois River traffic)
+                  </p>
+                  {filterStats.filtered > 0 && (
+                    <p className="text-[10px] text-amber-400 mt-1">
+                      {filterStats.passed} passed, {filterStats.filtered} filtered
+                    </p>
+                  )}
+                </div>
+                <Switch
+                  checked={illinoisFilterEnabled}
+                  onCheckedChange={(checked) => toggleIllinoisFilter(checked)}
+                  data-testid="settings-illinois-filter"
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label className="text-slate-300">
                   Zoom Range: <span className="text-cyan-400 font-mono">±{settings.map_zoom_miles} miles</span>
@@ -853,39 +1848,11 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
                   className="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-white text-sm"
                   data-testid="settings-defaultlock"
                 >
-                  <optgroup label="Upper River (MN/WI)">
-                    <option value="lock_1">Lock 1 - Minneapolis (RM 848)</option>
-                    <option value="lock_2">Lock 2 - Hastings (RM 815)</option>
-                    <option value="lock_3">Lock 3 - Red Wing (RM 797)</option>
-                    <option value="lock_4">Lock 4 - Alma (RM 753)</option>
-                    <option value="lock_5">Lock 5 - Minnesota City (RM 738)</option>
-                    <option value="lock_5a">Lock 5A - Fountain City (RM 729)</option>
-                    <option value="lock_6">Lock 6 - Trempealeau (RM 714)</option>
-                    <option value="lock_7">Lock 7 - Dresbach (RM 703)</option>
-                    <option value="lock_8">Lock 8 - Genoa (RM 679)</option>
-                    <option value="lock_9">Lock 9 - Lynxville (RM 648)</option>
-                    <option value="lock_10">Lock 10 - Guttenberg (RM 615)</option>
-                  </optgroup>
-                  <optgroup label="Middle River (IA/IL)">
-                    <option value="lock_11">Lock 11 - Dubuque (RM 583)</option>
-                    <option value="lock_12">Lock 12 - Bellevue (RM 557)</option>
-                    <option value="lock_13">Lock 13 - Fulton (RM 523)</option>
-                    <option value="lock_14">Lock 14 - Le Claire (RM 493)</option>
-                    <option value="lock_15">Lock 15 - Rock Island (RM 483)</option>
-                    <option value="lock_16">Lock 16 - Muscatine (RM 457)</option>
-                    <option value="lock_17">Lock 17 - New Boston (RM 437)</option>
-                    <option value="lock_18">Lock 18 - Gladstone (RM 411)</option>
-                  </optgroup>
-                  <optgroup label="Lower River (MO/IL)">
-                    <option value="lock_19">Lock 19 - Keokuk (RM 364)</option>
-                    <option value="lock_20">Lock 20 - Canton (RM 343)</option>
-                    <option value="lock_21">Lock 21 - Quincy (RM 325)</option>
-                    <option value="lock_22">Lock 22 - Saverton (RM 301)</option>
-                    <option value="lock_24">Lock 24 - Clarksville (RM 273)</option>
-                    <option value="lock_25">Lock 25 - Cap au Gris (RM 241)</option>
-                    <option value="melvin_price">Melvin Price - Alton (RM 201)</option>
-                    <option value="chain_of_rocks">Chain of Rocks (RM 185)</option>
-                  </optgroup>
+                  {locks.map((lock) => (
+                    <option key={lock.id} value={lock.id}>
+                      {lock.name} (RM {formatRiverMile(lock.river_mile)})
+                    </option>
+                  ))}
                 </select>
               </div>
             </CardContent>
@@ -1066,46 +2033,395 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
             </CardContent>
           </Card>
 
-          {/* Alert Settings */}
+          {/* Alert Settings - Only show for Vessel Owners */}
+          {accountType !== "traffic_watch" && (
+            <Card className="glass-panel border-white/10">
+              <CardHeader>
+                <CardTitle className="text-lg text-white flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-cyan-400" />
+                  Alerts
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  Configure warning notifications
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-slate-300">Sound Alerts</Label>
+                    <p className="text-xs text-slate-500">Play audio when a traffic delay warning triggers</p>
+                  </div>
+                  <Switch
+                    checked={settings.alert_sound_enabled}
+                    onCheckedChange={(checked) => updateSetting("alert_sound_enabled", checked)}
+                    data-testid="settings-soundalerts"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-slate-300">
+                    Speed Alert Threshold: <span className="text-cyan-400 font-mono">{settings.alert_speed_threshold} MPH</span>
+                  </Label>
+                  <Slider
+                    value={[settings.alert_speed_threshold]}
+                    onValueChange={([value]) => updateSetting("alert_speed_threshold", value)}
+                    min={10}
+                    max={50}
+                    step={1}
+                    className="w-full"
+                    data-testid="settings-alertthreshold"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Alert when required speed exceeds this value (usually your max speed)
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Mode Toggle - Switch between Vessel Owner and Traffic Watch */}
           <Card className="glass-panel border-white/10">
             <CardHeader>
               <CardTitle className="text-lg text-white flex items-center gap-2">
-                <Bell className="w-5 h-5 text-cyan-400" />
-                Alerts
+                <Eye className="w-5 h-5 text-purple-400" />
+                Account Mode
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Configure warning notifications
+                Switch between Vessel Owner and Traffic Watch modes
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-slate-300">Sound Alerts</Label>
-                  <p className="text-xs text-slate-500">Play audio when "Can't Beat" warning triggers</p>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-800/50 border border-slate-700">
+                <div className="flex items-center gap-3">
+                  {accountType === "vessel_owner" ? (
+                    <Ship className="w-6 h-6 text-cyan-400" />
+                  ) : (
+                    <Eye className="w-6 h-6 text-purple-400" />
+                  )}
+                  <div>
+                    <div className="text-white font-medium">
+                      {accountType === "vessel_owner" ? "Vessel Owner" : "Traffic Watch"}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {accountType === "vessel_owner" 
+                        ? "Track your vessel, get lock timing and arrival planning" 
+                        : "Monitor traffic without a vessel"}
+                    </div>
+                  </div>
                 </div>
-                <Switch
-                  checked={settings.alert_sound_enabled}
-                  onCheckedChange={(checked) => updateSetting("alert_sound_enabled", checked)}
-                  data-testid="settings-soundalerts"
-                />
+                <Button
+                  onClick={toggleAccountType}
+                  disabled={modeToggleLoading}
+                  variant="outline"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                >
+                  {modeToggleLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : null}
+                  Switch to {accountType === "vessel_owner" ? "Traffic Watch" : "Vessel Owner"}
+                </Button>
               </div>
+            </CardContent>
+          </Card>
 
-              <div className="space-y-2">
-                <Label className="text-slate-300">
-                  Speed Alert Threshold: <span className="text-cyan-400 font-mono">{settings.alert_speed_threshold} MPH</span>
-                </Label>
-                <Slider
-                  value={[settings.alert_speed_threshold]}
-                  onValueChange={([value]) => updateSetting("alert_speed_threshold", value)}
-                  min={10}
-                  max={50}
-                  step={1}
-                  className="w-full"
-                  data-testid="settings-alertthreshold"
-                />
-                <p className="text-xs text-slate-500">
-                  Alert when required speed exceeds this value (usually your max speed)
-                </p>
+          {/* Admin Panel - Only visible to admins */}
+          {(user?.is_admin || user?.is_super_admin) && (
+            <Card className="glass-panel border-amber-500/30">
+              <CardHeader>
+                <CardTitle className="text-lg text-white flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-amber-400" />
+                  Admin Panel
+                  {user?.is_super_admin && (
+                    <Badge className="ml-2 bg-amber-500/20 text-amber-400 border-amber-500/50">
+                      Super Admin
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription className="text-slate-400">
+                  Manage users, vessels, and system settings
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="stats" className="w-full">
+                  <TabsList className="w-full bg-slate-800/50 mb-4">
+                    <TabsTrigger value="stats" className="flex-1">
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      Stats
+                    </TabsTrigger>
+                    <TabsTrigger value="users" className="flex-1">
+                      <Users className="w-4 h-4 mr-2" />
+                      Users
+                    </TabsTrigger>
+                    <TabsTrigger value="vessels" className="flex-1">
+                      <Ship className="w-4 h-4 mr-2" />
+                      Vessels
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  {/* Stats Tab */}
+                  <TabsContent value="stats" className="space-y-4">
+                    <div className="flex justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          loadAdminStats();
+                          loadAdminUsers();
+                          loadAdminVessels();
+                        }}
+                        className="border-slate-600"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Refresh
+                      </Button>
+                    </div>
+                    
+                    {adminStats ? (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-cyan-400">{adminStats.users?.total || 0}</div>
+                          <div className="text-xs text-slate-400">Total Users</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-amber-400">{adminStats.users?.admins || 0}</div>
+                          <div className="text-xs text-slate-400">Admins</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-green-400">{adminStats.sessions?.active || 0}</div>
+                          <div className="text-xs text-slate-400">Active Sessions</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-purple-400">{adminStats.vessels?.currently_tracked || 0}</div>
+                          <div className="text-xs text-slate-400">Vessels Tracked</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-cyan-400">{adminStats.users?.vessel_owners || 0}</div>
+                          <div className="text-xs text-slate-400">Vessel Owners</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-purple-400">{adminStats.users?.traffic_watchers || 0}</div>
+                          <div className="text-xs text-slate-400">Traffic Watchers</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-green-400">{adminStats.users?.recent_signups || 0}</div>
+                          <div className="text-xs text-slate-400">New (7 days)</div>
+                        </div>
+                        <div className="p-4 bg-slate-800/50 rounded-lg text-center">
+                          <div className="text-2xl font-bold text-slate-400">{adminStats.lockages?.total_recorded || 0}</div>
+                          <div className="text-xs text-slate-400">Lockages Recorded</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-slate-500">
+                        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
+                        Loading stats...
+                      </div>
+                    )}
+                  </TabsContent>
+                  
+                  {/* Users Tab */}
+                  <TabsContent value="users" className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <Input
+                          placeholder="Search users by email or name..."
+                          value={userSearchQuery}
+                          onChange={(e) => {
+                            setUserSearchQuery(e.target.value);
+                            loadAdminUsers(e.target.value);
+                          }}
+                          className="bg-slate-800/50 border-slate-700 text-white pl-10"
+                        />
+                      </div>
+                      <Button
+                        onClick={() => setShowCreateUserDialog(true)}
+                        className="bg-cyan-600 hover:bg-cyan-500"
+                      >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Add User
+                      </Button>
+                    </div>
+                    
+                    <ScrollArea className="h-[300px]">
+                      {adminLoading ? (
+                        <div className="text-center py-8 text-slate-500">
+                          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
+                          Loading users...
+                        </div>
+                      ) : adminUsers.length > 0 ? (
+                        <div className="space-y-2">
+                          {adminUsers.map((u) => (
+                            <div
+                              key={u.user_id}
+                              className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 border border-slate-700"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                  u.is_super_admin ? 'bg-amber-500/20' : u.is_admin ? 'bg-cyan-500/20' : 'bg-slate-700'
+                                }`}>
+                                  {u.is_super_admin ? (
+                                    <Shield className="w-4 h-4 text-amber-400" />
+                                  ) : u.is_admin ? (
+                                    <Shield className="w-4 h-4 text-cyan-400" />
+                                  ) : (
+                                    <Users className="w-4 h-4 text-slate-400" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-white text-sm font-medium">{u.name || "No name"}</div>
+                                  <div className="text-xs text-slate-400">{u.email}</div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Badge className={`text-[10px] ${
+                                      u.account_type === "traffic_watch" 
+                                        ? "bg-purple-500/20 text-purple-400" 
+                                        : "bg-cyan-500/20 text-cyan-400"
+                                    }`}>
+                                      {u.account_type === "traffic_watch" ? "Traffic Watch" : "Vessel Owner"}
+                                    </Badge>
+                                    {u.is_super_admin && (
+                                      <Badge className="text-[10px] bg-amber-500/20 text-amber-400">Super Admin</Badge>
+                                    )}
+                                    {u.is_admin && !u.is_super_admin && (
+                                      <Badge className="text-[10px] bg-cyan-500/20 text-cyan-400">Admin</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => impersonateUser(u.user_id)}
+                                  className="text-slate-400 hover:text-white"
+                                  title="View as this user"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedUserForAction(u);
+                                    setShowResetPasswordDialog(true);
+                                  }}
+                                  className="text-slate-400 hover:text-white"
+                                  title="Reset password"
+                                >
+                                  <Key className="w-4 h-4" />
+                                </Button>
+                                {user?.is_super_admin && !u.is_super_admin && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => toggleUserAdmin(u.user_id, u.is_admin)}
+                                    className={u.is_admin ? "text-amber-400 hover:text-amber-300" : "text-slate-400 hover:text-cyan-400"}
+                                    title={u.is_admin ? "Demote from admin" : "Promote to admin"}
+                                  >
+                                    {u.is_admin ? <UserMinus className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                                  </Button>
+                                )}
+                                {!u.is_super_admin && u.user_id !== user?.user_id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => deleteUser(u.user_id)}
+                                    className="text-slate-400 hover:text-red-400"
+                                    title="Delete user"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-slate-500">No users found</div>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+                  
+                  {/* Vessels Tab */}
+                  <TabsContent value="vessels" className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-slate-400">
+                        {adminVessels.length} vessels currently being tracked
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={loadAdminVessels}
+                        className="border-slate-600"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Refresh
+                      </Button>
+                    </div>
+                    
+                    <ScrollArea className="h-[300px]">
+                      {adminVessels.length > 0 ? (
+                        <div className="space-y-2">
+                          {adminVessels.map((v) => (
+                            <div
+                              key={v.mmsi}
+                              className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 border border-slate-700"
+                            >
+                              <div className="flex items-center gap-3">
+                                <Ship className={`w-5 h-5 ${v.is_tow ? 'text-amber-400' : 'text-cyan-400'}`} />
+                                <div>
+                                  <div className="text-white text-sm font-medium">
+                                    {v.name || `Vessel ${v.mmsi}`}
+                                  </div>
+                                  <div className="text-xs text-slate-400">
+                                    MMSI: {v.mmsi} • RM {formatRiverMile(v.river_mile)}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className={`text-[10px] ${
+                                      v.heading === 'northbound' ? 'text-green-400' : 
+                                      v.heading === 'southbound' ? 'text-red-400' : 'text-slate-500'
+                                    }`}>
+                                      {isUpbound(v.heading) ? '↑ Upbound' : isDownbound(v.heading) ? '↓ Downbound' : v.heading === 'stationary' ? 'Stationary' : 'Unknown'}
+                                    </span>
+                                    {v.is_tow && (
+                                      <Badge className="text-[10px] bg-amber-500/20 text-amber-400">
+                                        Tow {v.barge_count > 0 ? `(${v.barge_count}B)` : ''}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm text-white">{formatSpeedMph(v.speed)} mph</div>
+                                <div className="text-xs text-slate-500">{v.speed?.toFixed(1)} kn</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-slate-500">No vessels currently tracked</div>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Raw AIS Data - Debug/Developer Section */}
+          <Card className="glass-panel border-white/10">
+            <CardHeader>
+              <CardTitle className="text-lg text-white flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-cyan-400" />
+                Raw AIS Data
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                View raw NMEA sentences and parsed AIS messages for debugging
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px] overflow-hidden rounded-lg border border-slate-700">
+                <RawDataPanel isConnected={true} compact={false} />
               </div>
             </CardContent>
           </Card>
@@ -1139,13 +2455,105 @@ export default function SettingsPage({ onBack, initialSettings = {} }) {
               <div>
                 <div className="text-amber-400 font-semibold">MMSI Required</div>
                 <div className="text-sm text-slate-400">
-                  Enter your vessel's MMSI number to enable tracking and race calculations.
+                  Enter your vessel's MMSI number to enable tracking and lock arrival planning.
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
+      
+      {/* Create User Dialog */}
+      <Dialog open={showCreateUserDialog} onOpenChange={setShowCreateUserDialog}>
+        <DialogContent className="bg-slate-900 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">Create New User</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Add a new user to the system
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-slate-300">Email *</Label>
+              <Input
+                type="email"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+                placeholder="user@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-300">Name</Label>
+              <Input
+                value={newUserName}
+                onChange={(e) => setNewUserName(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+                placeholder="John Doe"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-300">Password</Label>
+              <Input
+                type="password"
+                value={newUserPassword}
+                onChange={(e) => setNewUserPassword(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+                placeholder="Leave blank for no password (Google only)"
+              />
+            </div>
+            {user?.is_super_admin && (
+              <div className="flex items-center justify-between">
+                <Label className="text-slate-300">Make Admin</Label>
+                <Switch
+                  checked={newUserIsAdmin}
+                  onCheckedChange={setNewUserIsAdmin}
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateUserDialog(false)} className="border-slate-600">
+              Cancel
+            </Button>
+            <Button onClick={createUser} className="bg-cyan-600 hover:bg-cyan-500">
+              Create User
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Reset Password Dialog */}
+      <Dialog open={showResetPasswordDialog} onOpenChange={setShowResetPasswordDialog}>
+        <DialogContent className="bg-slate-900 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">Reset Password</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Set a new password for {selectedUserForAction?.email}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-slate-300">New Password</Label>
+              <Input
+                type="password"
+                value={resetPasswordValue}
+                onChange={(e) => setResetPasswordValue(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white"
+                placeholder="Enter new password"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResetPasswordDialog(false)} className="border-slate-600">
+              Cancel
+            </Button>
+            <Button onClick={resetUserPassword} className="bg-cyan-600 hover:bg-cyan-500">
+              Reset Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

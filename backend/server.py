@@ -1,4 +1,30 @@
-from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect
+# River Watch Backend - Version 2026-01-27
+# SESSION ISOLATION: All user data is strictly isolated by MMSI (session ID)
+# USER AUTHENTICATION: Email/password + Google OAuth
+#
+# ARCHITECTURE NOTE:
+# This file is being incrementally refactored. New modular structure:
+#   - /backend/config.py                    - Configuration and constants ✓
+#   - /backend/database.py                  - Database connection ✓
+#   - /backend/models/                      - Pydantic models
+#   - /backend/services/                    - Business logic
+#       - auth_service.py                   - Password hashing, session gen ✓
+#       - navigation_service.py             - River mile, ETA, speed calc ✓
+#       - usace_service.py                  - USACE lock queue/status ✓
+#       - usgs_service.py                   - Water conditions ✓
+#       - ais_parser.py                     - NMEA/AIS parsing ✓ (NEW)
+#   - /backend/routes/                      - API route handlers
+#       - admin.py                          - Admin endpoints ✓
+#       - locks.py                          - Lock info endpoints ✓
+#       - traffic.py                        - Traffic watch endpoints ✓
+#       - water.py                          - Water conditions endpoints ✓
+#   - /backend/websocket/                   - WebSocket handlers (TODO)
+#
+# NEW: Service modules imported and available as _function_name
+# For new features, use the modular structure. See /backend/README.md
+
+from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Request, Response, Cookie, Depends
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -7,7 +33,7 @@ import logging
 import asyncio
 import socket
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional, Dict
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -15,6 +41,74 @@ import json
 import httpx
 from bs4 import BeautifulSoup
 import re
+import hashlib
+import secrets
+
+from services import river_geometry as _river_geo
+from services.google_auth import GoogleAuthError, google_client_id, verify_google_credential
+from services import aisstream as _aisstream
+# Identify RiverWatch on outbound requests. USACE sites answer 403 to the
+# default python-httpx User-Agent (lock status never loaded because of it),
+# and to any User-Agent containing a URL - keep this one URL-free.
+RIVERWATCH_UA = "RiverWatch/1.0 (Upper Mississippi lock planning)"
+OUTBOUND_HEADERS = {"User-Agent": RIVERWATCH_UA}
+from services import usace_lockages as _usace_lockages
+from services import lock_board as _lock_board
+_aisstream_task = None
+# Import from new modular structure (for reusable logic)
+from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
+from services.navigation_service import (
+    estimate_river_mile as _estimate_river_mile,
+    river_mile_to_coords as _river_mile_to_coords,
+    determine_heading as _determine_heading,
+    calculate_eta_to_lock as _calculate_eta_to_lock,
+    calculate_required_speed as _calculate_required_speed
+)
+
+# Import new service modules (refactored code)
+from services.usgs_service import (
+    get_water_conditions_for_lock as _get_water_conditions_for_lock,
+    format_water_conditions_for_display as _format_water_conditions
+)
+from services.ais_parser import (
+    NmeaFragmentAssembler,
+    clean_sog,
+    clean_cog,
+    parse_nmea_gps as _parse_nmea_gps,
+    NAV_STATUS as _NAV_STATUS,
+    vessel_static_cache as _vessel_static_cache,
+    get_cached_vessel_name,
+    set_cached_vessel_info
+)
+# Import new performance services
+from services.vessel_service import (
+    vessel_cache,
+    prepare_vessel_for_output as _prepare_vessel_for_output,
+    estimate_river_mile as _estimate_rm_fast,
+    determine_heading as _determine_heading_fast,
+    calculate_eta_to_lock as _calc_eta_fast,
+    calculate_required_speed as _calc_speed_fast
+)
+from services.cache_service import (
+    usace_cache as usace_ttl_cache,
+    usgs_cache as usgs_ttl_cache,
+    get_cache_stats
+)
+from services.http_client import (
+    get_http_client,
+    close_http_client,
+    fetch_with_retry
+)
+# Import WebSocket handlers (for reference, not actively replacing yet)
+# These will be used incrementally as we refactor
+from services.websocket_handlers import (
+    broadcast_raw_line as _ws_broadcast_raw_line,
+    broadcast_demo_nmea as _ws_broadcast_demo_nmea,
+    get_raw_subscriber_count as _ws_get_raw_subscriber_count
+)
+# Import repositories
+from repositories import RepositoryFactory
+
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -23,6 +117,107 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Initialize repository factory for cleaner database access
+repos = RepositoryFactory(db)
+
+# Helper function to persist vessel sighting with USACE data
+async def persist_vessel_sighting(vessel_data: dict):
+    """
+    Persist vessel sighting to database for historical analysis.
+    Only saves vessels with meaningful data (position or USACE info).
+    """
+    if not vessel_data or not vessel_data.get('mmsi'):
+        return
+    
+    mmsi = vessel_data['mmsi']
+    
+    # Build the sighting record
+    sighting = {
+        "mmsi": mmsi,
+        "timestamp": datetime.now(timezone.utc),
+        "name": vessel_data.get('name'),
+        "lat": vessel_data.get('lat'),
+        "lon": vessel_data.get('lon'),
+        "river_mile": vessel_data.get('river_mile'),
+        "speed": vessel_data.get('speed'),
+        "course": vessel_data.get('course'),
+        "heading_direction": vessel_data.get('heading_direction'),
+        "ship_type": vessel_data.get('ship_type'),
+        "last_ais_checkin": vessel_data.get('last_ais_checkin') or vessel_data.get('timestamp'),
+        # USACE data
+        "usace_source": vessel_data.get('usace_source', False),
+        "barge_count": vessel_data.get('barge_count'),
+        "is_tow": vessel_data.get('is_tow', False),
+        "tow_config": vessel_data.get('tow_config'),
+        "usace_lock": vessel_data.get('usace_lock'),
+        "usace_status": vessel_data.get('usace_status'),
+        "estimated_lockage_time": vessel_data.get('estimated_lockage_time'),
+        "is_double_lockage": vessel_data.get('is_double_lockage', False),
+    }
+    
+    # Update or insert the vessel's latest sighting
+    # Use upsert to maintain one "current" record per vessel
+    await db.vessel_sightings.update_one(
+        {"mmsi": mmsi},
+        {
+            "$set": sighting,
+            "$setOnInsert": {"first_seen": datetime.now(timezone.utc)}
+        },
+        upsert=True
+    )
+    
+    # Also append to historical sightings if USACE data present (for analysis)
+    if vessel_data.get('usace_source') and vessel_data.get('barge_count') is not None:
+        historical_record = {
+            **sighting,
+            "recorded_at": datetime.now(timezone.utc)
+        }
+        await db.vessel_history.insert_one(historical_record)
+        logger.debug(f"Persisted USACE sighting for {mmsi}: {vessel_data.get('barge_count')} barges at {vessel_data.get('usace_lock')}")
+
+
+async def persist_vessel_position_to_user(mmsi: str, position_data: dict):
+    """
+    Persist vessel position to the user's account.
+    This allows the vessel position to be restored on login.
+    """
+    if not mmsi:
+        return
+    
+    # Find user who owns this vessel
+    user = await db.users.find_one({"vessels.mmsi": mmsi}, {"_id": 0, "user_id": 1})
+    if not user:
+        return
+    
+    # Update the vessel's last known position in the user's account
+    await db.users.update_one(
+        {"user_id": user["user_id"], "vessels.mmsi": mmsi},
+        {"$set": {
+            "vessels.$.last_position": position_data
+        }}
+    )
+    logger.debug(f"Persisted position to user account for MMSI {mmsi}: RM {position_data.get('river_mile')}")
+
+
+async def restore_user_vessel_position(user_id: str, mmsi: str) -> dict:
+    """
+    Restore a user's vessel position from their account.
+    Called on login to automatically position their vessel.
+    """
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        return None
+    
+    # Find the vessel in user's fleet
+    for vessel in user.get("vessels", []):
+        if vessel.get("mmsi") == mmsi:
+            last_pos = vessel.get("last_position")
+            if last_pos and last_pos.get("lat") and last_pos.get("lon"):
+                return last_pos
+    
+    return None
+
 
 # Create the main app
 app = FastAPI()
@@ -37,6 +232,1966 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Session cookie policy. "lax" blocks cross-site use of the session (CSRF);
+# set COOKIE_SAMESITE=none only if the frontend is on a different site and you
+# also list it explicitly in CORS_ORIGINS. COOKIE_SECURE=false for plain-HTTP
+# local development.
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").lower()
+if COOKIE_SAMESITE not in ("lax", "strict", "none"):
+    COOKIE_SAMESITE = "lax"
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false" or COOKIE_SAMESITE == "none"
+
+
+# =============================================================================
+# USER AUTHENTICATION MODELS
+# =============================================================================
+class UserRegistration(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class VesselAdd(BaseModel):
+    mmsi: str
+    boat_name: str
+    is_primary: bool = False
+
+class User(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
+    fleet_name: Optional[str] = None
+    vessels: List[dict] = []
+    settings: dict = {}
+    account_type: str = "vessel_owner"  # "vessel_owner" or "traffic_watch"
+    watch_point: Optional[dict] = None  # {river_mile: float, name: str}
+    favorite_locks: List[str] = []
+    vessel_watch_list: List[dict] = []
+    is_admin: bool = False
+    is_super_admin: bool = False
+    last_login: Optional[str] = None
+    created_at: Optional[str] = None
+
+# Super admin email - this user has full system access. Override per deployment.
+SUPER_ADMIN_EMAIL = (os.environ.get("SUPER_ADMIN_EMAIL") or "cdillerud@gmail.com").strip()
+
+
+# =============================================================================
+# PASSWORD HASHING
+# =============================================================================
+# Format: "pbkdf2_sha256$<iterations>$<salt>$<hex digest>".
+# Legacy hashes ("<salt>$<sha256 hex>", one unstretched SHA-256 round) still
+# verify, and are upgraded to PBKDF2 on the user's next successful login.
+PBKDF2_ITERATIONS = 600_000
+
+
+def hash_password(password: str) -> str:
+    """Hash a password with salted PBKDF2-HMAC-SHA256."""
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest.hex()}"
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Constant-time check of a password against a stored hash (current or legacy format)."""
+    try:
+        parts = hashed.split("$")
+        if parts[0] == "pbkdf2_sha256" and len(parts) == 4:
+            iterations, salt, expected = int(parts[1]), parts[2], parts[3]
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), iterations).hex()
+        elif len(parts) == 2:
+            salt, expected = parts
+            digest = hashlib.sha256((salt + password).encode()).hexdigest()
+        else:
+            return False
+        return secrets.compare_digest(digest, expected)
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def password_needs_rehash(hashed: str) -> bool:
+    parts = (hashed or "").split("$")
+    return not (parts[0] == "pbkdf2_sha256" and len(parts) == 4 and parts[1] == str(PBKDF2_ITERATIONS))
+
+
+# =============================================================================
+# SESSION TOKEN HELPERS
+# =============================================================================
+def generate_session_token() -> str:
+    """Generate a secure session token."""
+    return f"session_{secrets.token_urlsafe(32)}"
+
+async def get_current_user(request: Request) -> Optional[dict]:
+    """Get current user from session token (cookie or header)."""
+    # Try cookie first
+    session_token = request.cookies.get("session_token")
+    
+    # Fallback to Authorization header
+    if not session_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ")[1]
+    
+    if not session_token:
+        return None
+    
+    # Find session in database
+    session_doc = await repos.sessions.get_session_by_token(session_token)
+    
+    if not session_doc:
+        return None
+    
+    # Check expiry
+    expires_at = session_doc.get("expires_at")
+    if expires_at:
+        if isinstance(expires_at, str):
+            expires_at = datetime.fromisoformat(expires_at)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            return None
+    
+    # Get user
+    user_doc = await repos.users.get_user_by_id(session_doc["user_id"])
+    
+    return user_doc
+
+
+# =============================================================================
+# AUTH ENDPOINTS
+# =============================================================================
+@api_router.post("/auth/register")
+async def register_user(data: UserRegistration, response: Response):
+    """Register a new user with email/password."""
+    # Check if email already exists
+    existing = await repos.users.get_user_by_email(data.email)
+    if existing:
+        # Return a friendly message instead of error
+        return {
+            "success": False, 
+            "user_exists": True,
+            "message": "An account with this email already exists. Would you like to reset your password?"
+        }
+    
+    # Create user
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    
+    # Check if this is the super admin
+    is_super = data.email.lower() == SUPER_ADMIN_EMAIL.lower()
+    
+    user_doc = {
+        "user_id": user_id,
+        "email": data.email,
+        "name": data.name,
+        "password_hash": await asyncio.to_thread(hash_password, data.password),
+        "picture": None,
+        "fleet_name": None,
+        "vessels": [],
+        "settings": {},
+        "is_admin": is_super,
+        "is_super_admin": is_super,
+        "last_login": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "auth_provider": "email"
+    }
+    
+    await repos.users.create_user(user_doc)
+    logger.info(f"[AUTH] New user registered: {data.email} ({user_id})" + (" [SUPER ADMIN]" if is_super else ""))
+    
+    # Create session
+    session_token = generate_session_token()
+    await repos.sessions.create_session({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+        max_age=7*24*60*60
+    )
+    
+    # Return user (without password)
+    user_doc.pop("password_hash", None)
+    user_doc.pop("_id", None)
+    
+    return {"success": True, "user": user_doc}
+
+
+@api_router.post("/auth/login")
+async def login_user(data: UserLogin, response: Response):
+    """Login with email/password."""
+    # Find user
+    user_doc = await repos.users.get_user_by_email(data.email)
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Verify password
+    if not user_doc.get("password_hash") or not await asyncio.to_thread(verify_password, data.password, user_doc["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    logger.info(f"[AUTH] User logged in: {data.email}")
+    
+    # Update last_login and ensure super admin has admin rights
+    update_fields = {"last_login": datetime.now(timezone.utc).isoformat()}
+    if password_needs_rehash(user_doc["password_hash"]):
+        update_fields["password_hash"] = await asyncio.to_thread(hash_password, data.password)
+    if data.email.lower() == SUPER_ADMIN_EMAIL.lower():
+        update_fields["is_admin"] = True
+        update_fields["is_super_admin"] = True
+    
+    await repos.users.update_user(user_doc["user_id"], update_fields)
+    user_doc.update(update_fields)
+    
+    # Create session
+    session_token = generate_session_token()
+    await repos.sessions.create_session({
+        "user_id": user_doc["user_id"],
+        "session_token": session_token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+        max_age=7*24*60*60
+    )
+    
+    # Return user (without password)
+    user_doc.pop("password_hash", None)
+    
+    return {"success": True, "user": user_doc}
+
+
+@api_router.get("/auth/config")
+async def auth_config():
+    """Public sign-in options for the login page (no secrets)."""
+    return {"google_client_id": google_client_id()}
+
+
+@api_router.post("/auth/google")
+async def google_auth(request: Request, response: Response):
+    """Sign in with a Google Identity Services ID token ({"credential": "<jwt>"})."""
+    client_id = google_client_id()
+    if not client_id:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    credential = body.get("credential") if isinstance(body, dict) else None
+    if not credential:
+        raise HTTPException(status_code=400, detail="credential required")
+    try:
+        claims = await asyncio.to_thread(verify_google_credential, credential, client_id)
+    except GoogleAuthError as e:
+        logger.warning(f"[AUTH] Google sign-in rejected: {e}")
+        raise HTTPException(status_code=401, detail="Google sign-in failed")
+    except Exception as e:  # network trouble fetching Google's signing keys
+        logger.error(f"[AUTH] Google verification unavailable: {e}")
+        raise HTTPException(status_code=503, detail="Google sign-in is temporarily unavailable")
+    google_data = {"email": claims["email"], "name": claims["name"],
+                   "picture": claims["picture"], "id": claims["sub"]}
+
+    # Find or create user
+    email = google_data.get("email")
+    is_super = email.lower() == SUPER_ADMIN_EMAIL.lower()
+    existing_user = await repos.users.get_user_by_email(email)
+    
+    if existing_user:
+        user_id = existing_user["user_id"]
+        # Update user info from Google
+        update_fields = {
+            "name": google_data.get("name", existing_user.get("name")),
+            "picture": google_data.get("picture"),
+            "google_id": google_data.get("id"),
+            "last_login": datetime.now(timezone.utc).isoformat()
+        }
+        # Ensure super admin has admin rights
+        if is_super:
+            update_fields["is_admin"] = True
+            update_fields["is_super_admin"] = True
+        
+        await repos.users.update_user(user_id, update_fields)
+        user_doc = await repos.users.get_user_by_id(user_id)
+        logger.info(f"[AUTH] Google user logged in: {email}" + (" [SUPER ADMIN]" if is_super else ""))
+    else:
+        # Create new user
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        user_doc = {
+            "user_id": user_id,
+            "email": email,
+            "name": google_data.get("name", ""),
+            "picture": google_data.get("picture"),
+            "google_id": google_data.get("id"),
+            "fleet_name": None,
+            "vessels": [],
+            "settings": {},
+            "is_admin": is_super,
+            "is_super_admin": is_super,
+            "last_login": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "auth_provider": "google"
+        }
+        await repos.users.create_user(user_doc)
+        logger.info(f"[AUTH] New Google user created: {email} ({user_id})" + (" [SUPER ADMIN]" if is_super else ""))
+    
+    # Create session
+    session_token = generate_session_token()
+    await repos.sessions.create_session({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+        max_age=7*24*60*60
+    )
+    
+    # Return user (without sensitive data)
+    user_doc.pop("password_hash", None)
+    user_doc.pop("_id", None)
+    
+    return {"success": True, "user": user_doc}
+
+
+@api_router.get("/auth/me")
+async def get_current_user_info(request: Request):
+    """Get current authenticated user."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Remove sensitive fields
+    user.pop("password_hash", None)
+    user.pop("_id", None)
+    
+    return user
+
+
+@api_router.post("/auth/logout")
+async def logout_user(request: Request, response: Response):
+    """Logout current user and clear their vessel data."""
+    session_token = request.cookies.get("session_token")
+    
+    if session_token:
+        # Get the user's session to find their MMSI
+        session = await repos.sessions.get_session_by_token(session_token)
+        if session:
+            user_id = session.get("user_id")
+            if user_id:
+                # Get user's vessels to clear them from active_vessels
+                user = await repos.users.get_user_by_id(user_id)
+                if user and user.get("vessels"):
+                    for vessel in user["vessels"]:
+                        mmsi = vessel.get("mmsi")
+                        if mmsi and mmsi in active_vessels:
+                            del active_vessels[mmsi]
+                            logger.info(f"[AUTH] Cleared vessel {mmsi} from active_vessels on logout")
+        
+        # Delete the session
+        await repos.sessions.delete_session_by_token(session_token)
+    
+    response.delete_cookie(key="session_token", path="/")
+    
+    return {"success": True}
+
+
+# =============================================================================
+# USER VESSEL MANAGEMENT
+# =============================================================================
+@api_router.get("/user/vessels")
+async def get_user_vessels(request: Request):
+    """Get all vessels for current user."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"vessels": user.get("vessels", [])}
+
+
+@api_router.post("/user/vessels/restore")
+async def restore_user_vessels(request: Request):
+    """
+    Restore all user's vessels to active_vessels from their saved positions.
+    Called on login/app load to automatically position their vessels.
+    """
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    restored = []
+    for vessel_info in user.get("vessels", []):
+        mmsi = vessel_info.get("mmsi")
+        boat_name = vessel_info.get("boat_name", "Your Vessel")
+        last_pos = vessel_info.get("last_position")
+        
+        if mmsi and last_pos and last_pos.get("lat") and last_pos.get("lon"):
+            # Create vessel and add to active_vessels
+            lat = last_pos["lat"]
+            lon = last_pos["lon"]
+            speed = last_pos.get("speed", 0)
+            course = last_pos.get("course", 0)
+            rm = last_pos.get("river_mile") or estimate_river_mile(lat, lon)
+            heading = last_pos.get("heading_direction") or determine_heading(speed, course, lat, lon)
+            
+            vessel = VesselPosition(
+                mmsi=mmsi,
+                name=boat_name,
+                lat=lat,
+                lon=lon,
+                speed=speed,
+                course=course,
+                river_mile=rm,
+                heading=heading,
+                is_user_vessel=True,
+            )
+            
+            active_vessels[mmsi] = vessel
+            
+            restored.append({
+                "mmsi": mmsi,
+                "name": boat_name,
+                "river_mile": rm,
+                "lat": lat,
+                "lon": lon
+            })
+            
+            logger.info(f"[AUTH] Restored vessel {mmsi} ({boat_name}) at RM {rm}")
+    
+    return {"success": True, "restored": restored, "count": len(restored)}
+
+
+@api_router.post("/user/vessels")
+async def add_user_vessel(request: Request, vessel: VesselAdd):
+    """Add a vessel to user's fleet."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Check if MMSI is already claimed by another user
+    existing_claim = await db.users.find_one(
+        {
+            "user_id": {"$ne": user["user_id"]},
+            "vessels.mmsi": vessel.mmsi
+        },
+        {"_id": 0, "email": 1}
+    )
+    if existing_claim:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"MMSI {vessel.mmsi} is already claimed by another user"
+        )
+    
+    # Check if user already has this MMSI
+    existing_vessels = user.get("vessels", [])
+    if any(v["mmsi"] == vessel.mmsi for v in existing_vessels):
+        raise HTTPException(status_code=400, detail="Vessel already in your fleet")
+    
+    # If this is primary, unset other primaries
+    if vessel.is_primary:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"vessels.$[].is_primary": False}}
+        )
+    
+    # Add vessel
+    vessel_doc = {
+        "mmsi": vessel.mmsi,
+        "boat_name": vessel.boat_name,
+        "is_primary": vessel.is_primary,
+        "added_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$push": {"vessels": vessel_doc}}
+    )
+    
+    # Migrate any existing settings for this MMSI to user
+    existing_settings = await db.user_settings.find_one({"mmsi": vessel.mmsi}, {"_id": 0})
+    if existing_settings:
+        # Merge settings into user's settings
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {f"vessel_settings.{vessel.mmsi}": existing_settings.get("settings", {})}}
+        )
+    
+    logger.info(f"[USER:{user['user_id']}] Added vessel: {vessel.mmsi} ({vessel.boat_name})")
+    
+    return {"success": True, "vessel": vessel_doc}
+
+
+@api_router.delete("/user/vessels/{mmsi}")
+async def remove_user_vessel(request: Request, mmsi: str):
+    """Remove a vessel from user's fleet."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$pull": {"vessels": {"mmsi": mmsi}}}
+    )
+    
+    logger.info(f"[USER:{user['user_id']}] Removed vessel: {mmsi}")
+    
+    return {"success": True}
+
+
+@api_router.put("/user/vessels/{mmsi}/primary")
+async def set_primary_vessel(request: Request, mmsi: str):
+    """Set a vessel as the primary vessel."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Unset all primaries
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"vessels.$[].is_primary": False}}
+    )
+    
+    # Set this one as primary
+    await db.users.update_one(
+        {"user_id": user["user_id"], "vessels.mmsi": mmsi},
+        {"$set": {"vessels.$.is_primary": True}}
+    )
+    
+    return {"success": True}
+
+
+@api_router.put("/user/profile")
+async def update_user_profile(request: Request):
+    """Update user profile (name, fleet name)."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    body = await request.json()
+    update_fields = {}
+    
+    if "name" in body:
+        update_fields["name"] = body["name"]
+    if "fleet_name" in body:
+        update_fields["fleet_name"] = body["fleet_name"]
+    
+    if update_fields:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": update_fields}
+        )
+    
+    return {"success": True}
+
+
+@api_router.put("/user/settings")
+async def update_user_settings(request: Request):
+    """Update user settings."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    body = await request.json()
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"settings": body}}
+    )
+    
+    return {"success": True}
+
+
+# =============================================================================
+# ACCOUNT TYPE & TRAFFIC WATCH MODE
+# =============================================================================
+
+class AccountTypeUpdate(BaseModel):
+    account_type: str  # "vessel_owner" or "traffic_watch"
+
+class WatchPointUpdate(BaseModel):
+    river_mile: float
+    name: Optional[str] = None
+
+class FavoriteLockUpdate(BaseModel):
+    lock_ids: List[str]
+
+class VesselWatchItem(BaseModel):
+    mmsi: str
+    name: Optional[str] = None
+    alert_enabled: bool = True
+    alert_rm: Optional[float] = None  # Alert when vessel passes this RM
+
+@api_router.post("/user/account-type")
+async def update_account_type(request: Request, data: AccountTypeUpdate):
+    """Set user account type (vessel_owner or traffic_watch)."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    if data.account_type not in ["vessel_owner", "traffic_watch"]:
+        raise HTTPException(status_code=400, detail="Invalid account type")
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"account_type": data.account_type}}
+    )
+    
+    logger.info(f"[USER] {user['email']} set account type to: {data.account_type}")
+    return {"success": True, "account_type": data.account_type}
+
+@api_router.get("/user/account-type")
+async def get_account_type(request: Request):
+    """Get user account type."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"account_type": user.get("account_type", "vessel_owner")}
+
+@api_router.post("/user/watch-point")
+async def set_watch_point(request: Request, data: WatchPointUpdate):
+    """Set the watch point (center RM) for Traffic Watch users."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    watch_point = {
+        "river_mile": data.river_mile,
+        "name": data.name or f"RM {data.river_mile}"
+    }
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"watch_point": watch_point}}
+    )
+    
+    return {"success": True, "watch_point": watch_point}
+
+@api_router.get("/user/watch-point")
+async def get_watch_point(request: Request):
+    """Get the user's watch point."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"watch_point": user.get("watch_point")}
+
+@api_router.post("/user/favorite-locks")
+async def set_favorite_locks(request: Request, data: FavoriteLockUpdate):
+    """Set user's favorite locks for quick switching."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Validate lock IDs
+    valid_locks = [lid for lid in data.lock_ids if lid in LOCKS]
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"favorite_locks": valid_locks}}
+    )
+    
+    return {"success": True, "favorite_locks": valid_locks}
+
+@api_router.get("/user/favorite-locks")
+async def get_favorite_locks(request: Request):
+    """Get user's favorite locks."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"favorite_locks": user.get("favorite_locks", [])}
+
+@api_router.post("/user/vessel-watch")
+async def add_vessel_to_watch(request: Request, data: VesselWatchItem):
+    """Add a vessel to the watch list for alerts."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    watch_list = user.get("vessel_watch_list", [])
+    
+    # Check if already watching
+    existing = next((v for v in watch_list if v["mmsi"] == data.mmsi), None)
+    if existing:
+        # Update existing
+        existing["name"] = data.name or existing.get("name")
+        existing["alert_enabled"] = data.alert_enabled
+        existing["alert_rm"] = data.alert_rm
+    else:
+        # Add new
+        watch_list.append({
+            "mmsi": data.mmsi,
+            "name": data.name,
+            "alert_enabled": data.alert_enabled,
+            "alert_rm": data.alert_rm,
+            "added_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"vessel_watch_list": watch_list}}
+    )
+    
+    return {"success": True, "vessel_watch_list": watch_list}
+
+@api_router.delete("/user/vessel-watch/{mmsi}")
+async def remove_vessel_from_watch(request: Request, mmsi: str):
+    """Remove a vessel from the watch list."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    watch_list = user.get("vessel_watch_list", [])
+    watch_list = [v for v in watch_list if v["mmsi"] != mmsi]
+    
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"vessel_watch_list": watch_list}}
+    )
+    
+    return {"success": True, "vessel_watch_list": watch_list}
+
+@api_router.get("/user/vessel-watch")
+async def get_vessel_watch_list(request: Request):
+    """Get user's vessel watch list."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {"vessel_watch_list": user.get("vessel_watch_list", [])}
+
+TRAFFIC_SUMMARY_RADIUS_MI = 20
+
+
+@api_router.get("/traffic-summary/{lock_id}")
+async def get_traffic_summary(lock_id: str):
+    """Get traffic summary for a lock - useful for Traffic Watch users."""
+    if lock_id not in LOCKS:
+        raise HTTPException(status_code=404, detail="Invalid lock ID")
+    
+    lock = LOCKS[lock_id]
+    lock_rm = lock["river_mile"]
+    
+    # Counts describe the watched lock only: AIS vessels within
+    # TRAFFIC_SUMMARY_RADIUS_MI river miles plus vessels USACE reports at the
+    # lock, each counted once (by MMSI, or name when USACE has no MMSI).
+    vessels_near_lock = []
+    counted = {}  # identity -> "northbound" | "southbound" | "stationary"
+    
+    for mmsi, vessel in active_vessels.items():
+        if hasattr(vessel, 'river_mile'):
+            vessel_rm = vessel.river_mile
+            heading = vessel.heading
+            speed = vessel.speed
+        else:
+            vessel_rm = vessel.get('river_mile')
+            heading = vessel.get('heading') or vessel.get('heading_direction')
+            speed = vessel.get('speed', 0)
+        
+        if vessel_rm is None:
+            continue
+            
+        distance = abs(vessel_rm - lock_rm)
+        
+        # Track vessels near the lock
+        if distance <= TRAFFIC_SUMMARY_RADIUS_MI:
+            counted[str(mmsi)] = heading if heading in ("northbound", "southbound") else "stationary"
+            v_dict = prepare_vessel_for_output(vessel, mmsi)
+            v_dict['distance_to_lock'] = round(distance, 1)
+            
+            # Calculate ETA for vessels heading TOWARD the lock
+            eta_minutes = None
+            is_heading_to_lock = False
+            
+            if heading == 'northbound' and vessel_rm < lock_rm:
+                # Northbound vessel below lock - heading toward it
+                is_heading_to_lock = True
+            elif heading == 'southbound' and vessel_rm > lock_rm:
+                # Southbound vessel above lock - heading toward it
+                is_heading_to_lock = True
+            
+            if is_heading_to_lock and speed and speed > 0.1:
+                speed_mph = speed * 1.15078  # knots to mph
+                eta_minutes = (distance / speed_mph) * 60
+                v_dict['eta_to_lock'] = round(eta_minutes, 1)
+            else:
+                v_dict['eta_to_lock'] = None
+                
+            v_dict['heading_to_lock'] = is_heading_to_lock
+            vessels_near_lock.append(v_dict)
+    
+    # Sort by ETA (arrival order) - vessels heading to lock with ETA come first, then by distance
+    # Vessels with ETA (heading toward lock) sorted by ETA
+    # Vessels without ETA (heading away or stationary) sorted by distance
+    def sort_key(v):
+        eta = v.get('eta_to_lock')
+        if eta is not None:
+            return (0, eta)  # Priority 0 = heading to lock, sort by ETA
+        else:
+            return (1, v.get('distance_to_lock', 999))  # Priority 1 = not heading to lock, sort by distance
+    
+    vessels_near_lock.sort(key=sort_key)
+
+    # Vessels USACE reports at this lock (waiting or locking), even with no AIS position
+    at_lock = 0
+    for lock_no, infos in usace_lock_rows.items():
+        if usace_lock_id(lock_no) != lock_id:
+            continue
+        for v in infos:
+            at_lock += 1
+            ident = str(v.get("mmsi") or v.get("vessel_name") or "")
+            if not ident or ident in counted:
+                continue
+            counted[ident] = {"U": "northbound", "D": "southbound"}.get(v.get("direction") or "", "stationary")
+    directions = list(counted.values())
+    
+    # Get recent lockage data
+    recent_lockages = []
+    try:
+        cursor = db.lockage_history.find(
+            {"lock_id": lock_id},
+            {"_id": 0}
+        ).sort("recorded_at", -1).limit(5)
+        recent_lockages = [lockage_for_output(r) for r in await cursor.to_list(length=5)]
+    except Exception as e:
+        logger.error(f"Failed to fetch lockage history: {e}")
+    
+    return {
+        "lock_id": lock_id,
+        "lock_name": lock["name"],
+        "lock_rm": lock_rm,
+        # All counts are for this lock: within TRAFFIC_SUMMARY_RADIUS_MI or in its USACE queue.
+        "total_vessels": len(counted),
+        "northbound": directions.count("northbound"),
+        "southbound": directions.count("southbound"),
+        "stationary": directions.count("stationary"),
+        "at_lock_usace": at_lock,
+        "radius_mi": TRAFFIC_SUMMARY_RADIUS_MI,
+        "feed_vessels": len(active_vessels),
+        "vessels_near_lock": vessels_near_lock[:10],  # Top 10 nearest
+        "recent_lockages": recent_lockages
+    }
+
+
+# =============================================================================
+# ADMIN ENDPOINTS
+# =============================================================================
+
+async def require_admin(request: Request) -> dict:
+    """Helper to require admin access."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not user.get("is_admin") and not user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+async def require_super_admin(request: Request) -> dict:
+    """Helper to require super admin access."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    return user
+
+
+async def require_user(request: Request) -> dict:
+    """Dependency: any signed-in user."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+# --- AIS feed target validation (SSRF guard) ---------------------------------
+# The server dials the host:port a user supplies (their Boat Beacon phone or a
+# relay). Without a check, anyone could make it connect to cloud metadata
+# endpoints, the database, or other internal services.
+#   AIS_TARGET_ALLOWLIST       comma-separated hostnames always allowed (default "ais-relay")
+#   AIS_ALLOW_PRIVATE_TARGETS  "true" (default, self-hosted on the boat LAN) /
+#                              "false" (hosted SaaS: only public addresses)
+import ipaddress as _ipaddress  # noqa: E402
+
+
+def validate_feed_target(host: str, port) -> Optional[str]:
+    """Return an error message if host:port is not an acceptable AIS feed target."""
+    if not host or not isinstance(host, str) or len(host) > 253:
+        return "A feed host is required"
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return "Invalid port"
+    if not (1 <= port <= 65535):
+        return "Invalid port"
+    allow = {h.strip().lower() for h in os.environ.get("AIS_TARGET_ALLOWLIST", "ais-relay").split(",") if h.strip()}
+    if host.strip().lower() in allow:
+        return None
+    allow_private = os.environ.get("AIS_ALLOW_PRIVATE_TARGETS", "true").lower() != "false"
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError):
+        return "Host could not be resolved"
+    for info in infos:
+        ip = _ipaddress.ip_address(info[4][0].split("%")[0])
+        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved:
+            return "That address is not allowed as an AIS feed"
+        if ip.is_private and not allow_private:
+            return "Private network addresses are not allowed on this server"
+    return None
+
+
+def _ingest_token_ok(request: Request) -> bool:
+    """Push-ingest auth: if AIS_INGEST_TOKEN is set, relays must send it."""
+    expected = os.environ.get("AIS_INGEST_TOKEN", "")
+    if not expected:
+        return True
+    supplied = request.headers.get("X-Ingest-Token", "")
+    return secrets.compare_digest(supplied, expected)
+
+@api_router.get("/admin/users")
+async def admin_get_users(request: Request, search: str = None, limit: int = 50, skip: int = 0):
+    """Get all users (admin only)."""
+    await require_admin(request)
+    
+    query = {}
+    if search:
+        query["$or"] = [
+            {"email": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": search, "$options": "i"}}
+        ]
+    
+    users = await repos.users.get_all_users(skip=skip, limit=limit, query=query)
+    total = await repos.users.count_users(query)
+    
+    return {"users": users, "total": total, "limit": limit, "skip": skip}
+
+@api_router.post("/admin/users")
+async def admin_create_user(request: Request):
+    """Create a new user (admin only)."""
+    admin = await require_admin(request)
+    body = await request.json()
+    
+    email = body.get("email")
+    name = body.get("name", "")
+    password = body.get("password")
+    is_admin = body.get("is_admin", False)
+    account_type = body.get("account_type", "vessel_owner")
+    
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
+    # Check if user exists
+    existing = await repos.users.get_user_by_email(email)
+    if existing:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+    
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    user_doc = {
+        "user_id": user_id,
+        "email": email,
+        "name": name,
+        "password_hash": hash_password(password) if password else None,
+        "picture": None,
+        "fleet_name": None,
+        "vessels": [],
+        "settings": {},
+        "account_type": account_type,
+        "is_admin": is_admin,
+        "is_super_admin": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "auth_provider": "admin_created"
+    }
+    
+    await repos.users.create_user(user_doc)
+    logger.info(f"[ADMIN] User created by {admin['email']}: {email}")
+    
+    user_doc.pop("password_hash", None)
+    user_doc.pop("_id", None)
+    return {"success": True, "user": user_doc}
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(request: Request, user_id: str):
+    """Delete a user (admin only)."""
+    admin = await require_admin(request)
+    
+    # Find the user first
+    user = await repos.users.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent deleting super admin
+    if user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Cannot delete super admin")
+    
+    # Prevent deleting yourself
+    if user_id == admin["user_id"]:
+        raise HTTPException(status_code=403, detail="Cannot delete your own account")
+    
+    # Delete user sessions
+    await repos.sessions.delete_user_sessions(user_id)
+    
+    # Delete user
+    await repos.users.delete_user(user_id)
+    
+    logger.info(f"[ADMIN] User deleted by {admin['email']}: {user['email']}")
+    return {"success": True, "deleted_user_id": user_id}
+
+@api_router.put("/admin/users/{user_id}")
+async def admin_update_user(request: Request, user_id: str):
+    """Update a user (admin only)."""
+    admin = await require_admin(request)
+    body = await request.json()
+    
+    user = await repos.users.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Build update fields
+    update_fields = {}
+    
+    if "name" in body:
+        update_fields["name"] = body["name"]
+    if "email" in body:
+        update_fields["email"] = body["email"]
+    if "account_type" in body:
+        update_fields["account_type"] = body["account_type"]
+    if "password" in body and body["password"]:
+        update_fields["password_hash"] = hash_password(body["password"])
+    
+    # Only super admin can change admin status
+    if "is_admin" in body:
+        if admin.get("is_super_admin"):
+            # Can't demote super admin
+            if user.get("is_super_admin") and not body["is_admin"]:
+                raise HTTPException(status_code=403, detail="Cannot demote super admin")
+            update_fields["is_admin"] = body["is_admin"]
+        else:
+            raise HTTPException(status_code=403, detail="Only super admin can change admin status")
+    
+    if update_fields:
+        await repos.users.update_user(user_id, update_fields)
+        logger.info(f"[ADMIN] User updated by {admin['email']}: {user['email']}")
+    
+    updated_user = await repos.users.get_user_by_id_exclude_password(user_id)
+    return {"success": True, "user": updated_user}
+
+@api_router.post("/admin/users/{user_id}/promote")
+async def admin_promote_user(request: Request, user_id: str):
+    """Promote a user to admin (super admin only)."""
+    await require_super_admin(request)
+    
+    user = await repos.users.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await repos.users.update_user(user_id, {"is_admin": True})
+    logger.info(f"[ADMIN] User promoted to admin: {user['email']}")
+    
+    return {"success": True, "message": f"{user['email']} is now an admin"}
+
+@api_router.post("/admin/users/{user_id}/demote")
+async def admin_demote_user(request: Request, user_id: str):
+    """Demote a user from admin (super admin only)."""
+    admin = await require_super_admin(request)
+    
+    user = await repos.users.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Cannot demote super admin")
+    
+    await repos.users.update_user(user_id, {"is_admin": False})
+    logger.info(f"[ADMIN] User demoted from admin: {user['email']}")
+    
+    return {"success": True, "message": f"{user['email']} is no longer an admin"}
+
+@api_router.post("/admin/users/{user_id}/reset-password")
+async def admin_reset_password(request: Request, user_id: str):
+    """Reset a user's password (admin only)."""
+    admin = await require_admin(request)
+    body = await request.json()
+    
+    new_password = body.get("password")
+    if not new_password:
+        raise HTTPException(status_code=400, detail="New password is required")
+    
+    user = await repos.users.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await repos.users.update_user(user_id, {"password_hash": hash_password(new_password)})
+    
+    logger.info(f"[ADMIN] Password reset by {admin['email']} for: {user['email']}")
+    return {"success": True, "message": f"Password reset for {user['email']}"}
+
+@api_router.post("/admin/impersonate/{user_id}")
+async def admin_impersonate_user(request: Request, response: Response, user_id: str):
+    """Impersonate a user (admin only). Creates a session as that user."""
+    admin = await require_admin(request)
+    
+    user = await repos.users.get_user_by_id_exclude_password(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Create impersonation session
+    session_token = generate_session_token()
+    await repos.sessions.create_session({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=2),
+        "created_at": datetime.now(timezone.utc),
+        "impersonated_by": admin["user_id"],
+        "impersonated_by_email": admin["email"]
+    })
+    
+    # Set cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+        max_age=2*60*60  # 2 hours
+    )
+    
+    logger.info(f"[ADMIN] {admin['email']} started impersonating {user['email']}")
+    
+    user.pop("password_hash", None)
+    return {"success": True, "user": user, "message": f"Now viewing as {user['email']}"}
+
+@api_router.get("/admin/stats")
+async def admin_get_stats(request: Request):
+    """Get system statistics (admin only)."""
+    await require_admin(request)
+    
+    total_users = await repos.users.count_users()
+    admin_users = await repos.users.count_users({"is_admin": True})
+    vessel_owners = await repos.users.count_users({"account_type": "vessel_owner"})
+    traffic_watchers = await repos.users.count_users({"account_type": "traffic_watch"})
+    
+    # Active sessions (not expired)
+    active_sessions = await db.user_sessions.count_documents({
+        "expires_at": {"$gt": datetime.now(timezone.utc)}
+    })
+    
+    # Recent signups (last 7 days)
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    recent_signups = await repos.users.count_users({
+        "created_at": {"$gte": week_ago}
+    })
+    
+    # Vessels being tracked
+    total_vessels = len(active_vessels)
+    
+    # Recent lockages
+    recent_lockages = await db.lockage_history.count_documents({})
+    
+    return {
+        "users": {
+            "total": total_users,
+            "admins": admin_users,
+            "vessel_owners": vessel_owners,
+            "traffic_watchers": traffic_watchers,
+            "recent_signups": recent_signups
+        },
+        "sessions": {
+            "active": active_sessions
+        },
+        "vessels": {
+            "currently_tracked": total_vessels,
+            "demo_active": demo_vessels_active
+        },
+        "lockages": {
+            "total_recorded": recent_lockages
+        }
+    }
+
+@api_router.get("/admin/vessels")
+async def admin_get_all_vessels(request: Request):
+    """Get all vessels currently being tracked (admin only)."""
+    await require_admin(request)
+    
+    vessels_list = []
+    for mmsi, vessel in active_vessels.items():
+        v_dict = prepare_vessel_for_output(vessel, None)
+        vessels_list.append(v_dict)
+    
+    # Sort by river mile
+    vessels_list.sort(key=lambda x: x.get('river_mile') or 0, reverse=True)
+    
+    return {"vessels": vessels_list, "total": len(vessels_list)}
+
+@api_router.post("/admin/vessels")
+async def admin_add_vessel(request: Request):
+    """Manually add a vessel to the system (admin only)."""
+    admin = await require_admin(request)
+    body = await request.json()
+    
+    mmsi = body.get("mmsi")
+    name = body.get("name", f"Vessel {mmsi}")
+    river_mile = body.get("river_mile")
+    heading = body.get("heading", "stationary")
+    
+    if not mmsi:
+        raise HTTPException(status_code=400, detail="MMSI is required")
+    
+    # Create vessel in active_vessels
+    from types import SimpleNamespace
+    vessel = SimpleNamespace(
+        mmsi=mmsi,
+        name=name,
+        river_mile=river_mile,
+        lat=body.get("lat"),
+        lon=body.get("lon"),
+        speed=body.get("speed", 0),
+        course=body.get("course", 0),
+        heading=heading,
+        heading_direction=heading,
+        ship_type=body.get("ship_type", 0),
+        is_tow=body.get("is_tow", False),
+        barge_count=body.get("barge_count", 0),
+        last_update=datetime.now(timezone.utc),
+        source="admin_added"
+    )
+    
+    active_vessels[mmsi] = vessel
+    logger.info(f"[ADMIN] Vessel added by {admin['email']}: {mmsi} ({name})")
+    
+    return {"success": True, "vessel": prepare_vessel_for_output(vessel, mmsi)}
+
+@api_router.delete("/admin/vessels/{mmsi}")
+async def admin_delete_vessel(request: Request, mmsi: str):
+    """Remove a vessel from tracking (admin only)."""
+    admin = await require_admin(request)
+    
+    if mmsi not in active_vessels:
+        raise HTTPException(status_code=404, detail="Vessel not found")
+    
+    del active_vessels[mmsi]
+    logger.info(f"[ADMIN] Vessel removed by {admin['email']}: {mmsi}")
+    
+    return {"success": True, "message": f"Vessel {mmsi} removed from tracking"}
+
+
+# ---------------------------------------------------------------------------
+# Live-AIS / demo-vessel / stale-prune helpers
+# ---------------------------------------------------------------------------
+
+def _demo_mmsi_set() -> set:
+    """Set of MMSIs that belong to demo vessels."""
+    return {cfg["mmsi"] for cfg in DEMO_VESSELS.values()}
+
+
+def _is_demo_vessel(vessel, mmsi: str) -> bool:
+    """Return True if a vessel object/MMSI represents a demo vessel."""
+    if mmsi in _demo_mmsi_set():
+        return True
+    if isinstance(vessel, dict):
+        return bool(vessel.get("is_demo"))
+    return bool(getattr(vessel, "is_demo", False))
+
+
+# Per-source coverage: {source: {mmsi: {"last_seen": datetime, "name": str}}}
+# Used to compare what each AIS source sees (GET /api/admin/feeds/coverage).
+source_sightings: Dict[str, Dict[str, dict]] = {}
+
+
+def _record_source_sighting(source: str, mmsi: str, name: Optional[str] = None) -> None:
+    if not mmsi:
+        return
+    bucket = source_sightings.setdefault(source, {})
+    entry = bucket.setdefault(mmsi, {"first_seen": datetime.now(timezone.utc), "reports": 0})
+    entry["last_seen"] = datetime.now(timezone.utc)
+    entry["reports"] += 1
+    if name:
+        entry["name"] = name
+
+
+def _record_live_ais_event(mmsi: str) -> None:
+    """Record that a real (non-demo, non-filtered) AIS vessel update arrived."""
+    if not mmsi or mmsi in _demo_mmsi_set():
+        return
+    live_ais_state["last_seen"] = datetime.now(timezone.utc)
+    live_ais_state["lines_received"] = int(live_ais_state.get("lines_received") or 0) + 1
+    live_ais_state["last_mmsi"] = mmsi
+
+
+def _has_live_ais_traffic() -> bool:
+    """Return True if any real AIS vessel exists in the active set OR has been seen recently."""
+    if live_ais_state.get("last_seen") is not None:
+        return True
+    demo_set = _demo_mmsi_set()
+    for m in active_vessels.keys():
+        if m in demo_set:
+            continue
+        if is_mmsi_blocked(m):
+            continue
+        return True
+    return False
+
+
+def _should_suppress_demo_vessels() -> bool:
+    """Resolve whether demo vessels should be hidden from /api/vessels right now."""
+    if DEMO_VESSELS_MODE == "off" or not demo_vessels_active:
+        return True
+    if DEMO_VESSELS_MODE == "on":
+        return False
+    # auto: hide demo vessels as soon as real AIS traffic is available
+    return _has_live_ais_traffic()
+
+
+@api_router.get("/admin/feeds/coverage")
+async def admin_feed_coverage(request: Request, hours: float = 24.0):
+    """Compare which vessels each AIS source has seen (admin only).
+
+    For the source trial: unique MMSIs per source in the window, how many
+    only that source saw, and the overlap. In-memory since server start."""
+    await require_admin(request)
+    since = datetime.now(timezone.utc) - timedelta(hours=max(0.1, min(hours, 24 * 30)))
+    seen = {
+        src: {m: e for m, e in bucket.items() if e.get("last_seen") and e["last_seen"] >= since}
+        for src, bucket in source_sightings.items()
+    }
+    sets = {src: set(v) for src, v in seen.items()}
+    union = set().union(*sets.values()) if sets else set()
+    sources = {}
+    for src, mmsis in sets.items():
+        others = set().union(*(v for k, v in sets.items() if k != src)) if len(sets) > 1 else set()
+        sources[src] = {
+            "unique_vessels": len(mmsis),
+            "only_this_source": len(mmsis - others),
+            "reports": sum(e.get("reports", 0) for e in seen[src].values()),
+        }
+    return {
+        "window_hours": hours,
+        "all_sources_vessels": len(union),
+        "seen_by_every_source": len(set.intersection(*sets.values())) if sets else 0,
+        "sources": sources,
+        "aisstream": {k: v for k, v in _aisstream.status.items()},
+        "vessels": sorted(
+            ({"mmsi": m, "name": next((seen[s][m].get("name") for s in seen if m in seen[s] and seen[s][m].get("name")), None),
+              "sources": sorted(s for s in sets if m in sets[s])} for m in union),
+            key=lambda v: (v["name"] or "~", v["mmsi"]),
+        ),
+    }
+
+
+@api_router.get("/admin/vessels/live-status")
+async def admin_live_ais_status(request: Request):
+    """Return live-AIS state + demo suppression decision (admin only)."""
+    admin = await require_admin(request)
+    last_seen = live_ais_state.get("last_seen")
+    return {
+        "demo_mode": DEMO_VESSELS_MODE,
+        "demo_vessels_suppressed": _should_suppress_demo_vessels(),
+        "live_ais_seen": _has_live_ais_traffic(),
+        "live_ais_lines_received": int(live_ais_state.get("lines_received") or 0),
+        "live_ais_last_mmsi": live_ais_state.get("last_mmsi"),
+        "live_ais_last_seen": last_seen.isoformat() if last_seen else None,
+        "vessel_stale_seconds": VESSEL_STALE_SECONDS,
+        "requested_by": admin["email"],
+    }
+
+
+def _vessel_timestamp(vessel) -> Optional[datetime]:
+    """Best-effort timestamp for a vessel object (Pydantic model or dict)."""
+    ts = None
+    if hasattr(vessel, "timestamp"):
+        ts = getattr(vessel, "timestamp", None)
+    elif isinstance(vessel, dict):
+        ts = vessel.get("timestamp") or vessel.get("last_update")
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
+def _prune_stale_vessels(max_age_seconds: int = None,
+                        protect_mmsis: Optional[set] = None) -> List[str]:
+    """Remove vessels whose last update is older than ``max_age_seconds``.
+
+    Demo vessels are always skipped (they refresh themselves), and any MMSIs in
+    ``protect_mmsis`` are also retained.
+    Returns the list of removed MMSIs.
+    """
+    if max_age_seconds is None:
+        max_age_seconds = VESSEL_STALE_SECONDS
+    if max_age_seconds <= 0:
+        return []
+    protect = set(protect_mmsis or set()) | _demo_mmsi_set()
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+    removed: List[str] = []
+    for mmsi in list(active_vessels.keys()):
+        if mmsi in protect:
+            continue
+        ts = _vessel_timestamp(active_vessels[mmsi])
+        if ts is None:
+            # No timestamp = unknown age; treat as stale on first sweep to avoid
+            # leaking manually-injected test data forever.
+            removed.append(mmsi)
+            del active_vessels[mmsi]
+            continue
+        if ts < cutoff:
+            removed.append(mmsi)
+            del active_vessels[mmsi]
+    if removed:
+        logger.info(f"[STALE-PRUNE] Removed {len(removed)} stale vessel(s): {removed}")
+    return removed
+
+
+@api_router.post("/admin/vessels/clear-stale")
+async def admin_clear_stale_vessels(request: Request):
+    """Force-remove vessels older than the stale window (admin only)."""
+    admin = await require_admin(request)
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    max_age = int(body.get("max_age_seconds") or VESSEL_STALE_SECONDS)
+    removed = _prune_stale_vessels(max_age_seconds=max_age)
+    logger.info(f"[ADMIN] {admin['email']} cleared {len(removed)} stale vessels (max_age={max_age}s)")
+    return {
+        "success": True,
+        "removed": removed,
+        "removed_count": len(removed),
+        "max_age_seconds": max_age,
+    }
+
+
+async def stale_vessel_sweep_task():
+    """Background task that periodically removes stale vessels from active_vessels."""
+    if VESSEL_STALE_SECONDS <= 0 or VESSEL_STALE_SWEEP_SECONDS <= 0:
+        logger.info("Stale vessel sweep disabled (VESSEL_STALE_SECONDS<=0)")
+        return
+    logger.info(
+        f"Stale vessel sweep enabled: max_age={VESSEL_STALE_SECONDS}s, "
+        f"interval={VESSEL_STALE_SWEEP_SECONDS}s"
+    )
+    while True:
+        try:
+            await asyncio.sleep(VESSEL_STALE_SWEEP_SECONDS)
+            _prune_stale_vessels()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in stale_vessel_sweep_task: {e}")
+            await asyncio.sleep(VESSEL_STALE_SWEEP_SECONDS)
+
+
+# Demo vessel toggle state (in-memory, reset on server restart)
+# Off unless an admin switches them on (Settings), or the deployment is a
+# sales/demo instance (RIVERWATCH_DEMO_VESSELS_MODE=on). Fake boats must never
+# appear on a customer's live map by default.
+demo_vessels_active = os.environ.get("RIVERWATCH_DEMO_VESSELS_MODE", "").strip().lower() == "on"
+demo_vessels_paused = {}  # {mmsi: True} - paused vessels won't auto-move
+
+# Demo vessel display mode: "auto" (hide when live AIS active), "on", "off".
+# Override via env RIVERWATCH_DEMO_VESSELS_MODE. Default: "auto".
+DEMO_VESSELS_MODE = (os.environ.get("RIVERWATCH_DEMO_VESSELS_MODE", "auto") or "auto").strip().lower()
+if DEMO_VESSELS_MODE not in ("auto", "on", "off"):
+    DEMO_VESSELS_MODE = "auto"
+
+# Tracks the most recent timestamp of a real (non-demo) AIS vessel update.
+# Used by /api/vessels to decide whether demo vessels should be suppressed.
+live_ais_state = {
+    "last_seen": None,        # datetime of latest live AIS line
+    "lines_received": 0,      # cumulative non-demo AIS updates since startup
+    "last_mmsi": None,
+}
+
+# Stale-vessel pruning window. Vessels older than this are removed from the
+# active set (with exceptions for demo vessels and the configured user vessel).
+VESSEL_STALE_SECONDS = int(os.environ.get("RIVERWATCH_VESSEL_STALE_SECONDS", "600"))
+# How often the stale-prune loop runs.
+VESSEL_STALE_SWEEP_SECONDS = int(os.environ.get("RIVERWATCH_VESSEL_STALE_SWEEP_SECONDS", "60"))
+
+# User vessel simulation state
+user_vessel_simulation = {}  # {mmsi: {enabled: bool, speed_knots: float, heading: str, river_mile: float}}
+
+# Illinois River filter toggle and stats
+illinois_filter_enabled = False  # DISABLED by default - enable in settings if needed
+filter_stats = {"passed": 0, "filtered": 0}
+
+@api_router.get("/filter/stats")
+async def get_filter_stats():
+    """Get Illinois River filter statistics."""
+    return {
+        "enabled": illinois_filter_enabled,
+        "passed": filter_stats["passed"],
+        "filtered": filter_stats["filtered"],
+        "total": filter_stats["passed"] + filter_stats["filtered"]
+    }
+
+@api_router.post("/filter/toggle", dependencies=[Depends(require_admin)])
+async def toggle_illinois_filter(request: Request):
+    """Toggle Illinois River filter on/off."""
+    global illinois_filter_enabled
+    body = await request.json()
+    illinois_filter_enabled = body.get("enabled", not illinois_filter_enabled)
+    logger.info(f"Illinois River filter {'enabled' if illinois_filter_enabled else 'disabled'}")
+    return {"enabled": illinois_filter_enabled}
+
+
+# ============================================================================
+# USER VESSEL SIMULATION
+# ============================================================================
+
+@api_router.get("/user-vessel/simulation/{mmsi}")
+async def get_user_vessel_simulation(mmsi: str):
+    """Get user vessel simulation status."""
+    sim = user_vessel_simulation.get(mmsi, {})
+    vessel = active_vessels.get(mmsi, {})
+    
+    # Get current position from active_vessels
+    if isinstance(vessel, dict):
+        current_rm = vessel.get('river_mile', 815.0)
+        current_speed = vessel.get('speed', 0)
+        current_heading = vessel.get('heading', 'southbound')
+    else:
+        current_rm = getattr(vessel, 'river_mile', 815.0)
+        current_speed = getattr(vessel, 'speed', 0)
+        current_heading = getattr(vessel, 'heading', 'southbound')
+    
+    return {
+        "mmsi": mmsi,
+        "simulation_enabled": sim.get('enabled', False),
+        "river_mile": sim.get('river_mile', current_rm),
+        "speed_knots": sim.get('speed_knots', current_speed),
+        "heading": sim.get('heading', current_heading),
+        "in_active_vessels": mmsi in active_vessels
+    }
+
+
+@api_router.post("/user-vessel/simulation/{mmsi}", dependencies=[Depends(require_user)])
+async def set_user_vessel_simulation(mmsi: str, request: Request):
+    """Enable/configure user vessel simulation."""
+    body = await request.json()
+    
+    sim = user_vessel_simulation.get(mmsi, {
+        'enabled': False,
+        'river_mile': 815.0,
+        'speed_knots': 5.0,
+        'heading': 'southbound'
+    })
+    
+    # Update simulation config
+    if 'enabled' in body:
+        sim['enabled'] = body['enabled']
+    if 'river_mile' in body:
+        sim['river_mile'] = float(body['river_mile'])
+    if 'speed_knots' in body:
+        sim['speed_knots'] = float(body['speed_knots'])
+    if 'heading' in body:
+        sim['heading'] = body['heading']
+    
+    user_vessel_simulation[mmsi] = sim
+    
+    # If enabling, create/update the vessel in active_vessels
+    if sim['enabled']:
+        await _update_simulated_user_vessel(mmsi, sim)
+    
+    logger.info(f"[USER SIM] {mmsi}: enabled={sim['enabled']}, RM={sim['river_mile']}, speed={sim['speed_knots']}, heading={sim['heading']}")
+    
+    return {"success": True, "simulation": sim}
+
+
+@api_router.post("/user-vessel/simulation/{mmsi}/stop", dependencies=[Depends(require_user)])
+async def stop_user_vessel_simulation(mmsi: str):
+    """Stop user vessel simulation."""
+    if mmsi in user_vessel_simulation:
+        user_vessel_simulation[mmsi]['enabled'] = False
+        logger.info(f"[USER SIM] {mmsi}: simulation stopped")
+    return {"success": True, "mmsi": mmsi, "enabled": False}
+
+
+async def _update_simulated_user_vessel(mmsi: str, sim: dict):
+    """Update/create the simulated user vessel in active_vessels."""
+    rm = sim['river_mile']
+    speed = sim['speed_knots']
+    heading = sim['heading']
+    
+    # Get coordinates from river mile
+    coords = river_mile_to_coords(rm)
+    if coords:
+        lat, lon = coords
+    else:
+        lat, lon = 44.74, -92.85  # Default to Lock 2 area
+    
+    # Calculate course from heading
+    course = 0 if heading == 'northbound' else 180
+    
+    # Get existing vessel name from cache or active_vessels
+    name = "Your Vessel"
+    if mmsi in vessel_static_cache:
+        name = vessel_static_cache[mmsi].get('name', name)
+    elif mmsi in active_vessels:
+        v = active_vessels[mmsi]
+        name = v.get('name', name) if isinstance(v, dict) else getattr(v, 'name', name)
+    
+    vessel = {
+        "mmsi": mmsi,
+        "name": name,
+        "lat": lat,
+        "lon": lon,
+        "speed": speed,
+        "course": course,
+        "heading": heading,
+        "heading_direction": heading,
+        "direction": "upriver" if heading == "northbound" else "downriver",
+        "river_mile": round(rm, 1),
+        "is_user_vessel": True,
+        "is_simulated": True,
+        "ship_type": 37,  # Pleasure craft
+        "nav_status": 0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    active_vessels[mmsi] = vessel
+    
+    # Broadcast to raw data subscribers
+    await broadcast_demo_nmea(mmsi, lat, lon, speed, course)
+
+@api_router.get("/demo-vessels/status")
+async def get_demo_vessels_status():
+    """Get current demo vessel simulation status."""
+    return {
+        "enabled": demo_vessels_active,
+        "mode": DEMO_VESSELS_MODE,
+        # auto mode: hidden while real AIS traffic is flowing even if enabled
+        "hidden_by_live_traffic": demo_vessels_active and DEMO_VESSELS_MODE == "auto" and _has_live_ais_traffic(),
+        "vessels": list(DEMO_VESSELS.keys()) if demo_vessels_active else [],
+        "paused": list(demo_vessels_paused.keys())
+    }
+
+
+@api_router.get("/demo-vessels")
+async def get_demo_vessels():
+    """Get current demo vessel data for editing."""
+    demo_data = []
+    for vessel_id, config in DEMO_VESSELS.items():
+        mmsi = config["mmsi"]
+        # Get current position from active_vessels if available
+        current = active_vessels.get(mmsi, {})
+        is_paused = mmsi in demo_vessels_paused
+        if isinstance(current, dict):
+            demo_data.append({
+                "id": vessel_id,
+                "mmsi": mmsi,
+                "name": current.get("name", config["name"]),
+                "river_mile": current.get("river_mile", config["start_rm"]),
+                "lat": current.get("lat"),
+                "lon": current.get("lon"),
+                "speed": current.get("speed", config["speed_knots"]),
+                "heading": current.get("heading", "southbound"),
+                "barge_count": current.get("barge_count", config["barge_count"]),
+                "paused": is_paused,
+            })
+        else:
+            # Pydantic model
+            demo_data.append({
+                "id": vessel_id,
+                "mmsi": mmsi,
+                "name": getattr(current, "name", config["name"]),
+                "river_mile": getattr(current, "river_mile", config["start_rm"]),
+                "lat": getattr(current, "lat", None),
+                "lon": getattr(current, "lon", None),
+                "speed": getattr(current, "speed", config["speed_knots"]),
+                "heading": getattr(current, "heading", "southbound"),
+                "barge_count": getattr(current, "barge_count", config["barge_count"]),
+                "paused": is_paused,
+            })
+    return {"demo_vessels": demo_data, "enabled": demo_vessels_active}
+
+
+@api_router.post("/demo-vessels/{mmsi}/position", dependencies=[Depends(require_admin)])
+async def update_demo_vessel_position(mmsi: str, request: Request):
+    """Manually update a demo vessel's position for testing."""
+    # Verify this is a demo vessel
+    is_demo = any(config["mmsi"] == mmsi for config in DEMO_VESSELS.values())
+    if not is_demo:
+        raise HTTPException(status_code=400, detail="Not a demo vessel")
+    
+    body = await request.json()
+    
+    if mmsi not in active_vessels:
+        raise HTTPException(status_code=404, detail="Demo vessel not active")
+    
+    vessel = active_vessels[mmsi]
+    
+    # Update position fields
+    if isinstance(vessel, dict):
+        if "river_mile" in body:
+            vessel["river_mile"] = float(body["river_mile"])
+            # Estimate lat/lon from river mile
+            coords = river_mile_to_coords(body["river_mile"])
+            if coords:
+                vessel["lat"] = coords[0]
+                vessel["lon"] = coords[1]
+        if "lat" in body:
+            vessel["lat"] = float(body["lat"])
+        if "lon" in body:
+            vessel["lon"] = float(body["lon"])
+        if "speed" in body:
+            vessel["speed"] = float(body["speed"])
+        if "heading" in body:
+            vessel["heading"] = body["heading"]
+            vessel["heading_direction"] = body["heading"]
+            vessel["direction"] = "upriver" if body["heading"] == "northbound" else "downriver"
+        if "barge_count" in body:
+            vessel["barge_count"] = int(body["barge_count"])
+        vessel["timestamp"] = datetime.now(timezone.utc).isoformat()
+    else:
+        # Pydantic model - need to replace
+        if "river_mile" in body:
+            vessel.river_mile = float(body["river_mile"])
+            coords = river_mile_to_coords(body["river_mile"])
+            if coords:
+                vessel.lat = coords[0]
+                vessel.lon = coords[1]
+        if "lat" in body:
+            vessel.lat = float(body["lat"])
+        if "lon" in body:
+            vessel.lon = float(body["lon"])
+        if "speed" in body:
+            vessel.speed = float(body["speed"])
+        if "heading" in body:
+            vessel.heading = body["heading"]
+        if "barge_count" in body:
+            vessel.barge_count = int(body["barge_count"])
+    
+    logger.info(f"[DEMO] Updated {mmsi} position: RM {body.get('river_mile')}, heading {body.get('heading')}")
+    
+    # Pause auto-movement for this vessel (manual control mode)
+    demo_vessels_paused[mmsi] = True
+    
+    return {"success": True, "mmsi": mmsi, "updated": body, "paused": True}
+
+
+@api_router.post("/demo-vessels/{mmsi}/resume", dependencies=[Depends(require_admin)])
+async def resume_demo_vessel(mmsi: str):
+    """Resume auto-movement for a demo vessel."""
+    global demo_vessels_paused
+    
+    if mmsi in demo_vessels_paused:
+        del demo_vessels_paused[mmsi]
+        logger.info(f"[DEMO] Resumed auto-movement for {mmsi}")
+        return {"success": True, "mmsi": mmsi, "paused": False}
+    
+    return {"success": True, "mmsi": mmsi, "paused": False, "message": "Vessel was not paused"}
+
+
+@api_router.post("/demo-vessels/resume-all", dependencies=[Depends(require_admin)])
+async def resume_all_demo_vessels():
+    """Resume auto-movement for all demo vessels."""
+    global demo_vessels_paused
+    count = len(demo_vessels_paused)
+    demo_vessels_paused.clear()
+    logger.info(f"[DEMO] Resumed auto-movement for all demo vessels")
+    return {"success": True, "resumed_count": count}
+
+
+@api_router.post("/demo-vessels/toggle")
+async def toggle_demo_vessels(request: Request):
+    """Toggle demo vessel simulation on/off. Admin only: it changes what
+    every viewer sees."""
+    global demo_vessels_active
+    
+    user = await require_admin(request)
+    
+    body = await request.json()
+    enabled = body.get("enabled", not demo_vessels_active)
+    
+    demo_vessels_active = enabled
+    
+    if not enabled:
+        # Remove demo vessels from active_vessels
+        for vessel_id, config in DEMO_VESSELS.items():
+            mmsi = config["mmsi"]
+            if mmsi in active_vessels:
+                del active_vessels[mmsi]
+        logger.info(f"[DEMO] Demo vessels disabled by user {user['email']}")
+    else:
+        logger.info(f"[DEMO] Demo vessels enabled by user {user['email']}")
+    
+    return {"success": True, "enabled": demo_vessels_active}
+
+
+# =============================================================================
+# SESSION MANAGER - Strict isolation by MMSI
+# =============================================================================
+class SessionManager:
+    """
+    Manages isolated sessions by MMSI.
+    
+    CRITICAL: Each MMSI is a completely separate session.
+    - Settings are stored per-MMSI
+    - Vessel positions are stored per-MMSI
+    - WebSocket subscriptions track their MMSI
+    - No data leaks between sessions
+    """
+    
+    def __init__(self):
+        # Active sessions: {mmsi: session_data}
+        self._sessions: Dict[str, dict] = {}
+        # WebSocket to MMSI mapping: {websocket_id: mmsi}
+        self._ws_sessions: Dict[int, str] = {}
+        
+    def create_session(self, mmsi: str) -> dict:
+        """Create or get a session for an MMSI."""
+        if not mmsi:
+            raise ValueError("MMSI is required for session")
+        
+        mmsi = str(mmsi).strip()
+        
+        if mmsi not in self._sessions:
+            self._sessions[mmsi] = {
+                "mmsi": mmsi,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "last_active": datetime.now(timezone.utc).isoformat(),
+                "websocket_count": 0
+            }
+            logger.info(f"[SESSION:{mmsi}] New session created")
+        
+        return self._sessions[mmsi]
+    
+    def get_session(self, mmsi: str) -> Optional[dict]:
+        """Get session data for an MMSI."""
+        return self._sessions.get(str(mmsi).strip())
+    
+    def update_session_activity(self, mmsi: str):
+        """Update last active time for a session."""
+        mmsi = str(mmsi).strip()
+        if mmsi in self._sessions:
+            self._sessions[mmsi]["last_active"] = datetime.now(timezone.utc).isoformat()
+    
+    def register_websocket(self, ws_id: int, mmsi: str):
+        """Register a WebSocket connection with an MMSI session."""
+        mmsi = str(mmsi).strip()
+        self._ws_sessions[ws_id] = mmsi
+        if mmsi in self._sessions:
+            self._sessions[mmsi]["websocket_count"] += 1
+        logger.info(f"[SESSION:{mmsi}] WebSocket {ws_id} registered. Active connections: {self._sessions.get(mmsi, {}).get('websocket_count', 0)}")
+    
+    def unregister_websocket(self, ws_id: int):
+        """Unregister a WebSocket connection."""
+        mmsi = self._ws_sessions.pop(ws_id, None)
+        if mmsi and mmsi in self._sessions:
+            self._sessions[mmsi]["websocket_count"] = max(0, self._sessions[mmsi]["websocket_count"] - 1)
+            logger.info(f"[SESSION:{mmsi}] WebSocket {ws_id} unregistered. Active connections: {self._sessions[mmsi]['websocket_count']}")
+        return mmsi
+    
+    def get_mmsi_for_websocket(self, ws_id: int) -> Optional[str]:
+        """Get the MMSI associated with a WebSocket."""
+        return self._ws_sessions.get(ws_id)
+    
+    def get_active_sessions(self) -> List[dict]:
+        """Get list of active sessions (for admin/debugging)."""
+        return [
+            {
+                "mmsi": mmsi,
+                "websocket_count": data.get("websocket_count", 0),
+                "last_active": data.get("last_active")
+            }
+            for mmsi, data in self._sessions.items()
+        ]
+
+# Global session manager instance
+session_manager = SessionManager()
+
+
+# =============================================================================
+# VESSEL DATA STORE - Isolated by MMSI
+# =============================================================================
+class VesselDataStore:
+    """
+    Stores vessel position data.
+    
+    NOTE: Vessel positions from AIS feed are SHARED (everyone sees all vessels).
+    But "user vessel" status is determined PER-SESSION based on MMSI.
+    """
+    
+    def __init__(self):
+        # All vessels from AIS: {mmsi: vessel_data}
+        self._vessels: Dict[str, dict] = {}
+    
+    def update_vessel(self, mmsi: str, vessel_data: dict):
+        """Update vessel data (from AIS or manual position)."""
+        mmsi = str(mmsi).strip()
+        self._vessels[mmsi] = vessel_data
+    
+    def get_vessel(self, mmsi: str) -> Optional[dict]:
+        """Get vessel data by MMSI."""
+        return self._vessels.get(str(mmsi).strip())
+    
+    def get_all_vessels(self) -> Dict[str, dict]:
+        """Get all vessels (for map display)."""
+        return self._vessels.copy()
+    
+    def get_vessels_for_session(self, session_mmsi: str) -> List[dict]:
+        """
+        Get all vessels with is_user_vessel flag set correctly for this session.
+        
+        CRITICAL: The is_user_vessel flag is determined by comparing each vessel's
+        MMSI against the SESSION's MMSI. This ensures each session sees their own
+        vessel highlighted.
+        """
+        session_mmsi = str(session_mmsi).strip()
+        result = []
+        
+        for mmsi, vessel in self._vessels.items():
+            vessel_copy = vessel.copy()
+            # EXPLICIT SESSION ISOLATION: Only mark as user vessel if MMSIs match
+            vessel_copy["is_user_vessel"] = (mmsi == session_mmsi)
+            result.append(vessel_copy)
+        
+        return result
+    
+    def remove_vessel(self, mmsi: str):
+        """Remove a vessel from the store."""
+        self._vessels.pop(str(mmsi).strip(), None)
+
+# NOTE: We'll use active_vessels dict for backward compatibility
+# but vessel_data_store provides the session-aware methods
+
+# =============================================================================
+
 # MMSI numbers to permanently filter out (test beacons, known noise)
 FILTERED_MMSI = {
     "2339005",   # Boat Beacon UK test signal
@@ -46,35 +2201,7 @@ FILTERED_MMSI = {
 user_blocked_mmsi: set = set()
 
 # Lock positions (River Mile markers) - All Upper Mississippi Locks (1-27, excluding 23 which was never built)
-LOCKS = {
-    "lock_1": {"name": "Lock & Dam #1 (Minneapolis)", "river_mile": 847.6, "lat": 44.9178, "lon": -93.2056, "phone": "612-724-2971"},
-    "lock_2": {"name": "Lock & Dam #2 (Hastings)", "river_mile": 815.2, "lat": 44.7433, "lon": -92.8506, "phone": "651-436-2900"},
-    "lock_3": {"name": "Lock & Dam #3 (Red Wing)", "river_mile": 796.9, "lat": 44.5533, "lon": -92.5356, "phone": "651-388-5794"},
-    "lock_4": {"name": "Lock & Dam #4 (Alma)", "river_mile": 752.8, "lat": 44.3189, "lon": -91.9150, "phone": "608-685-4421"},
-    "lock_5": {"name": "Lock & Dam #5 (Minnesota City)", "river_mile": 738.1, "lat": 44.1047, "lon": -91.7428, "phone": "507-689-2101"},
-    "lock_5a": {"name": "Lock & Dam #5A (Fountain City)", "river_mile": 728.5, "lat": 44.0317, "lon": -91.7089, "phone": "507-452-2789"},
-    "lock_6": {"name": "Lock & Dam #6 (Trempealeau)", "river_mile": 714.3, "lat": 43.8697, "lon": -91.5006, "phone": "608-534-6424"},
-    "lock_7": {"name": "Lock & Dam #7 (Dresbach)", "river_mile": 702.5, "lat": 43.8128, "lon": -91.3053, "phone": "507-895-2170"},
-    "lock_8": {"name": "Lock & Dam #8 (Genoa)", "river_mile": 679.2, "lat": 43.5789, "lon": -91.2294, "phone": "608-689-2625"},
-    "lock_9": {"name": "Lock & Dam #9 (Lynxville)", "river_mile": 647.9, "lat": 43.2108, "lon": -91.0836, "phone": "608-874-4311"},
-    "lock_10": {"name": "Lock & Dam #10 (Guttenberg)", "river_mile": 615.1, "lat": 42.7856, "lon": -91.1003, "phone": "563-252-1261"},
-    "lock_11": {"name": "Lock & Dam #11 (Dubuque)", "river_mile": 583.0, "lat": 42.5036, "lon": -90.6581, "phone": "563-582-0881"},
-    "lock_12": {"name": "Lock & Dam #12 (Bellevue)", "river_mile": 556.7, "lat": 42.2578, "lon": -90.4214, "phone": "563-872-4384"},
-    "lock_13": {"name": "Lock & Dam #13 (Fulton)", "river_mile": 522.5, "lat": 41.8711, "lon": -90.1547, "phone": "815-589-2274"},
-    "lock_14": {"name": "Lock & Dam #14 (Le Claire)", "river_mile": 493.3, "lat": 41.5978, "lon": -90.4336, "phone": "563-289-4233"},
-    "lock_15": {"name": "Lock & Dam #15 (Rock Island)", "river_mile": 482.9, "lat": 41.5189, "lon": -90.5628, "phone": "309-794-5338"},
-    "lock_16": {"name": "Lock & Dam #16 (Muscatine)", "river_mile": 457.2, "lat": 41.4231, "lon": -91.0439, "phone": "563-263-7913"},
-    "lock_17": {"name": "Lock & Dam #17 (New Boston)", "river_mile": 437.1, "lat": 41.1725, "lon": -91.0142, "phone": "309-587-8461"},
-    "lock_18": {"name": "Lock & Dam #18 (Gladstone)", "river_mile": 410.5, "lat": 40.8681, "lon": -91.0506, "phone": "319-524-2933"},
-    "lock_19": {"name": "Lock & Dam #19 (Keokuk)", "river_mile": 364.2, "lat": 40.3883, "lon": -91.3750, "phone": "319-524-2933"},
-    "lock_20": {"name": "Lock & Dam #20 (Canton)", "river_mile": 343.2, "lat": 40.1411, "lon": -91.5153, "phone": "573-853-4213"},
-    "lock_21": {"name": "Lock & Dam #21 (Quincy)", "river_mile": 324.9, "lat": 39.9131, "lon": -91.4097, "phone": "217-228-0890"},
-    "lock_22": {"name": "Lock & Dam #22 (Saverton)", "river_mile": 301.2, "lat": 39.6428, "lon": -91.2461, "phone": "573-754-4451"},
-    "lock_24": {"name": "Lock & Dam #24 (Clarksville)", "river_mile": 273.4, "lat": 39.3706, "lon": -90.9042, "phone": "573-242-3564"},
-    "lock_25": {"name": "Lock & Dam #25 (Cap au Gris)", "river_mile": 241.4, "lat": 39.0044, "lon": -90.8536, "phone": "636-899-2301"},
-    "melvin_price": {"name": "Melvin Price Lock & Dam (Alton)", "river_mile": 200.8, "lat": 38.8697, "lon": -90.1492, "phone": "618-462-6979"},
-    "chain_of_rocks": {"name": "Chain of Rocks Lock (Granite City)", "river_mile": 185.0, "lat": 38.7542, "lon": -90.1711, "phone": "314-355-6100"},
-}
+# LOCKS comes from config.py (single source of truth)
 
 # Cache for USACE lock status data
 usace_cache = {
@@ -90,6 +2217,16 @@ lpms_cache = {
     "cache_duration_seconds": 600  # 10 minutes
 }
 
+# Cache for USACE Lock Queue data (vessel info with barge counts)
+usace_lock_queue_cache = {
+    "data": {},  # {mmsi: {vessel_name, num_barges, direction, lock_id, ...}}
+    "last_updated": None,
+    "cache_duration_seconds": 900  # 15 minutes (matches USACE update interval)
+}
+
+# Upper Mississippi lock numbers for USACE API
+# UPPER_MISS_LOCKS comes from config.py
+
 # Vessel Lock Passage Tracking
 # Tracks vessels as they approach and transit locks to calculate real lockage times
 # Structure: {mmsi: {lock_id: {state, arrival_time, entry_time, direction, ...}}}
@@ -100,13 +2237,605 @@ LOCK_APPROACH_DISTANCE = 2.0  # Start tracking when within 2 miles
 LOCK_CHAMBER_DISTANCE = 0.3   # Consider "in chamber" when within 0.3 miles
 LOCK_CLEARED_DISTANCE = 1.5   # Consider cleared when 1.5 miles past lock
 
+# AIS-inferred lockage dwell detector
+# A vessel sitting inside ±LOCK_DWELL_DISTANCE_RM at or below LOCK_DWELL_MAX_SPEED_KT
+# for at least LOCK_DWELL_MIN_SECONDS is treated as undergoing a lockage and gets
+# a record written to db.lockage_history with source="ais_inferred".
+LOCK_DWELL_DISTANCE_RM = 0.2
+LOCK_DWELL_MAX_SPEED_KT = 0.3
+LOCK_DWELL_MIN_SECONDS = 60
+LOCK_DWELL_EXIT_DISTANCE_RM = 0.4
+
+# Open dwell sessions: { (mmsi, lock_id): {start_time, last_seen, vessel_name, direction_at_entry} }
+ais_dwell_sessions: Dict[tuple, dict] = {}
+
 # Cache for vessel static data (names, ship types, dimensions)
 # AIS sends position data frequently (every 2-10s) but static data only every 6 minutes
 # This cache persists names once we receive them from Type 5 or Type 24 messages
 vessel_static_cache: Dict[str, dict] = {}
 
-# Global state for AIS connections
-ais_connections: Dict[str, dict] = {}
+
+# =============================================================================
+# AIS Connection Manager - Singleton Pattern
+# =============================================================================
+# This class manages a SINGLE long-lived TCP connection to the AIS feed.
+# All frontend clients share this connection via WebSocket subscriptions.
+# =============================================================================
+
+class AISConnectionManager:
+    """
+    Singleton manager for AIS TCP connection.
+    
+    Key principles:
+    - Exactly ONE TCP connection to the AIS feed at any time
+    - All WebSocket clients share this connection
+    - Automatic reconnection with exponential backoff
+    - Thread-safe state management
+    """
+    
+    def __init__(self):
+        self._reader: Optional[asyncio.StreamReader] = None
+        self._writer: Optional[asyncio.StreamWriter] = None
+        self._config: Optional[dict] = None
+        self._connected: bool = False
+        self._reconnect_task: Optional[asyncio.Task] = None
+        self._read_task: Optional[asyncio.Task] = None
+        self._subscribers: dict = {}  # {websocket: {"mmsi": str, "boat_name": str}} - per-user tracking
+        self._lock = asyncio.Lock()
+        self._should_run: bool = False
+        self._reconnect_delay: float = 1.0  # Start with 1 second
+        self._max_reconnect_delay: float = 60.0  # Max 60 seconds
+        self._last_data_time: Optional[datetime] = None
+        self._gps_update_count: int = 0
+        
+    @property
+    def is_connected(self) -> bool:
+        return self._connected and self._writer is not None
+    
+    @property
+    def config(self) -> Optional[dict]:
+        return self._config
+    
+    @property
+    def subscriber_count(self) -> int:
+        return len(self._subscribers)
+    
+    def get_status(self) -> dict:
+        """Get current connection status."""
+        return {
+            "connected": self._connected,
+            "config": self._config,
+            "subscriber_count": len(self._subscribers),
+            "last_data_time": self._last_data_time.isoformat() if self._last_data_time else None,
+            "reconnect_delay": self._reconnect_delay
+        }
+    
+    async def configure(self, ip_address: str, port: int, user_mmsi_param: str = "", boat_name: str = ""):
+        """
+        Configure and start the AIS connection.
+        If already connected with different config, reconnects.
+        
+        NOTE: user_mmsi_param is stored per-connection config but NOT in a global variable.
+        Each WebSocket subscriber tracks its own MMSI for session isolation.
+        """
+        new_config = {
+            "ip_address": ip_address,
+            "port": port,
+            "user_mmsi": user_mmsi_param,
+            "boat_name": boat_name
+        }
+        
+        logger.info(f"[SESSION:{user_mmsi_param}] AISConnectionManager.configure called with {ip_address}:{port}")
+        
+        async with self._lock:
+            # Create session for this MMSI
+            if user_mmsi_param:
+                session_manager.create_session(user_mmsi_param)
+            
+            # Pre-populate user vessel in cache
+            if user_mmsi_param and boat_name:
+                vessel_static_cache[user_mmsi_param] = {
+                    'name': boat_name,
+                    'is_user': True
+                }
+                logger.info(f"[SESSION:{user_mmsi_param}] Pre-cached vessel name: {boat_name}")
+            
+            # Check if config changed (ignore user_mmsi for connection comparison)
+            connection_same = (
+                self._config and 
+                self._config.get("ip_address") == ip_address and 
+                self._config.get("port") == port and 
+                self._connected
+            )
+            
+            if connection_same:
+                logger.info(f"[SESSION:{user_mmsi_param}] AIS connection already active, reusing")
+                return True
+            
+            # Store new config
+            self._config = new_config
+            self._should_run = True
+            self._reconnect_delay = 1.0  # Reset backoff on new config
+            
+            # Start connection
+            await self._connect()
+            
+            return self._connected
+    
+    async def _connect(self):
+        """Internal method to establish TCP connection using asyncio streams."""
+        if not self._config:
+            logger.warning("Cannot connect: no config set")
+            return
+        
+        # Close existing connection
+        await self._close_connection()
+        
+        ip = self._config["ip_address"]
+        port = self._config["port"]
+        
+        try:
+            logger.info(f"Connecting to AIS feed at {ip}:{port}...")
+            
+            # Use asyncio.open_connection for non-blocking connect
+            self._reader, self._writer = await asyncio.wait_for(
+                asyncio.open_connection(ip, port),
+                timeout=10.0
+            )
+            
+            self._connected = True
+            self._last_data_time = datetime.now(timezone.utc)
+            self._reconnect_delay = 1.0  # Reset backoff on success
+            
+            logger.info(f"✅ Connected to AIS feed at {ip}:{port}")
+            
+            # Notify all subscribers
+            await self._broadcast_status("connected", f"Connected to {ip}:{port}")
+            
+            # One read loop per connection. Stop the previous connection's loop
+            # so it can't mistake our own close for a remote hang-up and
+            # schedule a reconnect that would tear down this new connection.
+            old_task = self._read_task
+            if old_task and not old_task.done() and old_task is not asyncio.current_task():
+                old_task.cancel()
+            self._read_task = asyncio.create_task(self._read_loop(self._reader))
+                
+        except asyncio.TimeoutError:
+            logger.error(f"Connection timeout to {ip}:{port}")
+            self._connected = False
+            await self._broadcast_status("error", f"Connection timeout to {ip}:{port}")
+            await self._schedule_reconnect()
+            
+        except ConnectionRefusedError:
+            logger.error(f"Connection refused by {ip}:{port}")
+            self._connected = False
+            await self._broadcast_status("error", f"Connection refused by {ip}:{port}")
+            await self._schedule_reconnect()
+            
+        except OSError as e:
+            logger.error(f"OS error connecting to AIS feed: {e}")
+            self._connected = False
+            await self._broadcast_status("error", f"Connection failed: {str(e)}")
+            await self._schedule_reconnect()
+            
+        except Exception as e:
+            logger.error(f"Failed to connect to AIS feed: {e}")
+            self._connected = False
+            await self._broadcast_status("error", f"Connection failed: {str(e)}")
+            await self._schedule_reconnect()
+    
+    async def _close_connection(self):
+        """Safely close the TCP connection."""
+        if self._writer:
+            try:
+                self._writer.close()
+                await self._writer.wait_closed()
+            except Exception as e:
+                logger.debug(f"Error closing connection: {e}")
+            finally:
+                self._writer = None
+                self._reader = None
+                self._connected = False
+    
+    async def _schedule_reconnect(self):
+        """Schedule a reconnection attempt with exponential backoff."""
+        if not self._should_run:
+            return
+        
+        # Cancel any existing reconnect task
+        if self._reconnect_task and not self._reconnect_task.done():
+            return  # Already scheduled
+        
+        async def reconnect_after_delay():
+            logger.info(f"Scheduling reconnect in {self._reconnect_delay:.1f}s...")
+            await asyncio.sleep(self._reconnect_delay)
+            
+            # Increase backoff for next time (exponential with cap)
+            self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
+            
+            # Clear our own handle first: if _connect() fails it calls
+            # _schedule_reconnect() again, which would otherwise see this
+            # still-running task as "already scheduled" and stop retrying.
+            self._reconnect_task = None
+            # Something else (Settings, manual reconnect) may have reconnected
+            # while we slept; never replace a healthy connection.
+            if self._should_run and not self._connected:
+                await self._connect()
+        
+        self._reconnect_task = asyncio.create_task(reconnect_after_delay())
+    
+    async def _read_loop(self, reader=None):
+        """Main loop for reading AIS data from one TCP connection.
+
+        `reader` pins the loop to the connection it was started for. If the
+        manager has since moved to a new connection, this loop exits quietly
+        instead of reporting a disconnect or scheduling a reconnect."""
+        logger.info("Starting AIS read loop")
+        reader = reader or self._reader
+
+        while self._should_run and self._connected and self._reader is reader and reader:
+            try:
+                # Read a line using asyncio (non-blocking)
+                try:
+                    line_bytes = await asyncio.wait_for(
+                        reader.readline(),
+                        timeout=30.0  # 30 second timeout for each line
+                    )
+                    
+                    if reader is not self._reader:
+                        break  # superseded by a newer connection
+                    if not line_bytes:
+                        # Empty read = connection closed by remote
+                        logger.warning("AIS connection closed by remote host (EOF)")
+                        self._connected = False
+                        await self._broadcast_status("disconnected", "Connection closed by remote host")
+                        await self._schedule_reconnect()
+                        break
+                    
+                    line = line_bytes.decode('ascii', errors='ignore').strip()
+                    self._last_data_time = datetime.now(timezone.utc)
+                    
+                    if line:
+                        await self._process_line(line)
+                        
+                except asyncio.TimeoutError:
+                    # No data for 30 seconds, check if connection is stale
+                    if self._last_data_time:
+                        data_age = (datetime.now(timezone.utc) - self._last_data_time).total_seconds()
+                        if data_age > 60:
+                            logger.warning(f"No AIS data received for {data_age:.0f}s, reconnecting...")
+                            self._connected = False
+                            await self._broadcast_status("disconnected", "Connection stale - no data received")
+                            await self._schedule_reconnect()
+                            break
+                    continue
+                    
+            except asyncio.CancelledError:
+                logger.info("AIS read loop cancelled")
+                break
+            except Exception as e:
+                if reader is not self._reader:
+                    break  # our own close of a superseded connection
+                logger.error(f"Error in AIS read loop: {e}")
+                self._connected = False
+                await self._broadcast_status("error", f"Read error: {str(e)}")
+                await self._schedule_reconnect()
+                break
+        
+        logger.info("AIS read loop ended")
+    
+    async def _apply_static_to_active(self, mmsi: str, static: dict):
+        """Copy newly decoded static data onto an active vessel and push the update."""
+        vessel = active_vessels.get(mmsi)
+        if vessel is None or isinstance(vessel, dict):
+            return
+        changed = False
+        for field in ("name", "ship_type", "length", "width", "draught", "destination", "callsign", "imo", "eta"):
+            value = static.get(field)
+            if value in (None, "", 0) or not hasattr(vessel, field):
+                continue
+            if getattr(vessel, field) != value:
+                setattr(vessel, field, value)
+                changed = True
+        if changed:
+            await self._broadcast_vessel_update(prepare_vessel_for_output(vessel, ""))
+
+    async def _process_line(self, line: str):
+        """Process a single NMEA/AIS line."""
+        # NOTE: No global user_mmsi - each subscriber tracks their own MMSI
+        
+        # Broadcast raw line to debug subscribers
+        await broadcast_raw_line(line)
+        
+        # Log raw data for debugging (first 100 chars)
+        if len(line) > 5:
+            logger.debug(f"Raw NMEA: {line[:100]}")
+        
+        # Get config MMSI (used for GPS data from this connection)
+        config_mmsi = self._config.get("user_mmsi", "") if self._config else ""
+        boat_name = self._config.get("boat_name", "") if self._config else ""
+        
+        # First try to parse as GPS (for user's own position)
+        gps_data = parse_nmea_gps(line)
+        if gps_data and config_mmsi:
+            # Update vessel from GPS data - stored by MMSI
+            rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
+            heading = determine_heading(gps_data['speed'], gps_data['course'], gps_data['lat'], gps_data['lon'])
+            
+            # Get name from cache or settings
+            vessel_name = boat_name
+            if config_mmsi in vessel_static_cache:
+                vessel_name = vessel_static_cache[config_mmsi].get('name', boat_name)
+            
+            checkin_now = datetime.now(timezone.utc)
+            vessel = VesselPosition(
+                mmsi=config_mmsi,
+                name=vessel_name,
+                lat=gps_data['lat'],
+                lon=gps_data['lon'],
+                speed=gps_data['speed'],
+                course=gps_data['course'],
+                river_mile=rm,
+                heading=heading,
+                timestamp=checkin_now,
+                last_ais_checkin=checkin_now.isoformat(),
+                is_user_vessel=True,  # Will be recalculated per-session
+                vessel_type='recreational',
+            )
+            
+            # Store keyed by MMSI - completely isolated
+            active_vessels[config_mmsi] = vessel
+            
+            # Throttle GPS updates (send every 5th)
+            self._gps_update_count += 1
+            if self._gps_update_count % 5 == 0:
+                # Broadcast to all subscribers - each will get is_user_vessel based on their session
+                v_dict = prepare_vessel_for_output(vessel, config_mmsi)
+                v_dict['source'] = 'GPS'
+                await self._broadcast_vessel_update(v_dict)
+            return
+        
+        # Then try to parse as AIS
+        vessel_data = parse_nmea_ais(line)
+        if vessel_data is None and line.startswith('!AIVDM'):
+            logger.debug(f"Failed to parse AIVDM: {line[:80]}")
+        await self.ingest_vessel_data(vessel_data, source="feed")
+
+    async def ingest_vessel_data(self, vessel_data, source: str = "feed"):
+        """Store one decoded AIS report and push it to viewers.
+
+        Shared by every AIS source (the phone/relay TCP feed and aisstream.io)
+        so filtering, naming, lock tracking and broadcasting behave the same.
+        `source` is recorded per vessel for source-coverage comparisons."""
+        config_mmsi = self._config.get("user_mmsi", "") if self._config else ""
+
+        if vessel_data and vessel_data.get('mmsi'):
+            mmsi_parsed = vessel_data['mmsi']
+            # Drop filtered/blocked MMSIs IMMEDIATELY after parsing (before logging
+            # or touching active_vessels). This keeps test/noise beacons like the
+            # Boat Beacon UK test signal (2339005) out of the active set and logs.
+            if is_mmsi_blocked(mmsi_parsed):
+                logger.debug(f"Dropped filtered MMSI {mmsi_parsed} (pre-store)")
+                return
+            logger.debug(f"Parsed AIS vessel: MMSI={mmsi_parsed}, lat={vessel_data.get('lat')}, lon={vessel_data.get('lon')}")
+        elif vessel_data:
+            logger.debug(f"Parsed AIS but no MMSI: {vessel_data}")
+        
+        if vessel_data and vessel_data.get('mmsi'):
+            mmsi_parsed = vessel_data['mmsi']
+            
+            # Skip filtered/blocked MMSI (defense-in-depth; first check above
+            # already handled this path, but kept for safety).
+            if is_mmsi_blocked(mmsi_parsed):
+                return
+            
+            # Filter out vessels not on Upper Mississippi (e.g., Illinois River)
+            # Only filter if we have actual position data (some AIS messages are static data without position)
+            lat = vessel_data.get('lat')
+            lon = vessel_data.get('lon')
+            
+            # Static data message (type 5 / 24): no position. The name is already
+            # in the in-memory cache; persist it so it survives restarts.
+            if lat is None or lon is None:
+                if vessel_data.get('_persist_to_db') and vessel_data.get('name'):
+                    try:
+                        await repos.vessels.save_vessel_name(
+                            mmsi=mmsi_parsed,
+                            name=vessel_data['name'],
+                            ship_type=vessel_data.get('ship_type'),
+                            source="AIS",
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to persist vessel name to DB: {e}")
+                # A vessel already on the map got its position before its name:
+                # fill the name in now instead of waiting for its next position.
+                await self._apply_static_to_active(mmsi_parsed, vessel_data)
+                return
+            
+            # Own ship: an !AIVDO sentence carries this boat's MMSI. If the
+            # feed has no MMSI configured yet, adopt it so the position shows
+            # as "your vessel" without any manual setup.
+            is_own = bool(vessel_data.get('is_own_vessel')) or (bool(config_mmsi) and mmsi_parsed == config_mmsi)
+            if vessel_data.get('is_own_vessel') and self._config is not None and not config_mmsi:
+                self._config['user_mmsi'] = mmsi_parsed
+                config_mmsi = mmsi_parsed
+                logger.info(f"Own vessel identified from !AIVDO: MMSI {mmsi_parsed}")
+
+            # Main-channel filtering for OTHER vessels: excludes targets on
+            # tributaries such as the St. Croix and Illinois River so they do not
+            # affect Mississippi lock timing, traffic ahead, trip planning, or
+            # speed-to-beat. Never drop the user's own boat (e.g. in a marina).
+            if not is_own and not is_on_upper_mississippi(lat, lon):
+                filter_stats["filtered"] += 1
+                logger.debug(f"Filtered vessel {mmsi_parsed} - not on Mississippi main channel (lat={lat}, lon={lon})")
+                return
+            filter_stats["passed"] += 1
+            
+            # Calculate river mile and heading
+            rm = estimate_river_mile(lat, lon)
+            heading = determine_heading(
+                vessel_data['speed'],
+                vessel_data['course'] if vessel_data.get('course_valid', True) else None,
+                lat, lon,
+            )
+            
+            # Preserve existing name if new data doesn't have one
+            vessel_name = vessel_data.get('name', '')
+            if not vessel_name and mmsi_parsed in active_vessels:
+                vessel_name = active_vessels[mmsi_parsed].name
+            
+            # NOTE: is_user_vessel is determined PER-SESSION when sending to subscribers
+            # Here we just store the raw data keyed by MMSI
+            
+            checkin_now = datetime.now(timezone.utc)
+            vessel = VesselPosition(
+                mmsi=mmsi_parsed,
+                name=vessel_name,
+                lat=vessel_data['lat'],
+                lon=vessel_data['lon'],
+                speed=vessel_data['speed'],
+                course=vessel_data['course'],
+                river_mile=rm,
+                heading=heading,
+                timestamp=checkin_now,
+                last_ais_checkin=checkin_now.isoformat(),
+                is_user_vessel=False,  # Will be set per-session when broadcasting
+                vessel_type=vessel_data.get('vessel_type', 'unknown'),
+                ship_type=vessel_data.get('ship_type'),
+                length=vessel_data.get('length'),
+                width=vessel_data.get('width'),
+                draught=vessel_data.get('draught'),
+                is_tow=vessel_data.get('is_tow', False),
+                barge_count=vessel_data.get('barge_count'),
+                tow_config=vessel_data.get('tow_config'),
+                estimated_lockage_time=vessel_data.get('estimated_lockage_time'),
+                turn_rate=vessel_data.get('turn_rate'),
+                nav_status=vessel_data.get('nav_status'),
+                nav_status_text=vessel_data.get('nav_status_text'),
+                destination=vessel_data.get('destination'),
+                callsign=vessel_data.get('callsign'),
+                imo=vessel_data.get('imo'),
+                eta=vessel_data.get('eta'),
+            )
+            
+            # Store vessel keyed by MMSI - completely isolated
+            active_vessels[vessel.mmsi] = vessel
+            
+            # First real AIS vessel from the live feed → record the event so the
+            # /api/vessels endpoint can hide demo vessels in 'auto' mode.
+            _record_live_ais_event(vessel.mmsi)
+            _record_source_sighting(source, vessel.mmsi, vessel.name)
+            
+            # Track vessel passage through locks
+            await track_vessel_lock_passage(vessel.model_dump())
+            # Also run the AIS-inferred dwell detector for lockage events
+            await track_ais_inferred_lockage(vessel.model_dump())
+            
+            # Persist vessel name to database if we got one from AIS
+            if vessel_data.get('name') and vessel_data.get('_persist_to_db'):
+                try:
+                    await repos.vessels.save_vessel_name(
+                        mmsi=mmsi_parsed,
+                        name=vessel_data['name'],
+                        ship_type=vessel_data.get('ship_type'),
+                        source="AIS"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to persist vessel name to DB: {e}")
+            
+            # Broadcast update to all subscribers - use prepare_vessel_for_output for clean data
+            v_dict = prepare_vessel_for_output(vessel, vessel.mmsi)
+            v_dict['source'] = 'AIS'
+            await self._broadcast_vessel_update(v_dict)
+    
+    async def _broadcast_status(self, status_type: str, message: str):
+        """Broadcast connection status to all subscribers."""
+        msg = {"type": status_type, "message": message}
+        disconnected = []
+        
+        for ws in list(self._subscribers.keys()):
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                disconnected.append(ws)
+        
+        for ws in disconnected:
+            self._subscribers.pop(ws, None)
+    
+    async def _broadcast_vessel_update(self, vessel_dict: dict):
+        """Broadcast vessel update to all subscribers, marking user's vessel for each."""
+        disconnected = []
+        vessel_mmsi = vessel_dict.get('mmsi', '')
+        feed_mmsi = (self._config or {}).get('user_mmsi', '')
+
+        for ws, user_info in list(self._subscribers.items()):
+            try:
+                # Create copy with user-specific is_user_vessel flag. A viewer
+                # with no MMSI of their own sees the feed's boat as theirs.
+                user_vessel_dict = vessel_dict.copy()
+                user_mmsi = user_info.get('mmsi', '') or feed_mmsi
+                user_vessel_dict['is_user_vessel'] = (vessel_mmsi == user_mmsi)
+                
+                await ws.send_json({"type": "vessel_update", "vessel": user_vessel_dict})
+            except Exception:
+                disconnected.append(ws)
+        
+        for ws in disconnected:
+            self._subscribers.pop(ws, None)
+    
+    async def subscribe(self, websocket: WebSocket, user_mmsi: str = "", boat_name: str = ""):
+        """Add a WebSocket client as a subscriber with their MMSI."""
+        self._subscribers[websocket] = {"mmsi": user_mmsi, "boat_name": boat_name}
+        logger.info(f"WebSocket subscribed (MMSI: {user_mmsi}). Total subscribers: {len(self._subscribers)}")
+        
+        # Send current status
+        if self._connected:
+            await websocket.send_json({
+                "type": "connected",
+                "message": f"Connected to {self._config['ip_address']}:{self._config['port']}" if self._config else "Connected"
+            })
+        else:
+            await websocket.send_json({
+                "type": "disconnected",
+                "message": "Not connected to AIS feed"
+            })
+        
+        # Send current vessel list - mark user's vessel (or the feed's own boat)
+        mark_mmsi = user_mmsi or (self._config or {}).get('user_mmsi', '')
+        vessels = []
+        for mmsi, vessel in active_vessels.items():
+            v_dict = prepare_vessel_for_output(vessel, mark_mmsi)
+            vessels.append(v_dict)
+        await websocket.send_json({"type": "vessels", "vessels": vessels})
+    
+    async def unsubscribe(self, websocket: WebSocket):
+        """Remove a WebSocket client from subscribers."""
+        if websocket in self._subscribers:
+            user_info = self._subscribers.pop(websocket)
+            logger.info(f"WebSocket unsubscribed (MMSI: {user_info.get('mmsi', 'unknown')}). Total subscribers: {len(self._subscribers)}")
+    
+    async def disconnect(self):
+        """Disconnect from AIS feed and stop all tasks."""
+        logger.info("Disconnecting AIS connection manager...")
+        self._should_run = False
+        
+        # Cancel tasks
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
+        if self._read_task and not self._read_task.done():
+            self._read_task.cancel()
+        
+        # Close connection
+        await self._close_connection()
+        
+        # Notify subscribers
+        await self._broadcast_status("disconnected", "Disconnected from AIS feed")
+        
+        logger.info("AIS connection manager disconnected")
+
+
+# Global singleton instance
+ais_manager = AISConnectionManager()
 
 # Models
 class ConnectionConfig(BaseModel):
@@ -114,6 +2843,7 @@ class ConnectionConfig(BaseModel):
     ip_address: str
     port: int = 5353
     user_mmsi: str
+    boat_name: str = ""
 
 class VesselPosition(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -126,6 +2856,7 @@ class VesselPosition(BaseModel):
     river_mile: Optional[float] = None
     heading: Optional[str] = None  # "northbound" or "southbound"
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_ais_checkin: Optional[str] = None  # ISO timestamp of most recent AIS/GPS position check-in
     is_user_vessel: bool = False
     vessel_type: str = "unknown"
     # Ship information
@@ -194,21 +2925,202 @@ class LockStatus(BaseModel):
     vessels_in_queue: List[dict] = []
     last_updated: Optional[str] = None
     closure_info: Optional[str] = None
+    # Where the status came from: "district_page" (official open/closed table)
+    # or "recent_lockage" (USACE reported a completed lockage recently).
+    status_source: Optional[str] = None
 
 # Store active vessels
 active_vessels: Dict[str, VesselPosition] = {}
-user_mmsi: str = ""
+# REMOVED: global user_mmsi - This was causing session bleed
+# Each session now explicitly passes its MMSI for all operations
+
+
+def calculate_next_lock_eta(river_mile: float, heading_direction: str, speed_knots: float) -> dict:
+    """
+    Calculate the next lock and ETA based on vessel position, direction, and speed.
+    
+    Args:
+        river_mile: Current river mile position
+        heading_direction: 'northbound'/'upriver' or 'southbound'/'downriver'
+        speed_knots: Current speed in knots
+    
+    Returns:
+        dict with next_lock_id, next_lock_name, next_lock_rm, distance_miles, eta_minutes
+    """
+    if not river_mile or not speed_knots or speed_knots < 0.1:
+        return None
+    
+    # Normalize direction
+    going_upriver = heading_direction in ['northbound', 'upriver', 'upstream']
+    
+    # Find the next lock in the direction of travel
+    next_lock = None
+    next_lock_id = None
+    min_distance = float('inf')
+    
+    for lock_id, lock_info in LOCKS.items():
+        lock_rm = lock_info["river_mile"]
+        
+        if going_upriver:
+            # Looking for locks with HIGHER river mile (upriver/north)
+            if lock_rm > river_mile:
+                distance = lock_rm - river_mile
+                if distance < min_distance:
+                    min_distance = distance
+                    next_lock = lock_info
+                    next_lock_id = lock_id
+        else:
+            # Looking for locks with LOWER river mile (downriver/south)
+            if lock_rm < river_mile:
+                distance = river_mile - lock_rm
+                if distance < min_distance:
+                    min_distance = distance
+                    next_lock = lock_info
+                    next_lock_id = lock_id
+    
+    if not next_lock:
+        return None
+    
+    # Calculate ETA
+    # Speed is in knots, distance is in river miles (statute miles)
+    # Convert knots to mph: 1 knot = 1.15078 mph
+    speed_mph = speed_knots * 1.15078
+    
+    if speed_mph < 0.1:
+        return None
+    
+    eta_hours = min_distance / speed_mph
+    eta_minutes = int(eta_hours * 60)
+    
+    return {
+        "next_lock_id": next_lock_id,
+        "next_lock_name": next_lock["name"],
+        "next_lock_rm": next_lock["river_mile"],
+        "distance_miles": round(min_distance, 1),
+        "eta_minutes": eta_minutes,
+        "eta_display": f"{eta_minutes // 60}h {eta_minutes % 60}m" if eta_minutes >= 60 else f"{eta_minutes}m"
+    }
+
+
+def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
+    """
+    Prepare a vessel for API output, enriching with USACE data or clearing stale barge info.
+    
+    This is the SINGLE SOURCE OF TRUTH for vessel data output.
+    All endpoints and WebSocket broadcasts should use this function.
+    
+    CRITICAL: session_mmsi determines which vessel gets is_user_vessel=True.
+    Each session sees ONLY their own vessel highlighted.
+    
+    Rules:
+    - If USACE data exists: use authoritative barge count from USACE
+    - If NO USACE data: clear ALL barge-related fields to None
+    - Never show estimated/default barge counts
+    - Always calculate ETA to next lock based on direction
+    
+    Args:
+        vessel: Can be a VesselPosition model or a dict (for demo vessels)
+        session_mmsi: The MMSI of the session user
+    """
+    # Handle both Pydantic models and dicts
+    if hasattr(vessel, 'model_dump'):
+        v_dict = vessel.model_dump()
+        if v_dict.get('timestamp') and hasattr(v_dict['timestamp'], 'isoformat'):
+            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+        if v_dict.get('last_ais_checkin') and hasattr(v_dict['last_ais_checkin'], 'isoformat'):
+            v_dict['last_ais_checkin'] = v_dict['last_ais_checkin'].isoformat()
+    else:
+        v_dict = dict(vessel)  # Copy the dict
+        if v_dict.get('timestamp') and hasattr(v_dict['timestamp'], 'isoformat'):
+            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+        if v_dict.get('last_ais_checkin') and hasattr(v_dict['last_ais_checkin'], 'isoformat'):
+            v_dict['last_ais_checkin'] = v_dict['last_ais_checkin'].isoformat()
+
+    # Backward-compatible fallback: older/demo vessel objects may only have timestamp.
+    if not v_dict.get('last_ais_checkin') and v_dict.get('timestamp'):
+        v_dict['last_ais_checkin'] = v_dict['timestamp']
+    
+    # Get vessel MMSI
+    vessel_mmsi = v_dict.get('mmsi', '')
+    vessel_name = v_dict.get('name', '')
+    
+    # CRITICAL: Set is_user_vessel based on session MMSI match
+    # This is the KEY to session isolation!
+    if session_mmsi:
+        v_dict['is_user_vessel'] = (str(vessel_mmsi) == str(session_mmsi))
+    else:
+        v_dict['is_user_vessel'] = False
+    
+    # Calculate ETA to next lock (for all vessels with position, direction, and speed)
+    river_mile = v_dict.get('river_mile')
+    heading_direction = v_dict.get('heading_direction') or v_dict.get('heading')
+    speed = v_dict.get('speed', 0)
+    
+    if river_mile and heading_direction and speed:
+        eta_info = calculate_next_lock_eta(river_mile, heading_direction, speed)
+        if eta_info:
+            v_dict['next_lock'] = eta_info
+        else:
+            v_dict['next_lock'] = None
+    else:
+        v_dict['next_lock'] = None
+    
+    # Skip USACE enrichment for demo vessels (they already have the data)
+    if v_dict.get('is_demo'):
+        return v_dict
+    
+    # Check USACE for authoritative barge data
+    usace_info = get_usace_vessel_info(mmsi=vessel_mmsi, vessel_name=vessel_name)
+    
+    if usace_info and usace_info.get('num_barges') is not None:
+        # USACE data available - use authoritative barge count
+        bc = usace_info['num_barges']
+        v_dict['barge_count'] = bc
+        v_dict['is_tow'] = bc > 0 or v_dict.get('is_tow', False)
+        v_dict['usace_source'] = True
+        v_dict['usace_lock'] = usace_info.get('lock_id')
+        v_dict['usace_status'] = usace_info.get('status')
+        
+        # Calculate lockage time from actual barge count
+        if bc <= 6:
+            v_dict['estimated_lockage_time'] = 30
+        elif bc <= 9:
+            v_dict['estimated_lockage_time'] = 45
+        else:
+            v_dict['estimated_lockage_time'] = 90 + (bc - 9) * 5
+        v_dict['is_double_lockage'] = bc > 9
+        
+        # Estimate tow config from barge count
+        if bc > 0:
+            if bc <= 6:
+                v_dict['tow_config'] = f"2x{(bc+1)//2}"
+            elif bc <= 9:
+                v_dict['tow_config'] = f"3x{(bc+2)//3}"
+            else:
+                v_dict['tow_config'] = f"3x{(bc+2)//3}+"
+        else:
+            v_dict['tow_config'] = None
+    else:
+        # NO USACE data - CLEAR ALL barge-related fields
+        # This prevents stale data from being shown
+        v_dict['barge_count'] = None
+        v_dict['tow_config'] = None
+        v_dict['estimated_lockage_time'] = None
+        v_dict['is_double_lockage'] = False
+        v_dict['usace_source'] = False
+        v_dict['usace_lock'] = None
+        v_dict['usace_status'] = None
+        # Keep is_tow based on AIS data (ship type, name patterns)
+    
+    return v_dict
+
 
 def estimate_tow_info(vessel_data: dict) -> dict:
     """
-    Estimate barge count and lockage time based on AIS data.
+    Identify if a vessel is a tow based on AIS data.
     
-    Standard barge dimensions: ~195ft (59m) long x 35ft (10.7m) wide
-    Lock chamber: ~600ft (183m) long x 110ft (33.5m) wide
-    
-    Tow configurations (Upper Mississippi locks are 600ft):
-    - Single lock (fits in one pass): up to 9 barges
-    - Double lock (requires 2 passes): 10+ barges
+    IMPORTANT: We do NOT estimate barge counts anymore.
+    Barge counts ONLY come from USACE LPMS data.
     
     Ship type codes (AIS):
     - 30: Fishing
@@ -218,76 +3130,347 @@ def estimate_tow_info(vessel_data: dict) -> dict:
     - 80-89: Tanker
     """
     ship_type = vessel_data.get('ship_type', 0)
-    length = vessel_data.get('length', 0) or 0
-    width = vessel_data.get('width', 0) or 0
     name = (vessel_data.get('shipname', '') or vessel_data.get('name', '') or '').upper()
     
     is_tow = False
-    barge_count = 0
-    tow_config = None
-    estimated_lockage_time = 30  # Default for small vessels
     
     # Check if it's a towing vessel by ship type
     if ship_type in [31, 32, 52]:  # Towing, Towing and length > 200m, Tug
         is_tow = True
     
     # Check name for tow indicators
-    tow_keywords = ['M/V', 'MV ', 'CAPT', 'MISS', 'TUG', 'TOWBOAT', 'BARGE', 'PUSH']
+    tow_keywords = ['M/V', 'MV ', 'CAPT', 'MISS', 'TUG', 'TOWBOAT', 'BARGE', 'PUSH', 'SIR ']
     if any(kw in name for kw in tow_keywords):
         is_tow = True
     
-    # Estimate barge count from length if it's a tow
-    if is_tow and length > 0:
-        # Towboat itself is about 100-200ft (30-60m)
-        # Each barge adds ~195ft (59m) in length
-        towboat_length = 50  # meters, average
-        barge_length = 59  # meters, standard barge
-        
-        tow_length = length - towboat_length
-        if tow_length > 0:
-            # Estimate barges in line (assuming 2-3 wide typical)
-            barges_long = max(1, int(tow_length / barge_length))
-            
-            # Estimate width configuration
-            if width > 25:  # More than 2 barges wide
-                barges_wide = 3
-            elif width > 15:
-                barges_wide = 2
-            else:
-                barges_wide = 1
-            
-            barge_count = barges_long * barges_wide
-            tow_config = f"{barges_wide}x{barges_long}"
-    
-    # If no length data but it's a tow, estimate from vessel type
-    if is_tow and barge_count == 0:
-        # Default assumption for commercial tow
-        barge_count = 6  # Conservative estimate
-        tow_config = "2x3"
-    
-    # Calculate estimated lockage time
-    # Upper Mississippi locks are 600ft - anything over 9 barges requires double lockage
-    if barge_count > 0:
-        if barge_count <= 6:
-            estimated_lockage_time = 30  # Single cut, quick
-        elif barge_count <= 9:
-            estimated_lockage_time = 45  # Single cut, larger tow
-        else:
-            # Double lockage required (>9 barges)
-            estimated_lockage_time = 90 + (barge_count - 9) * 5  # Base + extra per barge
-    elif is_tow:
-        estimated_lockage_time = 45  # Unknown tow, assume medium
-    else:
-        # Non-tow vessel
-        estimated_lockage_time = 20 if length < 30 else 30
-    
+    # NO DEFAULT BARGE COUNTS - only USACE data provides this
     return {
         'is_tow': is_tow,
-        'barge_count': barge_count if barge_count > 0 else None,
-        'tow_config': tow_config,
-        'estimated_lockage_time': estimated_lockage_time,
-        'is_double_lockage': barge_count > 9  # Flag for UI
+        'barge_count': None,  # ONLY from USACE
+        'tow_config': None,   # ONLY from USACE
+        'estimated_lockage_time': None,  # ONLY from USACE
+        'is_double_lockage': False
     }
+
+
+# The USACE lock queue service allows 5 requests per minute; above that it
+# answers HTTP 200 with a JSON "Rate limit exceeded" body instead of XML.
+# A background worker therefore walks the locks one at a time (USACE_SPACING_S
+# apart, ~6 min per full pass) and keeps the latest rows per lock; request
+# handlers only read that cache and never call USACE themselves.
+USACE_SPACING_S = float(os.environ.get("USACE_SPACING_SECONDS", "13"))
+usace_lock_rows: Dict[str, list] = {}       # lock_no -> active (waiting/locking) vessel infos
+usace_lock_fetched_at: Dict[str, datetime] = {}
+
+
+class UsaceRateLimited(Exception):
+    pass
+
+
+def _normalize_vessel_name(vessel_name: str) -> str:
+    normalized = vessel_name.upper().replace('-', ' ').replace('/', ' ').strip()
+    for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix):]
+    return normalized
+
+
+def _rebuild_usace_indexes() -> None:
+    by_mmsi, by_name = {}, {}
+    for infos in usace_lock_rows.values():
+        for info in infos:
+            if info.get("mmsi"):
+                by_mmsi[info["mmsi"]] = info
+            name = info.get("vessel_name")
+            if name:
+                by_name[_normalize_vessel_name(name)] = info
+                by_name[name.upper()] = info
+    usace_lock_queue_cache["data"] = by_mmsi
+    usace_lock_queue_cache["data_by_name"] = by_name
+    usace_lock_queue_cache["last_updated"] = datetime.now(timezone.utc)
+
+
+def now_utc_floor() -> datetime:
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
+async def fetch_usace_lock(client, lock_no: str) -> int:
+    """Fetch one lock's queue: refresh its active vessels and store completed lockages.
+
+    Returns the number of active vessels. Raises UsaceRateLimited when USACE
+    refuses the request."""
+    import xml.etree.ElementTree as ET
+
+    url = f"https://ndc.ops.usace.army.mil/ords/lockqueue_xml?in_river=MI&in_lock={lock_no}"
+    response = await client.get(url)
+    text = (response.text or "").strip()
+    if response.status_code == 429 or "rate limit" in text[:200].lower():
+        raise UsaceRateLimited(text[:120])
+    if response.status_code != 200 or text.startswith("{"):
+        logger.warning(f"USACE lock {lock_no}: HTTP {response.status_code} {text[:120]}")
+        return len(usace_lock_rows.get(lock_no, []))
+
+    rows = []
+    if "<ROW>" in text:
+        try:
+            rows = ET.fromstring(text).findall('.//ROW')
+        except ET.ParseError:
+            logger.warning(f"USACE lock {lock_no}: unparseable XML")
+            return len(usace_lock_rows.get(lock_no, []))
+
+    # The feed also lists the lock's completed lockages (~30 days back).
+    await _store_usace_lockages(rows, lock_no)
+
+    def val(row, tag):
+        el = row.find(tag)
+        return el.text.strip() if el is not None and el.text else None
+
+    lock_id = usace_lock_id(lock_no)
+
+    # USACE reports each cut of a multi-cut (double) lockage as it finishes.
+    # A pending row whose vessel already has a completed cut with the same
+    # arrival time is therefore mid-lockage, not waiting.
+    done_cuts = {}
+    for row in rows:
+        if val(row, 'END_OF_LOCKAGE'):
+            key = (val(row, 'VESSEL_NO') or val(row, 'VESSEL_NAME'), val(row, 'ARRIVAL_DATE'))
+            done_cuts.setdefault(key, []).append(val(row, 'SOL_DATE'))
+
+    active = []
+    for row in rows:
+        sol, eol = val(row, 'SOL_DATE'), val(row, 'END_OF_LOCKAGE')
+        if eol:
+            # Completed: history only. Applying its barge count to the vessel
+            # now would be stale.
+            continue
+        prior = done_cuts.get((val(row, 'VESSEL_NO') or val(row, 'VESSEL_NAME'), val(row, 'ARRIVAL_DATE')), [])
+        if prior and not sol:
+            sol = min((p for p in prior if p), key=lambda t: _usace_lockages.parse_time(t, val(row, 'TIMEZONE')) or now_utc_floor(),
+                      default=None)
+        try:
+            num_barges = int(val(row, 'NUM_BARGES')) if val(row, 'NUM_BARGES') else None
+        except ValueError:
+            num_barges = None
+        active.append({
+            'vessel_name': val(row, 'VESSEL_NAME'),
+            'vessel_no': val(row, 'VESSEL_NO'),
+            'num_barges': num_barges,
+            'direction': val(row, 'DIRECTION'),
+            'lock_no': lock_no,
+            'lock_id': lock_id,
+            'arrival_date': val(row, 'ARRIVAL_DATE'),
+            'sol_date': sol,
+            'end_of_lockage': None,
+            'status': 'locking' if sol else 'waiting',
+            'cuts_completed': len(prior),
+            'mmsi': val(row, 'MMSI'),
+            'timezone': val(row, 'TIMEZONE'),
+            'source': 'USACE_LPMS',
+        })
+    usace_lock_rows[lock_no] = active
+    usace_lock_fetched_at[lock_no] = datetime.now(timezone.utc)
+    _rebuild_usace_indexes()
+    try:  # survive restarts: the worker needs ~6 min to revisit every lock
+        await db.usace_queue.update_one(
+            {"lock_no": lock_no},
+            {"$set": {"rows": active, "fetched_at": usace_lock_fetched_at[lock_no]}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.debug(f"Could not persist USACE queue for lock {lock_no}: {e}")
+    return len(active)
+
+
+async def load_usace_queue_snapshot(max_age_minutes: int = 30) -> int:
+    """Reload each lock's last queue at startup so the lock board isn't empty
+    until the worker's first pass completes. Skips stale snapshots."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+    loaded = 0
+    try:
+        async for doc in db.usace_queue.find({}, {"_id": 0}):
+            fetched = doc.get("fetched_at")
+            if fetched is not None and fetched.tzinfo is None:
+                fetched = fetched.replace(tzinfo=timezone.utc)
+            if not fetched or fetched < cutoff or doc.get("lock_no") in usace_lock_rows:
+                continue
+            usace_lock_rows[doc["lock_no"]] = doc.get("rows") or []
+            usace_lock_fetched_at[doc["lock_no"]] = fetched
+            loaded += 1
+        if loaded:
+            _rebuild_usace_indexes()
+    except Exception as e:
+        logger.warning(f"Could not load USACE queue snapshot: {e}")
+    return loaded
+
+
+async def fetch_usace_lock_queue_data():
+    """Current USACE queue data {mmsi: vessel_info}, as last fetched by the worker.
+
+    Never calls USACE (see usace_refresh_task); safe to use in request handlers."""
+    return usace_lock_queue_cache.get("data") or {}
+
+
+# USACE lock numbers -> RiverWatch lock ids (26/27 have names in LOCKS).
+_USACE_NAMED_LOCKS = {"26": "melvin_price", "27": "chain_of_rocks"}
+
+
+def usace_lock_id(lock_no) -> str:
+    lock_no = str(lock_no).strip().lstrip("0") or "0"   # USACE pads 1-9: "02" -> lock_2
+    return _USACE_NAMED_LOCKS.get(lock_no) or f"lock_{lock_no.lower()}"
+
+
+def lockage_for_output(record: dict) -> dict:
+    """A lockage_history document ready for the API: lock name, UTC timestamps,
+    and single/double cut info even for records written before `cuts` existed."""
+    out = dict(record)
+    out.pop("_id", None)
+    out.setdefault("lock_name", (LOCKS.get(out.get("lock_id")) or {}).get("name"))
+    cuts = out.get("cuts") or (2 if out.get("is_double_lockage") else 1)
+    out["cuts"] = cuts
+    out["is_double_lockage"] = cuts > 1
+    for key, value in list(out.items()):
+        if isinstance(value, datetime):
+            # Mongo returns naive UTC; say so, or browsers read it as local time.
+            out[key] = (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
+    return out
+
+
+async def _store_usace_lockages(rows, lock_no: str) -> int:
+    """Upsert completed lockages from one lock's queue feed into lockage_history."""
+    lock_id = usace_lock_id(lock_no)
+    lock_name = (LOCKS.get(lock_id) or {}).get("name")
+    stored = 0
+    for record in _usace_lockages.completed_lockages(rows, lock_id, lock_name):
+        try:
+            await db.lockage_history.update_one(
+                _usace_lockages.record_key(record), {"$set": record}, upsert=True
+            )
+            stored += 1
+        except Exception as e:
+            logger.warning(f"Could not store USACE lockage for {lock_id}: {e}")
+    return stored
+
+
+def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional[dict]:
+    """
+    Get USACE lock queue info for a vessel by MMSI or name.
+    Returns barge count and other data from the authoritative USACE source.
+    
+    IMPORTANT: Only returns data for vessels ACTIVELY at a lock (waiting or locking).
+    Completed lockages are filtered out to prevent stale barge counts from
+    being displayed for vessels that have moved on.
+    """
+    def is_valid_active_lockage(info: dict) -> bool:
+        """Check if this is an active lockage record we should use."""
+        if not info:
+            return False
+        # Only use waiting or locking records - skip completed
+        status = info.get('status')
+        if status == 'completed':
+            return False
+        return True
+    
+    # Try MMSI first
+    if mmsi and usace_lock_queue_cache.get("data"):
+        info = usace_lock_queue_cache["data"].get(mmsi)
+        if info and is_valid_active_lockage(info):
+            return info
+    
+    # Fall back to name matching
+    if vessel_name and usace_lock_queue_cache.get("data_by_name"):
+        data_by_name = usace_lock_queue_cache["data_by_name"]
+        
+        # Normalize the search name: uppercase, replace hyphens with spaces
+        search_name = vessel_name.upper().replace('-', ' ').replace('/', ' ').strip()
+        
+        # Direct lookup with normalized name
+        if search_name in data_by_name:
+            info = data_by_name[search_name]
+            if is_valid_active_lockage(info):
+                return info
+        
+        # Try without common prefixes
+        search_without_prefix = search_name
+        for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
+            if search_name.startswith(prefix):
+                search_without_prefix = search_name[len(prefix):]
+                break
+        
+        if search_without_prefix in data_by_name:
+            info = data_by_name[search_without_prefix]
+            if is_valid_active_lockage(info):
+                return info
+        
+        # Fuzzy matching: iterate through all USACE names and compare normalized versions
+        for usace_name, info in data_by_name.items():
+            if not is_valid_active_lockage(info):
+                continue
+            # Normalize USACE name the same way
+            usace_normalized = usace_name.upper().replace('-', ' ').replace('/', ' ').strip()
+            if usace_normalized == search_name:
+                return info
+            # Also try without prefix
+            if usace_normalized == search_without_prefix:
+                return info
+            # Check if search name without prefix matches USACE name
+            for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
+                if usace_normalized.startswith(prefix):
+                    if usace_normalized[len(prefix):] == search_without_prefix:
+                        return info
+    
+    return None
+
+
+_LOCK_NAME_RE = re.compile(
+    r"\b(?:LOCK|L\s*&\s*D|L/D)\s*(?:AND\s+DAM\s*|&\s*DAM\s*)?(?:NO\.?\s*|#\s*)?(\d{1,2})\s*(A)?\b"
+)
+
+
+def match_lock_name(text: str) -> Optional[str]:
+    """
+    Map a USACE table label ("Lock and Dam 14", "L&D 5A", "Lock No. 1",
+    "Melvin Price Locks and Dam") to our lock id. Whole-number matching only:
+    the old substring test matched "1" inside "Lock 14".
+    """
+    if not text:
+        return None
+    t = text.upper()
+    if "MELVIN PRICE" in t or "MEL PRICE" in t:
+        return "melvin_price" if "melvin_price" in LOCKS else None
+    if "CHAIN OF ROCKS" in t or "CHAINS OF ROCKS" in t:
+        return "chain_of_rocks" if "chain_of_rocks" in LOCKS else None
+    m = _LOCK_NAME_RE.search(t)
+    if not m:
+        return None
+    lock_id = f"lock_{int(m.group(1))}{'a' if m.group(2) else ''}"
+    return lock_id if lock_id in LOCKS else None
+
+
+RECENT_LOCKAGE_OPEN_HOURS = 4
+
+
+async def _infer_status_from_recent_lockages(lock_status_data: Dict[str, "LockStatus"]) -> None:
+    unknown = [lid for lid, st in lock_status_data.items() if st.status == "UNKNOWN"]
+    if not unknown:
+        return
+    since = datetime.now(timezone.utc) - timedelta(hours=RECENT_LOCKAGE_OPEN_HOURS)
+    try:
+        latest = await db.lockage_history.aggregate([
+            {"$match": {"lock_id": {"$in": unknown}, "source": "usace_lpms", "exit_time": {"$gte": since}}},
+            {"$group": {"_id": "$lock_id", "last": {"$max": "$exit_time"}}},
+        ]).to_list(None)
+    except Exception as e:
+        logger.warning(f"Could not infer lock status from lockages: {e}")
+        return
+    for row in latest:
+        st = lock_status_data.get(row["_id"])
+        if st is None:
+            continue
+        last = row["last"] if row["last"].tzinfo else row["last"].replace(tzinfo=timezone.utc)
+        st.status = "OPEN"
+        st.status_source = "recent_lockage"
+        st.closure_info = f"Lockage completed {int((datetime.now(timezone.utc) - last).total_seconds() // 60)} min ago (USACE)"
+
 
 async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
     """
@@ -306,75 +3489,59 @@ async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
     
     try:
         # Fetch from St. Paul District (Locks 2-10)
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, headers=OUTBOUND_HEADERS) as client:
             # Try the MVR lock status page for basic open/closed status
             mvp_url = "https://www.mvp.usace.army.mil/Missions/Navigation/Locks-Dams/"
             
-            # Map our lock IDs to river miles for matching
-            lock_rm_map = {lock_id: data["river_mile"] for lock_id, data in LOCKS.items()}
-            
-            # Initialize all locks with default status
+            # Default is UNKNOWN, never OPEN: if the status page can't be read we
+            # must not tell a boater a lock is open.
             for lock_id, lock_data in LOCKS.items():
                 lock_status_data[lock_id] = LockStatus(
                     lock_id=lock_id,
-                    status="OPEN",
-                    avg_wait_minutes=0,
+                    status="UNKNOWN",
+                    avg_wait_minutes=None,
                     upbound_queue=0,
                     downbound_queue=0,
                     vessels_in_queue=[],
                     last_updated=datetime.now(timezone.utc).isoformat()
                 )
-            
-            # Try to fetch queue data from Corps Locks
-            try:
-                queue_url = "https://ndc.ops.usace.army.mil/ords/f?p=108:3"
-                response = await client.get(queue_url, follow_redirects=True)
-                
-                if response.status_code == 200:
-                    # Parse the page for queue data
-                    # Note: This page requires JavaScript, so we may get limited data
-                    logger.info("Successfully fetched Corps Locks page")
-            except Exception as e:
-                logger.warning(f"Could not fetch Corps Locks queue data: {e}")
-            
-            # Try MVR lock status for closure info
+
+            # MVR lock status page (Rock Island District) for open/closed status
             try:
                 mvr_url = "https://www.mvr.usace.army.mil/missions/navigation/lock-status/"
                 response = await client.get(mvr_url, follow_redirects=True)
-                
+
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
-                    
-                    # Find the status table
-                    tables = soup.find_all('table')
-                    for table in tables:
-                        rows = table.find_all('tr')
-                        for row in rows:
+                    for table in soup.find_all('table'):
+                        for row in table.find_all('tr'):
                             cells = row.find_all(['td', 'th'])
-                            if len(cells) >= 3:
-                                # Try to extract lock name and status
-                                name_cell = cells[0].get_text(strip=True)
-                                
-                                # Check if this mentions any of our locks
-                                for lock_id in LOCKS.keys():
-                                    lock_num = lock_id.replace('lock_', '').upper()
-                                    if f"Lock" in name_cell and lock_num in name_cell.upper():
-                                        status_cell = cells[2].get_text(strip=True) if len(cells) > 2 else "OPEN"
-                                        
-                                        if "CLOSED" in status_cell.upper():
-                                            lock_status_data[lock_id].status = "CLOSED"
-                                            # Try to get closure reason
-                                            if len(cells) > 2:
-                                                lock_status_data[lock_id].closure_info = status_cell
-                                        elif "OPEN" in status_cell.upper():
-                                            lock_status_data[lock_id].status = "OPEN"
-                                        
-                                        logger.info(f"Found status for {lock_id}: {status_cell}")
-                                        break
-                                        
+                            if len(cells) < 3:
+                                continue
+                            lock_id = match_lock_name(cells[0].get_text(" ", strip=True))
+                            if not lock_id:
+                                continue
+                            status_cell = cells[2].get_text(" ", strip=True)
+                            upper = status_cell.upper()
+                            if "CLOSED" in upper:
+                                lock_status_data[lock_id].status = "CLOSED"
+                                lock_status_data[lock_id].closure_info = status_cell
+                            elif "RESTRICT" in upper:
+                                lock_status_data[lock_id].status = "RESTRICTED"
+                                lock_status_data[lock_id].closure_info = status_cell
+                            elif "OPEN" in upper:
+                                lock_status_data[lock_id].status = "OPEN"
+                            lock_status_data[lock_id].status_source = "district_page"
+                            logger.debug(f"USACE status for {lock_id}: {status_cell}")
             except Exception as e:
                 logger.warning(f"Could not fetch MVR lock status: {e}")
-        
+
+        # Locks the district status page doesn't cover (St. Paul 1-10, St. Louis
+        # 24-27) stay UNKNOWN unless USACE itself reported a completed lockage
+        # there recently - positive evidence the lock is operating. Never
+        # assume OPEN without evidence.
+        await _infer_status_from_recent_lockages(lock_status_data)
+
         # Update cache
         usace_cache["data"] = lock_status_data
         usace_cache["last_updated"] = datetime.now(timezone.utc)
@@ -441,7 +3608,7 @@ async def fetch_lpms_lockage_data(lock_number: int = None) -> Dict[str, list]:
         # Upper Mississippi = "MISS", locks are numbered
         locks_to_fetch = [lock_number] if lock_number else list(range(1, 28))
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, headers=OUTBOUND_HEADERS) as client:
             for lock_num in locks_to_fetch:
                 if lock_num == 23:  # Lock 23 was never built
                     continue
@@ -588,8 +3755,10 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     Returns averages for tows vs recreational vessels, plus wait times.
     Uses baseline data from USACE historical statistics plus any observed passages.
     """
-    # Lock-specific baseline data from USACE statistics and studies
-    # Sources: USACE LPMS, Iowa DOT studies, bridgecalculator.com live data
+    # Lock-specific BASELINE ESTIMATES (hand-entered planning figures informed by
+    # USACE LPMS summaries / Iowa DOT studies; not measurements). Every value
+    # derived from them is flagged is_baseline=True so the UI can label it as an
+    # estimate; observed passages replace them as they accumulate.
     # All Upper Mississippi locks are 110' x 600' except Lock 19 (1200') and Lock 26/27
     # 600' locks require double lockage for 15-barge tows (90-120 min)
     # Wait times based on traffic volume - busier locks at southern end
@@ -635,7 +3804,12 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     if lock_id:
         query["lock_id"] = lock_id
     
-    records = await db.lockage_history.find(query, {"_id": 0}).to_list(1000)
+    records = await db.lockage_history.find(
+        query, {"_id": 0, "lock_id": 1, "direction": 1, "lockage_duration_minutes": 1,
+                "wait_time_minutes": 1, "is_tow": 1, "cuts": 1, "is_double_lockage": 1, "in_progress": 1}
+    ).to_list(None)
+    # A double lockage with a cut still to go would count as a short single.
+    records = [r for r in records if not r.get("in_progress")]
     
     # Group by lock and direction, calculate averages
     averages = {}
@@ -649,14 +3823,17 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
             
         key = f"{lid}_{direction}"
         if key not in lock_data:
-            lock_data[key] = {"tow_times": [], "rec_times": [], "all_times": [], 
-                             "tow_waits": [], "rec_waits": [], "all_waits": []}
+            lock_data[key] = {"tow_times": [], "rec_times": [], "all_times": [],
+                             "tow_waits": [], "rec_waits": [], "all_waits": [],
+                             "single_times": [], "double_times": []}
         
         duration = record.get("lockage_duration_minutes")
         wait = record.get("wait_time_minutes")
         
         if duration and duration > 0:
             lock_data[key]["all_times"].append(duration)
+            cuts = record.get("cuts") or (2 if record.get("is_double_lockage") else 1)
+            lock_data[key]["double_times" if cuts > 1 else "single_times"].append(duration)
             if record.get("is_tow"):
                 lock_data[key]["tow_times"].append(duration)
             else:
@@ -680,7 +3857,8 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
         # Get lock-specific baseline
         baseline = lock_baselines.get(lock_num, lock_baselines.get(10))  # Default to Lock 10 if missing
         
-        lid = f"lock_{lock_num}"
+        # Locks 26/27 use named ids in LOCKS
+        lid = {26: "melvin_price", 27: "chain_of_rocks"}.get(lock_num, f"lock_{lock_num}")
         
         for direction in ["upbound", "downbound"]:
             key = f"{lid}_{direction}"
@@ -740,7 +3918,16 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
         avg_rec = sum(all_rec_times) / len(all_rec_times) if all_rec_times else baseline["rec_lockage"]
         avg_tow_wait = sum(all_tow_waits) / len(all_tow_waits) if all_tow_waits else baseline["tow_wait"]
         avg_rec_wait = sum(all_rec_waits) / len(all_rec_waits) if all_rec_waits else baseline["rec_wait"]
-        
+        singles = [t for d in ("upbound", "downbound") for t in lock_data.get(f"{lid}_{d}", {}).get("single_times", [])]
+        doubles = [t for d in ("upbound", "downbound") for t in lock_data.get(f"{lid}_{d}", {}).get("double_times", [])]
+        averages[lid]["cuts"] = {
+            # Observed only (no baseline): None until there is data.
+            "avg_single_lockage_minutes": round(sum(singles) / len(singles), 1) if singles else None,
+            "avg_double_lockage_minutes": round(sum(doubles) / len(doubles), 1) if doubles else None,
+            "single_count": len(singles),
+            "double_count": len(doubles),
+            "double_share": round(len(doubles) / (len(singles) + len(doubles)), 2) if (singles or doubles) else None,
+        }
         averages[lid]["combined"] = {
             "avg_tow_lockage_minutes": round(avg_tow, 1),
             "avg_recreational_lockage_minutes": round(avg_rec, 1),
@@ -750,6 +3937,14 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
             "rec_sample_count": len(all_rec_times),
             "is_baseline": len(all_tow_times) == 0 and len(all_rec_times) == 0
         }
+        # Callers read the combined figures at the lock's top level
+        # (avg_tow_lockage_minutes, sample_count, ...); they used to get None
+        # and fall back to fixed guesses.
+        all_times = all_tow_times + all_rec_times
+        averages[lid].update(averages[lid]["combined"])
+        averages[lid].update(averages[lid]["cuts"])
+        averages[lid]["sample_count"] = len(all_times)
+        averages[lid]["avg_lockage_minutes"] = round(sum(all_times) / len(all_times), 1) if all_times else None
         
         # For backwards compatibility, also set top-level values
         averages[lid]["avg_tow_lockage_minutes"] = round(avg_tow, 1)
@@ -769,104 +3964,88 @@ async def track_vessel_lock_passage(vessel: dict):
     States: approaching -> waiting -> in_chamber -> cleared
     """
     global vessel_lock_tracking
-    
     mmsi = vessel.get("mmsi")
     river_mile = vessel.get("river_mile")
     heading = vessel.get("heading")  # "northbound" or "southbound"
     is_tow = vessel.get("is_tow", False)
     
-    if not mmsi or not river_mile or not heading or heading == "stationary":
+    if not mmsi or river_mile is None:
         return
-    
+    # Only a moving vessel can START an approach; a stopped vessel (e.g. sitting
+    # in the chamber) still advances an existing passage toward "cleared".
+    moving = heading in ("northbound", "southbound")
+
     now = datetime.now(timezone.utc)
-    
-    # Initialize tracking for this vessel if needed
-    if mmsi not in vessel_lock_tracking:
-        vessel_lock_tracking[mmsi] = {}
-    
-    # Check each lock for potential tracking
+    per_vessel = vessel_lock_tracking.setdefault(mmsi, {})
+
     for lock_id, lock_info in LOCKS.items():
         lock_rm = lock_info["river_mile"]
-        distance_to_lock = river_mile - lock_rm  # Positive = north of lock
-        
-        # Determine if vessel is approaching this lock based on heading
-        is_approaching = False
-        direction = None
-        
-        if heading == "southbound" and distance_to_lock > 0:
-            # Going south, north of lock = approaching
-            is_approaching = distance_to_lock <= LOCK_APPROACH_DISTANCE
-            direction = "downbound"
-        elif heading == "northbound" and distance_to_lock < 0:
-            # Going north, south of lock = approaching  
-            is_approaching = abs(distance_to_lock) <= LOCK_APPROACH_DISTANCE
-            direction = "upbound"
-        
+        distance_to_lock = river_mile - lock_rm  # positive = upstream (higher RM) of the lock
         abs_distance = abs(distance_to_lock)
-        tracking = vessel_lock_tracking[mmsi].get(lock_id, {})
-        current_state = tracking.get("state")
-        
-        # State machine for lock passage tracking
-        if is_approaching and not current_state:
-            # New approach detected - start tracking
-            vessel_lock_tracking[mmsi][lock_id] = {
+        tracking = per_vessel.get(lock_id)
+
+        if tracking is None:
+            if not moving:
+                continue
+            if heading == "southbound" and 0 < distance_to_lock <= LOCK_APPROACH_DISTANCE:
+                direction = "downbound"
+            elif heading == "northbound" and -LOCK_APPROACH_DISTANCE <= distance_to_lock < 0:
+                direction = "upbound"
+            else:
+                continue
+            per_vessel[lock_id] = {
                 "state": "approaching",
                 "direction": direction,
                 "arrival_time": now,
                 "vessel_name": vessel.get("name", "Unknown"),
                 "is_tow": is_tow,
-                "barge_count": vessel.get("barge_count", 0)
+                "barge_count": vessel.get("barge_count", 0),
             }
-            logger.info(f"🔒 Vessel {mmsi} ({vessel.get('name', 'Unknown')}) approaching {lock_id} ({direction})")
-        
-        elif current_state == "approaching" and abs_distance <= LOCK_CHAMBER_DISTANCE:
-            # Vessel has entered the lock chamber area
-            tracking["state"] = "in_chamber"
-            tracking["entry_time"] = now
-            tracking["wait_time_minutes"] = (now - tracking["arrival_time"]).total_seconds() / 60
-            vessel_lock_tracking[mmsi][lock_id] = tracking
-            logger.info(f"🚢 Vessel {mmsi} entering {lock_id} chamber (waited {tracking['wait_time_minutes']:.1f} min)")
-        
-        elif current_state == "in_chamber":
-            # Check if vessel has cleared the lock
-            # Use stored direction from tracking state
-            tracked_direction = tracking.get("direction")
-            has_cleared = False
-            if tracked_direction == "downbound" and distance_to_lock < -LOCK_CLEARED_DISTANCE:
-                has_cleared = True
-            elif tracked_direction == "upbound" and distance_to_lock > LOCK_CLEARED_DISTANCE:
-                has_cleared = True
-            
-            if has_cleared:
-                # Vessel has completed the lockage!
+            logger.info(f"Vessel {mmsi} ({vessel.get('name', 'Unknown')}) approaching {lock_id} ({direction})")
+            continue
+
+        state = tracking.get("state")
+        tracked_direction = tracking.get("direction")
+        age_minutes = (now - tracking.get("arrival_time", now)).total_seconds() / 60
+
+        # Give up on passages that never complete (applies to BOTH states; the
+        # old ordering meant a stuck in_chamber entry lived forever).
+        if age_minutes > 240:
+            logger.warning(f"Abandoning stale lock tracking for {mmsi} at {lock_id} ({state})")
+            del per_vessel[lock_id]
+            continue
+
+        if state == "approaching":
+            if abs_distance <= LOCK_CHAMBER_DISTANCE:
+                tracking["state"] = "in_chamber"
+                tracking["entry_time"] = now
+                tracking["wait_time_minutes"] = age_minutes
+                logger.info(f"Vessel {mmsi} entering {lock_id} chamber (waited {age_minutes:.1f} min)")
+            elif (tracked_direction == "downbound" and distance_to_lock > LOCK_APPROACH_DISTANCE * 1.5) or \
+                 (tracked_direction == "upbound" and distance_to_lock < -LOCK_APPROACH_DISTANCE * 1.5):
+                del per_vessel[lock_id]  # turned back
+            elif (tracked_direction == "downbound" and distance_to_lock < -LOCK_CHAMBER_DISTANCE) or \
+                 (tracked_direction == "upbound" and distance_to_lock > LOCK_CHAMBER_DISTANCE):
+                del per_vessel[lock_id]  # went past without a usable chamber fix
+            continue
+
+        if state == "in_chamber":
+            cleared = (
+                (tracked_direction == "downbound" and distance_to_lock < -LOCK_CLEARED_DISTANCE) or
+                (tracked_direction == "upbound" and distance_to_lock > LOCK_CLEARED_DISTANCE)
+            )
+            if cleared:
                 tracking["state"] = "cleared"
                 tracking["exit_time"] = now
                 tracking["lockage_duration_minutes"] = (now - tracking["entry_time"]).total_seconds() / 60
-                tracking["total_time_minutes"] = (now - tracking["arrival_time"]).total_seconds() / 60
-                
-                # Save to database
+                tracking["total_time_minutes"] = age_minutes
                 await save_lockage_record(lock_id, tracking)
-                
-                logger.info(f"✅ Vessel {mmsi} cleared {lock_id}: lockage={tracking['lockage_duration_minutes']:.1f}min, wait={tracking['wait_time_minutes']:.1f}min")
-                
-                # Clear tracking for this lock
-                del vessel_lock_tracking[mmsi][lock_id]
-        
-        elif current_state in ["approaching", "in_chamber"]:
-            # Check for abandoned tracking (vessel went the wrong way or timed out)
-            tracking_age = (now - tracking.get("arrival_time", now)).total_seconds() / 60
-            
-            # If tracking for more than 4 hours, abandon it
-            if tracking_age > 240:
-                logger.warning(f"⚠️ Abandoning stale lock tracking for {mmsi} at {lock_id}")
-                del vessel_lock_tracking[mmsi][lock_id]
-            
-            # If vessel is now far from lock in wrong direction, abandon
-            elif current_state == "approaching":
-                if direction == "downbound" and distance_to_lock < -LOCK_APPROACH_DISTANCE:
-                    del vessel_lock_tracking[mmsi][lock_id]
-                elif direction == "upbound" and distance_to_lock > LOCK_APPROACH_DISTANCE:
-                    del vessel_lock_tracking[mmsi][lock_id]
+                logger.info(f"Vessel {mmsi} cleared {lock_id}: lockage={tracking['lockage_duration_minutes']:.1f}min, "
+                            f"wait={tracking['wait_time_minutes']:.1f}min")
+                del per_vessel[lock_id]
+
+    if not per_vessel:
+        vessel_lock_tracking.pop(mmsi, None)
 
 
 async def save_lockage_record(lock_id: str, tracking: dict):
@@ -875,6 +4054,7 @@ async def save_lockage_record(lock_id: str, tracking: dict):
         record = {
             "lock_id": lock_id,
             "vessel_name": tracking.get("vessel_name", "Unknown"),
+            "mmsi": tracking.get("mmsi"),
             "direction": tracking.get("direction"),
             "arrival_time": tracking.get("arrival_time"),
             "entry_time": tracking.get("entry_time"),
@@ -884,67 +4064,127 @@ async def save_lockage_record(lock_id: str, tracking: dict):
             "total_time_minutes": round(tracking.get("total_time_minutes", 0), 1),
             "is_tow": tracking.get("is_tow", False),
             "barge_count": tracking.get("barge_count", 0),
+            "source": tracking.get("source", "ais_state_machine"),
+            "confidence": tracking.get("confidence", "medium"),
             "recorded_at": datetime.now(timezone.utc)
         }
         
         await db.lockage_history.insert_one(record)
-        logger.info(f"📊 Saved lockage record for {lock_id}: {record['vessel_name']} - {record['lockage_duration_minutes']}min lockage, {record['wait_time_minutes']}min wait")
+        logger.info(f"📊 Saved lockage record for {lock_id}: {record['vessel_name']} - {record['lockage_duration_minutes']}min lockage, {record['wait_time_minutes']}min wait (source={record['source']})")
         
     except Exception as e:
         logger.error(f"Error saving lockage record: {e}")
 
 
-def estimate_river_mile(lat: float, lon: float) -> float:
+async def track_ais_inferred_lockage(vessel: dict):
     """
-    Estimate river mile based on latitude for Upper Mississippi (simplified linear approximation).
-    Extended coverage: Lock 2 (RM 815) to Lock 10 (RM 615)
-    Latitude range roughly 44.95 (north) to 42.7 (south)
+    Dwell-based lockage detector.
+
+    Opens a session when a vessel is within ±LOCK_DWELL_DISTANCE_RM of a lock
+    AND moving slower than LOCK_DWELL_MAX_SPEED_KT. Closes the session and
+    writes a `lockage_history` record (source="ais_inferred", confidence="medium")
+    when the vessel leaves the dwell zone or accelerates above the speed
+    threshold, provided the session lasted at least LOCK_DWELL_MIN_SECONDS.
+
+    This complements `track_vessel_lock_passage` (which is approach-based) and
+    is much less likely to mislabel transient passes as lockages.
     """
-    # Linear interpolation based on known points
-    # Lock 2 at Hastings: RM 815.2, lat ~44.74
-    # Lock 10 at Guttenberg: RM 615.1, lat ~42.79
-    # Slope: (815.2 - 615.1) / (44.74 - 42.79) = 200.1 / 1.95 ≈ 102.6 RM per degree lat
-    slope = 102.6
-    ref_lat = 44.74
-    ref_rm = 815.2
-    
-    estimated_rm = ref_rm + (lat - ref_lat) * slope
-    return round(estimated_rm, 1)
+    mmsi = vessel.get("mmsi")
+    river_mile = vessel.get("river_mile")
+    speed_kt = vessel.get("speed")
+
+    if not mmsi or river_mile is None or speed_kt is None:
+        return
+
+    now = datetime.now(timezone.utc)
+    heading = (vessel.get("heading") or "").lower()
+    direction = None
+    if heading in ("northbound", "upriver", "upstream"):
+        direction = "upbound"
+    elif heading in ("southbound", "downriver", "downstream"):
+        direction = "downbound"
+
+    for lock_id, lock_info in LOCKS.items():
+        lock_rm = lock_info["river_mile"]
+        delta_rm = abs(river_mile - lock_rm)
+        key = (mmsi, lock_id)
+
+        in_zone = delta_rm <= LOCK_DWELL_DISTANCE_RM
+        moving_slow = speed_kt <= LOCK_DWELL_MAX_SPEED_KT
+        session = ais_dwell_sessions.get(key)
+
+        # Open a new session?
+        if in_zone and moving_slow and session is None:
+            ais_dwell_sessions[key] = {
+                "start_time": now,
+                "last_seen": now,
+                "vessel_name": vessel.get("name", f"MMSI {mmsi}"),
+                "direction_at_entry": direction,
+                "is_tow": vessel.get("is_tow", False),
+                "barge_count": vessel.get("barge_count", 0),
+                "min_distance_rm": delta_rm,
+            }
+            continue
+
+        # Update an open session
+        if session is not None:
+            session["last_seen"] = now
+            session["min_distance_rm"] = min(session["min_distance_rm"], delta_rm)
+            session["last_direction"] = direction or session.get("last_direction")
+
+            exited = delta_rm > LOCK_DWELL_EXIT_DISTANCE_RM
+            sped_up = speed_kt > (LOCK_DWELL_MAX_SPEED_KT + 0.3)  # small hysteresis
+            if exited or sped_up:
+                duration = (session["last_seen"] - session["start_time"]).total_seconds()
+                if duration >= LOCK_DWELL_MIN_SECONDS:
+                    record_payload = {
+                        "vessel_name": session.get("vessel_name", f"MMSI {mmsi}"),
+                        "mmsi": mmsi,
+                        "direction": session.get("last_direction") or session.get("direction_at_entry"),
+                        "arrival_time": session["start_time"],
+                        "entry_time": session["start_time"],
+                        "exit_time": session["last_seen"],
+                        "wait_time_minutes": 0,
+                        "lockage_duration_minutes": duration / 60.0,
+                        "total_time_minutes": duration / 60.0,
+                        "is_tow": session.get("is_tow", False),
+                        "barge_count": session.get("barge_count", 0),
+                        "source": "ais_inferred",
+                        "confidence": "medium",
+                        "min_distance_rm": round(session["min_distance_rm"], 3),
+                    }
+                    try:
+                        await save_lockage_record(lock_id, record_payload)
+                    except Exception as e:
+                        logger.warning(f"[ais-dwell] failed to save record for {lock_id}/{mmsi}: {e}")
+                ais_dwell_sessions.pop(key, None)
+
+
+def estimate_river_mile(lat: float, lon: float) -> Optional[float]:
+    """
+    Official river mile for a position, by snapping it to the USACE sailing
+    line (services/river_geometry.py). Returns None when the position is not
+    on the Mississippi (off-river, or nearer a tributary channel).
+    """
+    return _river_geo.river_mile(lat, lon)
+
 
 def river_mile_to_coords(rm: float) -> tuple:
-    """
-    Convert a river mile to approximate lat/lon coordinates.
-    This is the reverse of estimate_river_mile().
-    Returns (lat, lon) tuple.
-    """
-    # Using same linear model as estimate_river_mile but reversed
-    # RM = ref_rm + (lat - ref_lat) * slope
-    # lat = ref_lat + (RM - ref_rm) / slope
-    slope = 102.6
-    ref_lat = 44.74
-    ref_rm = 815.2
-    
-    # Average longitude for the Upper Mississippi in this region
-    # Roughly -91.5 to -93.0, we'll use a slight adjustment based on RM
-    ref_lon = -92.0
-    lon_slope = 0.003  # slight eastward drift as you go north
-    
-    lat = ref_lat + (rm - ref_rm) / slope
-    lon = ref_lon + (rm - ref_rm) * lon_slope
-    
-    return (round(lat, 6), round(lon, 6))
+    """Point on the sailing line at river mile `rm` (falls back to the lock table)."""
+    hit = _river_geo.coords_for_mile(rm)
+    if hit is not None:
+        return hit
+    return _river_mile_to_coords(rm)
 
-def determine_heading(speed: float, course: float) -> str:
-    """Determine if vessel is heading northbound or southbound based on course."""
-    if speed < 0.5:
-        return "stationary"
-    # Course 0-180 is roughly northbound on the Mississippi
-    # Course 180-360 is roughly southbound
-    # Adjusted for river direction (flows south)
-    if 270 <= course <= 360 or 0 <= course < 90:
-        return "northbound"
-    else:
-        return "southbound"
+
+def determine_heading(speed: float, course: float, lat: float = None, lon: float = None) -> str:
+    """
+    'northbound' = upbound (toward higher river mile), 'southbound' = downbound.
+
+    Uses the river's LOCAL direction at (lat, lon). Compass course alone is wrong
+    wherever the river runs east-west (it flows WEST through the Quad Cities).
+    """
+    return _river_geo.heading_label(speed, course, lat, lon)
 
 def calculate_eta_to_lock(vessel_rm: float, vessel_speed_knots: float, heading: str, lock_rm: float) -> Optional[float]:
     """Calculate ETA in minutes to reach a lock. Returns None if vessel moving away."""
@@ -997,7 +4237,12 @@ def calculate_required_speed(user_rm: float, user_heading: str, target_lock_rm: 
     
     # Required speed in MPH to arrive with enough buffer before competitor
     # Buffer time ensures user can complete lockage before tow arrives
-    target_time_minutes = max(competitor_eta_minutes - buffer_minutes, 1)
+    # If the tow arrives within the buffer there is no achievable speed: return
+    # None (callers treat that as "can't arrive first") instead of dividing by
+    # a 1-minute floor, which produced speeds of hundreds of mph.
+    target_time_minutes = competitor_eta_minutes - buffer_minutes
+    if target_time_minutes <= 0:
+        return None
     required_mph = (distance_rm / target_time_minutes) * 60
     
     return round(required_mph, 1)
@@ -1121,6 +4366,228 @@ def parse_nmea_gps(line: str) -> Optional[dict]:
     
     return None
 
+_ais_assembler = NmeaFragmentAssembler()
+
+
+def vessel_data_from_decoded(decoded: dict, is_own_vessel: bool = False) -> Optional[dict]:
+    """Turn one decoded AIS message (pyais field names) into RiverWatch vessel data.
+
+    Shared by the NMEA parser and by sources that deliver already-decoded
+    messages (aisstream.io), so every source gets the same static-data cache,
+    tow detection and USACE enrichment. Returns None when the message yields
+    nothing to store."""
+    global vessel_static_cache
+    if 'mmsi' not in decoded:
+        return None
+    mmsi = str(decoded.get('mmsi', ''))
+    msg_type = decoded.get('msg_type', 0)
+
+    # Mark if this is own vessel data (AIVDO)
+    if is_own_vessel:
+        logger.debug(f"Own vessel data received: MMSI {mmsi}")
+
+    # Handle static data messages (Type 5, 19, 24) - cache the vessel info
+    if msg_type in [5, 19, 24]:
+        static_data = {'is_own_vessel': is_own_vessel}
+
+        # Get vessel name
+        shipname = decoded.get('shipname', '') or decoded.get('name', '')
+        if shipname and shipname.strip() and shipname.strip() != '@@@@@@@@@@@@@@@@@@@@':
+            static_data['name'] = shipname.strip()
+
+        # Get call sign
+        callsign = decoded.get('callsign', '')
+        if callsign and callsign.strip() and '@' not in callsign:
+            static_data['callsign'] = callsign.strip()
+
+        # Get IMO number
+        if decoded.get('imo'):
+            static_data['imo'] = decoded.get('imo')
+
+        # Get destination
+        destination = decoded.get('destination', '')
+        if destination and destination.strip() and '@' not in destination:
+            static_data['destination'] = destination.strip()
+
+        # Get ETA (from Type 5)
+        if decoded.get('month') and decoded.get('day'):
+            eta_month = decoded.get('month', 0)
+            eta_day = decoded.get('day', 0)
+            eta_hour = decoded.get('hour', 0)
+            eta_min = decoded.get('minute', 0)
+            if eta_month > 0 and eta_day > 0:
+                static_data['eta'] = f"{eta_month:02d}/{eta_day:02d} {eta_hour:02d}:{eta_min:02d}"
+
+        # Get ship type and dimensions
+        if decoded.get('ship_type'):
+            static_data['ship_type'] = decoded.get('ship_type')
+
+        # Calculate dimensions from bow/stern/port/starboard
+        to_bow = decoded.get('to_bow', 0) or 0
+        to_stern = decoded.get('to_stern', 0) or 0
+        to_port = decoded.get('to_port', 0) or 0
+        to_starboard = decoded.get('to_starboard', 0) or 0
+
+        if to_bow + to_stern > 0:
+            static_data['length'] = to_bow + to_stern
+        if to_port + to_starboard > 0:
+            static_data['width'] = to_port + to_starboard
+
+        if decoded.get('draught'):
+            static_data['draught'] = decoded.get('draught')
+
+        # Update cache
+        if static_data:
+            if mmsi not in vessel_static_cache:
+                vessel_static_cache[mmsi] = {}
+            vessel_static_cache[mmsi].update(static_data)
+            logger.info(f"Cached static data for MMSI {mmsi}: {static_data.get('name', 'unnamed')}")
+
+            # Static-only messages (5, 24) carry no position: hand the
+            # name back so the caller can persist it to the database.
+            if msg_type in (5, 24) and static_data.get('name'):
+                return {
+                    'mmsi': mmsi,
+                    'name': static_data['name'],
+                    'ship_type': static_data.get('ship_type'),
+                    '_static_only': True,
+                    '_persist_to_db': True,
+                }
+
+    # Handle position messages (Type 1,2,3,18,19)
+    if msg_type in [1, 2, 3, 18, 19]:
+        lat = decoded.get('lat')
+        lon = decoded.get('lon')
+
+        # Filter invalid positions
+        if lat is None or lon is None:
+            return None
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
+        if lat == 91.0 or lon == 181.0:  # AIS "not available" values
+            return None
+        # Get navigation status
+        nav_status = decoded.get('status')
+        nav_status_text = NAV_STATUS.get(nav_status, 'Unknown') if nav_status is not None else None
+
+        # Get heading (true heading, different from course over ground)
+        heading_true = decoded.get('heading')
+        if heading_true == 511:  # 511 = not available
+            heading_true = None
+
+        # Get rate of turn
+        turn_rate = decoded.get('turn')
+        if turn_rate == -128 or turn_rate == 128:  # not available
+            turn_rate = None
+
+        # Build vessel data from position report
+        vessel = {
+            'mmsi': mmsi,
+            'lat': lat,
+            'lon': lon,
+            'speed': clean_sog(decoded.get('speed')),  # knots; 102.3 = n/a
+            'course': clean_cog(decoded.get('course')) or 0.0,
+            'course_valid': clean_cog(decoded.get('course')) is not None,
+            'name': '',
+            'vessel_type': 'unknown',
+            'ship_type': 0,
+            'length': None,
+            'width': None,
+            'draught': None,
+            'is_own_vessel': is_own_vessel,
+            'heading_true': heading_true,
+            'turn_rate': turn_rate,
+            'nav_status': nav_status,
+            'nav_status_text': nav_status_text,
+        }
+
+        # Merge in cached static data if available
+        if mmsi in vessel_static_cache:
+            cached = vessel_static_cache[mmsi]
+            if cached.get('name'):
+                vessel['name'] = cached['name']
+            if cached.get('ship_type'):
+                vessel['ship_type'] = cached['ship_type']
+                vessel['vessel_type'] = str(cached['ship_type'])
+            if cached.get('length'):
+                vessel['length'] = cached['length']
+            if cached.get('width'):
+                vessel['width'] = cached['width']
+            if cached.get('draught'):
+                vessel['draught'] = cached['draught']
+            if cached.get('destination'):
+                vessel['destination'] = cached['destination']
+            if cached.get('callsign'):
+                vessel['callsign'] = cached['callsign']
+            if cached.get('imo'):
+                vessel['imo'] = cached['imo']
+            if cached.get('eta'):
+                vessel['eta'] = cached['eta']
+            if cached.get('is_own_vessel') or cached.get('is_user'):
+                vessel['is_own_vessel'] = True
+
+        # Type 19 includes name directly
+        if msg_type == 19:
+            shipname = decoded.get('shipname', '')
+            if shipname and shipname.strip():
+                vessel['name'] = shipname.strip()
+
+        # First check USACE lock queue data for authoritative barge count
+        mmsi = vessel.get('mmsi', '')
+        usace_info = get_usace_vessel_info(mmsi) if mmsi else None
+
+        if usace_info and usace_info.get('num_barges') is not None:
+            # Use USACE authoritative data
+            vessel['barge_count'] = usace_info['num_barges']
+            vessel['is_tow'] = usace_info['num_barges'] > 0
+            vessel['usace_source'] = True
+            vessel['usace_lock'] = usace_info.get('lock_id')
+            vessel['usace_status'] = usace_info.get('status')
+
+            # Calculate lockage time from barge count
+            bc = usace_info['num_barges']
+            if bc <= 6:
+                vessel['estimated_lockage_time'] = 30
+            elif bc <= 9:
+                vessel['estimated_lockage_time'] = 45
+            else:
+                vessel['estimated_lockage_time'] = 90 + (bc - 9) * 5
+            vessel['is_double_lockage'] = bc > 9
+
+            # Estimate tow config from barge count
+            if bc > 0:
+                if bc <= 6:
+                    vessel['tow_config'] = f"2x{(bc+1)//2}"
+                elif bc <= 9:
+                    vessel['tow_config'] = f"3x{(bc+2)//3}"
+                else:
+                    vessel['tow_config'] = f"3x{(bc+2)//3}+"
+
+            logger.debug(f"Using USACE data for {mmsi}: {usace_info['num_barges']} barges")
+
+            # Persist USACE-enriched vessel data to database
+            asyncio.create_task(persist_vessel_sighting(vessel))
+        else:
+            # NO USACE data - use AIS-based tow detection only
+            # IMPORTANT: Clear any stale barge data - only show if USACE confirms
+            tow_info = estimate_tow_info(vessel)
+            vessel.update(tow_info)
+            # Explicitly ensure no stale data
+            vessel['barge_count'] = None
+            vessel['tow_config'] = None
+            vessel['estimated_lockage_time'] = None
+            vessel['is_double_lockage'] = False
+            vessel['usace_source'] = False
+            vessel['usace_lock'] = None
+            vessel['usace_status'] = None
+
+        # Persist vessel sighting (even without USACE for tracking)
+        asyncio.create_task(persist_vessel_sighting(vessel))
+
+        return vessel
+    return None
+
+
 def parse_nmea_ais(data: str) -> Optional[dict]:
     """
     Parse NMEA/AIS data. Boat Beacon typically sends !AIVDM sentences.
@@ -1135,6 +4602,7 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
     """
     global vessel_static_cache
     
+    
     try:
         from pyais import decode
         
@@ -1147,164 +4615,17 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
             
             if line.startswith('!AIVDM') or line.startswith('!AIVDO'):
                 try:
-                    msg = decode(line)
+                    # Multi-sentence messages (type 5 static/voyage data) arrive
+                    # as 2 lines; wait until all fragments are in.
+                    fragments = _ais_assembler.feed(line)
+                    if not fragments:
+                        continue
+                    msg = decode(*fragments, error_if_checksum_invalid=True)
                     decoded = msg.asdict()
                     
-                    if 'mmsi' not in decoded:
-                        continue
-                        
-                    mmsi = str(decoded.get('mmsi', ''))
-                    msg_type = decoded.get('msg_type', 0)
-                    
-                    # Mark if this is own vessel data (AIVDO)
-                    if is_own_vessel:
-                        logger.debug(f"Own vessel data received: MMSI {mmsi}")
-                    
-                    # Handle static data messages (Type 5, 19, 24) - cache the vessel info
-                    if msg_type in [5, 19, 24]:
-                        static_data = {'is_own_vessel': is_own_vessel}
-                        
-                        # Get vessel name
-                        shipname = decoded.get('shipname', '') or decoded.get('name', '')
-                        if shipname and shipname.strip() and shipname.strip() != '@@@@@@@@@@@@@@@@@@@@':
-                            static_data['name'] = shipname.strip()
-                        
-                        # Get call sign
-                        callsign = decoded.get('callsign', '')
-                        if callsign and callsign.strip() and '@' not in callsign:
-                            static_data['callsign'] = callsign.strip()
-                        
-                        # Get IMO number
-                        if decoded.get('imo'):
-                            static_data['imo'] = decoded.get('imo')
-                        
-                        # Get destination
-                        destination = decoded.get('destination', '')
-                        if destination and destination.strip() and '@' not in destination:
-                            static_data['destination'] = destination.strip()
-                        
-                        # Get ETA (from Type 5)
-                        if decoded.get('month') and decoded.get('day'):
-                            eta_month = decoded.get('month', 0)
-                            eta_day = decoded.get('day', 0)
-                            eta_hour = decoded.get('hour', 0)
-                            eta_min = decoded.get('minute', 0)
-                            if eta_month > 0 and eta_day > 0:
-                                static_data['eta'] = f"{eta_month:02d}/{eta_day:02d} {eta_hour:02d}:{eta_min:02d}"
-                        
-                        # Get ship type and dimensions
-                        if decoded.get('ship_type'):
-                            static_data['ship_type'] = decoded.get('ship_type')
-                        
-                        # Calculate dimensions from bow/stern/port/starboard
-                        to_bow = decoded.get('to_bow', 0) or 0
-                        to_stern = decoded.get('to_stern', 0) or 0
-                        to_port = decoded.get('to_port', 0) or 0
-                        to_starboard = decoded.get('to_starboard', 0) or 0
-                        
-                        if to_bow + to_stern > 0:
-                            static_data['length'] = to_bow + to_stern
-                        if to_port + to_starboard > 0:
-                            static_data['width'] = to_port + to_starboard
-                        
-                        if decoded.get('draught'):
-                            static_data['draught'] = decoded.get('draught')
-                        
-                        # Update cache
-                        if static_data:
-                            if mmsi not in vessel_static_cache:
-                                vessel_static_cache[mmsi] = {}
-                            vessel_static_cache[mmsi].update(static_data)
-                            logger.info(f"Cached static data for MMSI {mmsi}: {static_data.get('name', 'unnamed')}")
-                            
-                            # Mark for persistence to database (will be done in async context)
-                            if static_data.get('name'):
-                                static_data['_persist_to_db'] = True
-                                static_data['_mmsi'] = mmsi
-                    
-                    # Handle position messages (Type 1,2,3,18,19)
-                    if msg_type in [1, 2, 3, 18, 19]:
-                        lat = decoded.get('lat')
-                        lon = decoded.get('lon')
-                        
-                        # Filter invalid positions
-                        if lat is None or lon is None:
-                            continue
-                        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                            continue
-                        if lat == 91.0 or lon == 181.0:  # AIS "not available" values
-                            continue
-                        
-                        # Get navigation status
-                        nav_status = decoded.get('status')
-                        nav_status_text = NAV_STATUS.get(nav_status, 'Unknown') if nav_status is not None else None
-                        
-                        # Get heading (true heading, different from course over ground)
-                        heading_true = decoded.get('heading')
-                        if heading_true == 511:  # 511 = not available
-                            heading_true = None
-                        
-                        # Get rate of turn
-                        turn_rate = decoded.get('turn')
-                        if turn_rate == -128 or turn_rate == 128:  # not available
-                            turn_rate = None
-                        
-                        # Build vessel data from position report
-                        vessel = {
-                            'mmsi': mmsi,
-                            'lat': lat,
-                            'lon': lon,
-                            'speed': decoded.get('speed', 0) or 0,  # knots
-                            'course': decoded.get('course', 0) or 0,
-                            'name': '',
-                            'vessel_type': 'unknown',
-                            'ship_type': 0,
-                            'length': None,
-                            'width': None,
-                            'draught': None,
-                            'is_own_vessel': is_own_vessel,
-                            'heading_true': heading_true,
-                            'turn_rate': turn_rate,
-                            'nav_status': nav_status,
-                            'nav_status_text': nav_status_text,
-                        }
-                        
-                        # Merge in cached static data if available
-                        if mmsi in vessel_static_cache:
-                            cached = vessel_static_cache[mmsi]
-                            if cached.get('name'):
-                                vessel['name'] = cached['name']
-                            if cached.get('ship_type'):
-                                vessel['ship_type'] = cached['ship_type']
-                                vessel['vessel_type'] = str(cached['ship_type'])
-                            if cached.get('length'):
-                                vessel['length'] = cached['length']
-                            if cached.get('width'):
-                                vessel['width'] = cached['width']
-                            if cached.get('draught'):
-                                vessel['draught'] = cached['draught']
-                            if cached.get('destination'):
-                                vessel['destination'] = cached['destination']
-                            if cached.get('callsign'):
-                                vessel['callsign'] = cached['callsign']
-                            if cached.get('imo'):
-                                vessel['imo'] = cached['imo']
-                            if cached.get('eta'):
-                                vessel['eta'] = cached['eta']
-                            if cached.get('is_own_vessel') or cached.get('is_user'):
-                                vessel['is_own_vessel'] = True
-                        
-                        # Type 19 includes name directly
-                        if msg_type == 19:
-                            shipname = decoded.get('shipname', '')
-                            if shipname and shipname.strip():
-                                vessel['name'] = shipname.strip()
-                        
-                        # Add tow/barge information
-                        tow_info = estimate_tow_info(vessel)
-                        vessel.update(tow_info)
-                        
-                        return vessel
+                    result = vessel_data_from_decoded(decoded, is_own_vessel)
+                    if result is not None:
+                        return result
                         
                 except Exception as e:
                     logger.debug(f"Failed to parse AIS message: {e}")
@@ -1314,9 +4635,17 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
     return None
 
 # API Routes
+# Version identifier for debugging deployment issues
+CODE_VERSION = "2026-01-20-fix-completed-lockages"
+
 @api_router.get("/")
 async def root():
-    return {"message": "AIS Vessel Tracker API", "status": "online"}
+    return {
+        "message": "AIS Vessel Tracker API", 
+        "status": "online",
+        "code_version": CODE_VERSION,
+        "fix_applied": "Filter out completed lockages from USACE cache"
+    }
 
 @api_router.get("/locks", response_model=List[LockInfo])
 async def get_locks():
@@ -1325,6 +4654,139 @@ async def get_locks():
         LockInfo(id=k, name=v["name"], river_mile=v["river_mile"], lat=v["lat"], lon=v["lon"], phone=v.get("phone"))
         for k, v in LOCKS.items()
     ]
+
+@api_router.get("/locks/board")
+async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[str] = None,
+                         scope: str = "all", sort: str = "river", limit: Optional[int] = None,
+                         lock_id: Optional[str] = None):
+    """Lock-first view: every lock's status, queue, estimated wait and typical
+    lockage times, from USACE data only (works without any AIS feed).
+
+    from_rm + direction (upbound|downbound) + scope=ahead: only the locks in
+    front of the boat, nearest first. sort=delay: longest estimated wait first.
+    """
+    if direction not in (None, "upbound", "downbound"):
+        raise HTTPException(status_code=400, detail="direction must be upbound or downbound")
+    now = datetime.now(timezone.utc)
+    status_data = await fetch_usace_lock_status()
+    averages = await get_lockage_averages()
+
+    # Latest completed lockage per lock
+    last_by_lock = {}
+    try:
+        rows = await db.lockage_history.aggregate([
+            {"$match": {"recorded_at": {"$gte": now - timedelta(days=2)}}},
+            {"$group": {"_id": "$lock_id", "last": {"$max": "$exit_time"}}},
+        ]).to_list(None)
+        for r in rows:
+            if r.get("last"):
+                last_by_lock[r["_id"]] = r["last"] if r["last"].tzinfo else r["last"].replace(tzinfo=timezone.utc)
+    except Exception as e:
+        logger.warning(f"Lock board: could not read last lockages: {e}")
+
+    # Active queue rows from the USACE worker, by lock id
+    queue_by_lock = {}
+    for lock_no, infos in usace_lock_rows.items():
+        queue_by_lock[usace_lock_id(lock_no)] = infos
+
+    locks = [{"lock_id": lid, **info} for lid, info in LOCKS.items()]
+    ordered = _lock_board.locks_in_view(locks, from_rm, direction, scope)
+    if lock_id:  # one lock (e.g. the Lock Timing panel's target lock)
+        if lock_id not in LOCKS:
+            raise HTTPException(status_code=404, detail="Unknown lock")
+        ordered = [lk for lk in locks if lk["lock_id"] == lock_id]
+
+    def when(text, tz):
+        return _usace_lockages.parse_time(text, tz)
+
+    board = []
+    for lk in ordered:
+        lid = lk["lock_id"]
+        avg = averages.get(lid, {})
+        typical = {
+            "avg_single_lockage_minutes": avg.get("avg_single_lockage_minutes"),
+            "avg_double_lockage_minutes": avg.get("avg_double_lockage_minutes"),
+            "avg_recreational_lockage_minutes": avg.get("avg_recreational_lockage_minutes"),
+            "avg_tow_wait_minutes": avg.get("avg_tow_wait_minutes"),
+            "avg_recreational_wait_minutes": avg.get("avg_recreational_wait_minutes"),
+            "double_share": avg.get("double_share"),
+            "sample_count": avg.get("sample_count", 0),
+            "is_baseline": avg.get("is_baseline", True),
+        }
+        locking, waiting = [], []
+        for v in queue_by_lock.get(lid, []):
+            tz = v.get("timezone")
+            entry = {
+                "vessel_name": v.get("vessel_name"),
+                "mmsi": v.get("mmsi"),
+                "direction": {"U": "upbound", "D": "downbound"}.get(v.get("direction") or "", v.get("direction")),
+                "barges": v.get("num_barges"),
+                "needs_double": _lock_board.needs_double(lid, v.get("num_barges")) or bool(v.get("cuts_completed")),
+                "cuts_completed": v.get("cuts_completed") or 0,
+                "arrived_at": when(v.get("arrival_date"), tz),
+            }
+            if v.get("status") == "locking":
+                entry["started_at"] = when(v.get("sol_date"), tz)
+                locking.append(entry)
+            else:
+                waiting.append(entry)
+        waiting.sort(key=lambda e: e["arrived_at"] or now)
+        waits = _lock_board.predict_waits(lid, locking, waiting, typical, direction, now)
+
+        st = status_data.get(lid)
+        last = last_by_lock.get(lid)
+
+        def out(e, position=None):
+            o = dict(e)
+            for k in ("arrived_at", "started_at"):
+                if o.get(k):
+                    o[k] = o[k].isoformat()
+            if e.get("arrived_at"):
+                o["waiting_minutes"] = round((now - e["arrived_at"]).total_seconds() / 60)
+            if position is not None:
+                o["position"] = position
+            return o
+
+        board.append({
+            "lock_id": lid,
+            "name": lk.get("name"),
+            "river_mile": lk.get("river_mile"),
+            "phone": lk.get("phone"),
+            "distance_mi": round(abs(lk["river_mile"] - from_rm), 1) if from_rm is not None else None,
+            "status": st.status if st else "UNKNOWN",
+            "status_source": st.status_source if st else None,
+            "closure_info": st.closure_info if st else None,
+            # Calibrated against USACE history (scripts/backtest_waits.py)
+            "wait_estimate_minutes": waits["tow"],
+            "wait_estimate_recreational_minutes": waits["recreational"],
+            "queue_minutes": waits["queue_minutes"],
+            "queue_count": len(locking) + len(waiting),
+            "locking": [out(e) for e in locking],
+            "waiting": [out(e, i + 1) for i, e in enumerate(waiting)],
+            "last_lockage_minutes_ago": round((now - last).total_seconds() / 60) if last else None,
+            "typical": typical,
+            "queue_data_at": usace_lock_fetched_at.get(next((n for n in usace_lock_rows if usace_lock_id(n) == lid), ""), None),
+        })
+    for row in board:
+        if isinstance(row["queue_data_at"], datetime):
+            row["queue_data_at"] = row["queue_data_at"].isoformat()
+
+    if sort == "delay":
+        board.sort(key=lambda r: -(r["wait_estimate_minutes"] or 0))
+    if limit:
+        board = board[:max(1, min(int(limit), 40))]
+    return {
+        "generated_at": now.isoformat(),
+        "from_rm": from_rm,
+        "direction": direction,
+        "scope": scope,
+        "wait_model": {
+            "fitted_on": _lock_board.CALIBRATION["fitted_on"],
+            "typical_error_minutes": _lock_board.CALIBRATION["test_mae_minutes"],
+        },
+        "locks": board,
+    }
+
 
 @api_router.get("/locks/status")
 async def get_all_lock_status():
@@ -1345,6 +4807,7 @@ async def get_all_lock_status():
             "downbound_queue": status.downbound_queue,
             "vessels_in_queue": status.vessels_in_queue,
             "closure_info": status.closure_info,
+            "status_source": status.status_source,
             "last_updated": status.last_updated
         })
     
@@ -1375,6 +4838,144 @@ async def get_lock_status(lock_id: str):
     }
 
 
+@api_router.get("/locks/{lock_id}/details")
+async def get_lock_details(lock_id: str):
+    """
+    Get comprehensive lock details including:
+    - Basic info (name, location, phone)
+    - Current USACE status (open/closed/restricted)
+    - Wait time predictions based on queue
+    - Current vessels waiting/locking
+    - Historical average lockage times
+    - Recent lockage history
+    """
+    if lock_id not in LOCKS:
+        return {"error": "Invalid lock ID"}
+    
+    lock_info = LOCKS[lock_id]
+    
+    # Fetch all relevant data in parallel
+    status_data = await fetch_usace_lock_status()
+    status = status_data.get(lock_id, LockStatus(lock_id=lock_id, status="UNKNOWN"))
+    
+    # Get lock queue data for vessels at this lock
+    queue_data = await fetch_usace_lock_queue_data()
+    vessels_at_lock = [
+        v for v in queue_data.values() 
+        if v.get('lock_id') == lock_id and v.get('status') in ('waiting', 'locking')
+    ]
+    
+    # Sort by arrival time
+    vessels_at_lock.sort(key=lambda v: v.get('arrival_date') or '')
+    
+    # Separate by status and direction
+    vessels_waiting_up = [v for v in vessels_at_lock if v.get('status') == 'waiting' and v.get('direction') == 'U']
+    vessels_waiting_down = [v for v in vessels_at_lock if v.get('status') == 'waiting' and v.get('direction') == 'D']
+    vessels_locking = [v for v in vessels_at_lock if v.get('status') == 'locking']
+    
+    # Get lockage time averages
+    averages = await get_lockage_averages(lock_id)
+    lock_averages = averages.get(lock_id, {})
+    
+    # Calculate wait time prediction
+    tow_lockage_time = lock_averages.get('avg_tow_lockage_minutes') or 45
+    rec_lockage_time = lock_averages.get('avg_recreational_lockage_minutes') or 20
+    
+    # Estimate wait time based on queue
+    # Tows take priority, then recreational boats go through together
+    estimated_wait_minutes = 0
+    if vessels_locking:
+        # Currently locking vessel - estimate remaining time
+        locking_vessel = vessels_locking[0]
+        if locking_vessel.get('num_barges') and locking_vessel['num_barges'] > 0:
+            estimated_wait_minutes += tow_lockage_time // 2  # Assume halfway done
+        else:
+            estimated_wait_minutes += rec_lockage_time // 2
+    
+    # Add time for each vessel ahead in queue
+    for v in vessels_at_lock:
+        if v.get('status') == 'waiting':
+            if v.get('num_barges') and v['num_barges'] > 0:
+                # Tow - check for double lockage
+                if v['num_barges'] > 9:
+                    estimated_wait_minutes += tow_lockage_time * 2  # Double lockage
+                else:
+                    estimated_wait_minutes += tow_lockage_time
+            else:
+                estimated_wait_minutes += rec_lockage_time
+    
+    # Get recent lockage history from database
+    recent_lockages = []
+    try:
+        recent = await db.lockage_history.find(
+            {"lock_id": lock_id},
+            {"_id": 0}
+        ).sort("recorded_at", -1).limit(10).to_list(10)
+        recent_lockages = [lockage_for_output(r) for r in recent]
+    except Exception as e:
+        logger.warning(f"Failed to fetch lockage history for {lock_id}: {e}")
+    
+    # Calculate prediction confidence
+    sample_count = lock_averages.get('sample_count', 0)
+    is_baseline = lock_averages.get('combined', {}).get('is_baseline', True)
+    prediction_confidence = "low" if is_baseline else ("medium" if sample_count < 20 else "high")
+    
+    return {
+        "lock_id": lock_id,
+        "name": lock_info["name"],
+        "river_mile": lock_info["river_mile"],
+        "lat": lock_info["lat"],
+        "lon": lock_info["lon"],
+        "phone": lock_info.get("phone"),
+        
+        # Current status
+        "status": status.status,
+        "closure_info": status.closure_info,
+        "last_updated": status.last_updated,
+        
+        # Queue info
+        "upbound_queue": status.upbound_queue or len(vessels_waiting_up),
+        "downbound_queue": status.downbound_queue or len(vessels_waiting_down),
+        "total_queue": len(vessels_at_lock),
+        
+        # Wait time prediction
+        "estimated_wait_minutes": round(estimated_wait_minutes),
+        "usace_avg_wait_minutes": status.avg_wait_minutes,
+        "prediction_confidence": prediction_confidence,
+        
+        # Vessels at lock
+        "vessels_locking": [{
+            "name": v.get('vessel_name'),
+            "num_barges": v.get('num_barges'),
+            "direction": v.get('direction'),
+            "arrival_date": v.get('arrival_date'),
+            "sol_date": v.get('sol_date')
+        } for v in vessels_locking],
+        "vessels_waiting": [{
+            "name": v.get('vessel_name'),
+            "num_barges": v.get('num_barges'),
+            "direction": v.get('direction'),
+            "arrival_date": v.get('arrival_date'),
+            "position": i + 1
+        } for i, v in enumerate(vessels_at_lock) if v.get('status') == 'waiting'],
+        
+        # Average times
+        "avg_tow_lockage_minutes": lock_averages.get('avg_tow_lockage_minutes'),
+        "avg_recreational_lockage_minutes": lock_averages.get('avg_recreational_lockage_minutes'),
+        "avg_tow_wait_minutes": lock_averages.get('avg_tow_wait_minutes'),
+        "avg_recreational_wait_minutes": lock_averages.get('avg_recreational_wait_minutes'),
+        "avg_single_lockage_minutes": lock_averages.get('avg_single_lockage_minutes'),
+        "avg_double_lockage_minutes": lock_averages.get('avg_double_lockage_minutes'),
+        "single_count": lock_averages.get('single_count'),
+        "double_count": lock_averages.get('double_count'),
+        "double_share": lock_averages.get('double_share'),
+        "is_baseline_data": is_baseline,
+        "sample_count": sample_count,
+        
+        # Recent history
+        "recent_lockages": recent_lockages[:5]
+    }
+
 @api_router.get("/locks/lockage-times")
 async def get_all_lockage_times():
     """Get recent lockage times and running averages for all locks."""
@@ -1398,6 +4999,11 @@ async def get_all_lockage_times():
             "avg_recreational_wait_minutes": lock_averages.get("avg_recreational_wait_minutes"),
             "sample_count": lock_averages.get("sample_count", 0),
             "is_baseline": lock_averages.get("combined", {}).get("is_baseline", True),
+            "avg_single_lockage_minutes": lock_averages.get("avg_single_lockage_minutes"),
+            "avg_double_lockage_minutes": lock_averages.get("avg_double_lockage_minutes"),
+            "single_count": lock_averages.get("single_count"),
+            "double_count": lock_averages.get("double_count"),
+            "double_share": lock_averages.get("double_share"),
             "upbound": lock_averages.get("upbound", {}),
             "downbound": lock_averages.get("downbound", {})
         })
@@ -1412,10 +5018,13 @@ async def get_lock_lockage_times(lock_id: str):
         return {"error": "Invalid lock ID"}
     
     lock_info = LOCKS[lock_id]
-    lock_num = int(lock_id.replace("lock_", ""))
-    
-    # Fetch LPMS data for this lock
-    lockage_data = await fetch_lpms_lockage_data(lock_num)
+    # Recent lockages: USACE-reported (lock queue feed) plus passages River
+    # Watch observed itself via AIS lock-passage tracking.
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    recent = await db.lockage_history.find(
+        {"lock_id": lock_id, "recorded_at": {"$gte": cutoff}}, {"_id": 0}
+    ).sort("recorded_at", -1).to_list(50)
+    lockage_data = {lock_id: [lockage_for_output(r) for r in recent]}
     
     # Get averages
     averages = await get_lockage_averages(lock_id)
@@ -1435,7 +5044,458 @@ async def get_lock_lockage_times(lock_id: str):
     }
 
 
-@api_router.post("/lockage/record")
+# =============================================
+# USGS WATER CONDITIONS API
+# =============================================
+
+import httpx
+
+# Cache for USGS data (refreshes every 15 minutes)
+usgs_cache = {}
+usgs_cache_time = {}
+USGS_CACHE_DURATION = 900  # 15 minutes
+
+# Cache for NWS NWPS hydrograph data (refreshes every 15 minutes)
+nws_cache: dict = {}
+nws_cache_time: dict = {}
+NWS_CACHE_DURATION = 900
+
+async def fetch_nws_gauge_data(nwsli: str) -> dict:
+    """
+    Fetch observed stage + forecast + per-gauge flood categories from the
+    NWS National Water Prediction Service (NWPS) for a given NWSLI gauge ID.
+    """
+    cache_key = f"nws_{nwsli}"
+    now = datetime.now(timezone.utc)
+
+    cached_at = nws_cache_time.get(cache_key)
+    if cached_at and (now - cached_at).total_seconds() < NWS_CACHE_DURATION:
+        return nws_cache[cache_key]
+
+    result = {
+        "nwsli": nwsli,
+        "name": None,
+        "stage": None,
+        "stage_unit": "ft",
+        "flood_category": "normal",
+        "forecast": None,
+        "categories": {},
+        "error": None,
+    }
+
+    try:
+        url = f"https://api.water.noaa.gov/nwps/v1/gauges/{nwsli}"
+        async with httpx.AsyncClient(timeout=15.0, headers=OUTBOUND_HEADERS) as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                result["error"] = f"NWS HTTP {response.status_code}"
+            else:
+                payload = response.json()
+                result["name"] = payload.get("name")
+                observed = (payload.get("status") or {}).get("observed") or {}
+                if observed.get("primary") is not None:
+                    try:
+                        result["stage"] = round(float(observed["primary"]), 2)
+                    except (TypeError, ValueError):
+                        pass
+                if observed.get("primaryUnit"):
+                    result["stage_unit"] = observed["primaryUnit"]
+                if observed.get("floodCategory"):
+                    cat = observed["floodCategory"]
+                    # NWPS uses "no_flooding", "action", "minor", "moderate", "major"
+                    mapping = {
+                        "no_flooding": "normal",
+                        "action": "action",
+                        "minor": "flood",
+                        "moderate": "moderate",
+                        "major": "major",
+                    }
+                    result["flood_category"] = mapping.get(cat, cat)
+
+                flood = payload.get("flood") or {}
+                cats = flood.get("categories") or {}
+                # Normalize NWPS naming -> our names
+                for nws_key, our_key in (("action", "action"), ("minor", "flood"),
+                                          ("moderate", "moderate"), ("major", "major")):
+                    stage_val = (cats.get(nws_key) or {}).get("stage")
+                    if stage_val is not None and stage_val != -9999:
+                        result["categories"][our_key] = stage_val
+
+                # Build short forecast (next ~6 points)
+                fc_payload = payload.get("forecast") or {}
+                fc_data = fc_payload.get("data") if isinstance(fc_payload, dict) else None
+                if isinstance(fc_data, list):
+                    forecast_points = []
+                    for point in fc_data[:6]:
+                        try:
+                            forecast_points.append({
+                                "time": point.get("validTime"),
+                                "stage_ft": float(point.get("primary")),
+                            })
+                        except (TypeError, ValueError):
+                            continue
+                    if forecast_points:
+                        result["forecast"] = forecast_points
+    except Exception as e:
+        logger.error(f"Error fetching NWS data for {nwsli}: {e}")
+        result["error"] = str(e)
+
+    nws_cache[cache_key] = result
+    nws_cache_time[cache_key] = now
+    return result
+
+
+async def fetch_usgs_water_data(site_id: str) -> dict:
+    """
+    Fetch real-time water conditions from USGS Water Services API.
+    
+    Parameters fetched:
+    - 00065: Gage height (feet)
+    - 00060: Discharge (cubic feet per second)  
+    - 00010: Water temperature (Celsius)
+    
+    Also fetches forecast data from NOAA AHPS.
+    """
+    cache_key = f"usgs_{site_id}"
+    now = datetime.now(timezone.utc)
+    
+    # Check cache
+    if cache_key in usgs_cache:
+        cache_age = (now - usgs_cache_time.get(cache_key, now)).total_seconds()
+        if cache_age < USGS_CACHE_DURATION:
+            return usgs_cache[cache_key]
+    
+    result = {
+        "site_id": site_id,
+        "timestamp": now.isoformat(),
+        "gage_height_ft": None,
+        "discharge_cfs": None,
+        "water_temp_c": None,
+        "water_temp_f": None,
+        "current_speed_mph": None,
+        "flood_stage": "normal",
+        "forecast": None,
+        "error": None
+    }
+    
+    try:
+        # Fetch current conditions from USGS
+        url = f"https://waterservices.usgs.gov/nwis/iv/?format=json&sites={site_id}&parameterCd=00065,00060,00010&siteStatus=active"
+        
+        async with httpx.AsyncClient(timeout=15.0, headers=OUTBOUND_HEADERS) as client:
+            response = await client.get(url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                time_series = data.get('value', {}).get('timeSeries', [])
+                
+                for ts in time_series:
+                    param_code = ts.get('variable', {}).get('variableCode', [{}])[0].get('value', '')
+                    values = ts.get('values', [{}])[0].get('value', [])
+                    
+                    if values:
+                        latest = values[-1]  # Most recent value
+                        value = float(latest.get('value', 0))
+                        
+                        if param_code == '00065':  # Gage height
+                            result['gage_height_ft'] = round(value, 2)
+                        elif param_code == '00060':  # Discharge
+                            result['discharge_cfs'] = round(value, 0)
+                            # Estimate current speed from discharge (rough approximation)
+                            # Assuming average channel width ~2000ft, depth ~15ft for Upper Miss
+                            # Speed (fps) ≈ discharge / (width * depth)
+                            # This is a rough estimate - actual varies by location
+                            estimated_fps = value / (2000 * 15)
+                            result['current_speed_mph'] = round(estimated_fps * 0.681818, 1)  # fps to mph
+                        elif param_code == '00010':  # Water temp
+                            result['water_temp_c'] = round(value, 1)
+                            result['water_temp_f'] = round(value * 9/5 + 32, 1)
+                
+                # Determine flood stage
+                if result['gage_height_ft'] and site_id in FLOOD_STAGES:
+                    stages = FLOOD_STAGES[site_id]
+                    height = result['gage_height_ft']
+                    if height >= stages['major']:
+                        result['flood_stage'] = 'major'
+                    elif height >= stages['moderate']:
+                        result['flood_stage'] = 'moderate'
+                    elif height >= stages['flood']:
+                        result['flood_stage'] = 'flood'
+                    elif height >= stages['action']:
+                        result['flood_stage'] = 'action'
+                    else:
+                        result['flood_stage'] = 'normal'
+                        
+    except Exception as e:
+        logger.error(f"Error fetching USGS data for {site_id}: {e}")
+        result['error'] = str(e)
+    
+    # Try to fetch forecast data from NOAA AHPS
+    try:
+        # NOAA AHPS forecast endpoint (XML)
+        # Map USGS site to NWS location ID
+        nws_locations = {
+            "05331000": "STPM5",   # St. Paul
+            "05344500": "PREW3",   # Prescott
+            "05378500": "WINM5",   # Winona
+            "05389500": "MCGI4",   # McGregor
+            "05420500": "CLNI4",   # Clinton
+            "05474500": "KEOI4",   # Keokuk
+            "05587450": "GRFI2",   # Grafton
+            "07010000": "EADM7",   # St. Louis
+        }
+        
+        if site_id in nws_locations:
+            nws_id = nws_locations[site_id]
+            forecast_url = f"https://water.weather.gov/ahps2/hydrograph_to_xml.php?gage={nws_id}&output=xml"
+            
+            async with httpx.AsyncClient(timeout=10.0, headers=OUTBOUND_HEADERS) as client:
+                forecast_resp = await client.get(forecast_url)
+                
+                if forecast_resp.status_code == 200:
+                    # Parse basic forecast info from XML
+                    import re
+                    xml_text = forecast_resp.text
+                    
+                    # Extract forecast values (simplified parsing)
+                    forecasts = []
+                    forecast_matches = re.findall(
+                        r'<forecast>.*?<valid[^>]*>([^<]+)</valid>.*?<primary[^>]*>([^<]+)</primary>.*?</forecast>',
+                        xml_text, re.DOTALL
+                    )
+                    
+                    for valid_time, value in forecast_matches[:6]:  # Next 6 forecasts
+                        try:
+                            forecasts.append({
+                                "time": valid_time.strip(),
+                                "stage_ft": float(value)
+                            })
+                        except:
+                            pass
+                    
+                    if forecasts:
+                        result['forecast'] = forecasts
+                        
+    except Exception as e:
+        logger.debug(f"Could not fetch forecast for {site_id}: {e}")
+    
+    # Cache result
+    usgs_cache[cache_key] = result
+    usgs_cache_time[cache_key] = now
+    
+    return result
+
+
+@api_router.get("/water-conditions/{lock_id}")
+async def get_water_conditions_for_lock(lock_id: str):
+    """
+    Get water conditions (level, temp, current) for a specific lock.
+    Uses the lock's authoritative station from /app/backend/lock_stations.py
+    and ONLY applies that station's thresholds. Reference stations are returned
+    alongside (no threshold cross-application) for audit/comparison.
+
+    Response shape (per the data-accuracy audit):
+        official:  {station_id, station_name, source, river_mile,
+                    distance_from_lock_miles, measurement_type, value,
+                    units, datum, observed_at, thresholds, threshold_source,
+                    status, status_explanation, raw, data_url, source_url}
+        references: [ ...same shape... ]
+
+    Backwards-compatible legacy fields are still surfaced at the top level
+    (`conditions`, `gauge`, `flood_stages`) so older clients keep working.
+    """
+    if lock_id not in LOCKS:
+        raise HTTPException(status_code=404, detail="Invalid lock ID")
+
+    from services.water_station_service import get_water_conditions as _structured_water
+    structured = await _structured_water(lock_id)
+    if "error" in structured:
+        return {"lock_id": lock_id, "error": structured["error"]}
+
+    official = structured["official"]
+    raw = official.get("raw") or {}
+
+    # Reference station data is kept in a separate `reference_conditions`
+    # block. We intentionally do NOT merge reference discharge / current
+    # speed into the official conditions object: those readings live on a
+    # different datum and don't describe Lock {lock_id}'s flow.
+    reference_conditions = []
+    for ref in structured.get("references", []):
+        rraw = ref.get("raw") or {}
+        reference_conditions.append({
+            "station_id": ref.get("station_id"),
+            "station_name": ref.get("station_name"),
+            "source": ref.get("source"),
+            "value": ref.get("value"),
+            "units": ref.get("units"),
+            "observed_at": ref.get("observed_at"),
+            "datum": ref.get("datum"),
+            "distance_from_lock_miles": ref.get("distance_from_lock_miles"),
+            "raw": rraw,
+            "note": ref.get("note"),
+            "fetch_method": ref.get("fetch_method"),
+            "source_status": ref.get("source_status"),
+        })
+
+    legacy_flood_status = (
+        official.get("status")
+        if official.get("status") in ("normal", "action", "flood", "moderate", "major")
+        else None
+    )
+
+    # `official_current` summarises just the headline reading + state.
+    official_current = {
+        "station_id": official.get("station_id"),
+        "station_name": official.get("station_name"),
+        "value": official.get("value"),
+        "units": official.get("units"),
+        "measurement_type": official.get("measurement_type"),
+        "observed_at": official.get("observed_at"),
+        "status": official.get("status"),
+        "status_explanation": official.get("status_explanation"),
+        "available": official.get("value") is not None,
+        "unavailable_reason": (
+            None if official.get("value") is not None
+            else (official.get("fetch_error") or "Official stage unavailable")
+        ),
+        "fetch_method": official.get("fetch_method"),
+        "fallback_used": official.get("fallback_used", False),
+        "source_status": official.get("source_status"),
+    }
+
+    payload = {
+        "lock_id": lock_id,
+        "lock_name": structured["lock_name"],
+        "lock_river_mile": structured["lock_river_mile"],
+        # NEW structured shape
+        "official": official,
+        "official_current": official_current,
+        "references": structured.get("references", []),
+        "reference_conditions": reference_conditions,
+        "selection_reason": structured.get("selection_reason"),
+        "fetched_at": structured.get("fetched_at"),
+        # LEGACY shape - kept so older modal builds keep rendering. Only
+        # data sourced from the official station is allowed in here.
+        "gauge": {
+            "site_id": official["station_id"],
+            "name": official["station_name"],
+            "river_mile": official.get("river_mile"),
+            "distance_from_lock": official.get("distance_from_lock_miles"),
+            "source": official.get("source"),
+            "datum": official.get("datum"),
+        },
+        "conditions": {
+            "timestamp": official.get("observed_at"),
+            "gage_height_ft": raw.get("gage_height_ft") if official.get("measurement_type") == "gage_height" else None,
+            "river_stage_ft": raw.get("river_stage_ft") if official.get("measurement_type") == "river_stage" else None,
+            "water_temp_f": raw.get("water_temp_f"),
+            "water_temp_c": raw.get("water_temp_c"),
+            "discharge_cfs": raw.get("discharge_cfs"),
+            "current_speed_mph": None,  # computed below from OFFICIAL discharge only
+            "flood_stage": legacy_flood_status,
+            "status_explanation": official.get("status_explanation"),
+            "source_status": official.get("source_status"),
+            "fetch_method": official.get("fetch_method"),
+            "fallback_used": official.get("fallback_used", False),
+            "from_reference": False,
+        },
+        "flood_stages": official.get("thresholds") or {},
+        "threshold_source": official.get("threshold_source"),
+    }
+
+    # Only derive current_speed_mph from the OFFICIAL discharge. Never mix
+    # reference-station discharge into the official conditions block.
+    discharge = raw.get("discharge_cfs")
+    if discharge:
+        fps = discharge / (2000 * 15)
+        payload["conditions"]["current_speed_mph"] = round(fps * 0.681818, 1)
+
+    return payload
+
+
+@api_router.get("/locks/{lock_id}/water-condition-debug")
+async def get_water_condition_debug(lock_id: str):
+    """
+    Diagnostic view of the water-condition station mapping for `lock_id`.
+
+    Returns the selected official station, any alternate (reference)
+    stations, raw fetched values, thresholds with source citation, source
+    URLs, and why this station was selected.
+    """
+    if lock_id not in LOCKS:
+        raise HTTPException(status_code=404, detail="Invalid lock ID")
+    from services.water_station_service import get_debug as _debug_water
+    return await _debug_water(lock_id)
+
+
+@api_router.get("/water-conditions")
+async def get_all_water_conditions():
+    """Get water conditions for all locks using each lock's own NWS gauge."""
+    results = {}
+    for lock_id, cfg in LOCK_GAUGES.items():
+        if lock_id not in LOCKS:
+            continue
+        nws = await fetch_nws_gauge_data(cfg["nwsli"])
+        stage = nws.get("stage")
+        category = nws.get("flood_category") or "normal"
+        if category == "normal" and stage is not None:
+            thresholds = cfg["stages"]
+            if stage >= thresholds.get("major", float("inf")):
+                category = "major"
+            elif stage >= thresholds.get("moderate", float("inf")):
+                category = "moderate"
+            elif stage >= thresholds.get("flood", float("inf")):
+                category = "flood"
+            elif stage >= thresholds.get("action", float("inf")):
+                category = "action"
+        results[lock_id] = {
+            "gauge_name": nws.get("name") or cfg["name"],
+            "nwsli": cfg["nwsli"],
+            "gage_height_ft": stage,
+            "datum": cfg["datum"],
+            "flood_stage": category,
+        }
+    return results
+
+
+@api_router.get("/usace/lock-queue")
+async def get_usace_lock_queue():
+    """Get current USACE lock queue data (vessels with barge counts)."""
+    data = await fetch_usace_lock_queue_data()
+    return {
+        "vessel_count": len(data),
+        "last_updated": usace_lock_queue_cache["last_updated"].isoformat() if usace_lock_queue_cache["last_updated"] else None,
+        "vessels": list(data.values())
+    }
+
+
+@api_router.post("/usace/refresh", dependencies=[Depends(require_admin)])
+async def refresh_usace_data():
+    """USACE queue data status. Refreshing is continuous (one lock every
+    USACE_SPACING_S, within USACE's 5-requests-per-minute limit), so this
+    reports the current state rather than forcing a burst of requests."""
+    data = await fetch_usace_lock_queue_data()
+    oldest = min(usace_lock_fetched_at.values()) if usace_lock_fetched_at else None
+    return {
+        "success": True,
+        "vessel_count": len(data),
+        "locks_fetched": len(usace_lock_fetched_at),
+        "oldest_lock_data": oldest.isoformat() if oldest else None,
+        "message": f"USACE data: {len(data)} vessels in queues; refreshed continuously",
+    }
+
+
+@api_router.get("/usace/vessel/{mmsi}")
+async def get_usace_vessel(mmsi: str):
+    """Get USACE lock queue info for a specific vessel by MMSI."""
+    data = await fetch_usace_lock_queue_data()
+    vessel_info = data.get(mmsi)
+    if vessel_info:
+        return {"found": True, "vessel": vessel_info}
+    return {"found": False, "message": f"Vessel {mmsi} not found in USACE lock queue data"}
+
+
+@api_router.post("/lockage/record", dependencies=[Depends(require_admin)])
 async def record_lockage(lock_id: str, vessel_name: str, duration_minutes: float, is_tow: bool = False, barge_count: int = 0, direction: str = "unknown"):
     """Manually record a lockage time (for when live data isn't available)."""
     if lock_id not in LOCKS:
@@ -1457,16 +5517,30 @@ async def record_lockage(lock_id: str, vessel_name: str, duration_minutes: float
     return {"success": True, "message": "Lockage time recorded", "record": {k: v for k, v in record.items() if k != "_id"}}
 
 
-@api_router.get("/debug/state")
+@api_router.get("/debug/state", dependencies=[Depends(require_admin)])
 async def get_debug_state():
     """Get current application state for debugging."""
     return {
-        "user_mmsi": user_mmsi,
+        "demo_vessels_active": demo_vessels_active,
         "active_vessels_count": len(active_vessels),
         "active_vessel_mmsis": list(active_vessels.keys()),
         "vessel_cache_count": len(vessel_static_cache),
         "cached_vessel_names": {k: v.get('name', 'unnamed') for k, v in vessel_static_cache.items()},
         "filtered_mmsis": list(FILTERED_MMSI),
+    }
+
+
+@api_router.get("/debug/performance", dependencies=[Depends(require_admin)])
+async def get_performance_stats():
+    """Get performance statistics for monitoring."""
+    cache_stats = await get_cache_stats()
+    return {
+        "active_vessels": len(active_vessels),
+        "vessel_cache_entries": vessel_cache.count,
+        "caches": cache_stats,
+        "websocket_connections": len(ais_manager._subscribers),
+        "ais_connected": ais_manager.is_connected,
+        "demo_vessels_active": demo_vessels_active
     }
 
 
@@ -1517,6 +5591,108 @@ async def get_lockage_history(lock_id: str = None, days: int = 7):
     }
 
 
+@api_router.get("/vessels/sightings")
+async def get_vessel_sightings(days: int = 30, usace_only: bool = False):
+    """
+    Get historical vessel sightings from the database.
+    
+    Args:
+        days: Number of days to look back (default 30)
+        usace_only: If true, only return sightings with USACE data
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    
+    query = {"timestamp": {"$gte": cutoff}}
+    if usace_only:
+        query["usace_source"] = True
+    
+    sightings = await db.vessel_sightings.find(query, {"_id": 0}).sort("timestamp", -1).to_list(500)
+    
+    # Convert datetime objects
+    for record in sightings:
+        for key in ["timestamp", "first_seen"]:
+            if record.get(key) and isinstance(record[key], datetime):
+                record[key] = record[key].isoformat()
+    
+    return {
+        "count": len(sightings),
+        "sightings": sightings
+    }
+
+
+@api_router.get("/vessels/history/{mmsi}")
+async def get_vessel_history(mmsi: str, days: int = 30):
+    """
+    Get historical sightings for a specific vessel.
+    Includes all USACE data records (barge counts, lock positions, etc.)
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    
+    # Get historical records with USACE data
+    records = await db.vessel_history.find(
+        {"mmsi": mmsi, "recorded_at": {"$gte": cutoff}},
+        {"_id": 0}
+    ).sort("recorded_at", -1).to_list(200)
+    
+    # Convert datetime objects
+    for record in records:
+        for key in ["timestamp", "recorded_at"]:
+            if record.get(key) and isinstance(record[key], datetime):
+                record[key] = record[key].isoformat()
+    
+    # Get current sighting
+    current = await db.vessel_sightings.find_one({"mmsi": mmsi}, {"_id": 0})
+    if current:
+        for key in ["timestamp", "first_seen"]:
+            if current.get(key) and isinstance(current[key], datetime):
+                current[key] = current[key].isoformat()
+    
+    # Lockages this vessel made (USACE-reported and AIS-detected), newest first
+    lockages = await db.lockage_history.find(
+        {"mmsi": mmsi, "recorded_at": {"$gte": cutoff}}, {"_id": 0}
+    ).sort("recorded_at", -1).to_list(100)
+    lockages = [lockage_for_output(lk) for lk in lockages]
+
+    return {
+        "mmsi": mmsi,
+        "current": current,
+        "history_count": len(records),
+        "history": records,
+        "lockage_history": lockages,
+    }
+
+
+@api_router.get("/vessels/stats")
+async def get_vessel_stats():
+    """Get summary statistics of vessel sightings and USACE data."""
+    # Total unique vessels seen
+    total_vessels = await db.vessel_sightings.count_documents({})
+    
+    # Vessels with USACE data
+    usace_vessels = await db.vessel_sightings.count_documents({"usace_source": True})
+    
+    # Tows tracked
+    tows_tracked = await db.vessel_sightings.count_documents({"is_tow": True})
+    
+    # Historical USACE records
+    history_count = await db.vessel_history.count_documents({})
+    
+    # Get recent tow activity (last 7 days)
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    recent_tows = await db.vessel_history.find(
+        {"recorded_at": {"$gte": seven_days_ago}, "is_tow": True},
+        {"_id": 0, "mmsi": 1, "name": 1, "barge_count": 1, "usace_lock": 1}
+    ).sort("recorded_at", -1).to_list(50)
+    
+    return {
+        "total_vessels_seen": total_vessels,
+        "vessels_with_usace_data": usace_vessels,
+        "tows_tracked": tows_tracked,
+        "historical_usace_records": history_count,
+        "recent_tow_activity": recent_tows
+    }
+
+
 @api_router.get("/lockage/stats")
 async def get_lockage_stats():
     """Get summary statistics of recorded lockages."""
@@ -1558,27 +5734,158 @@ async def get_lockage_stats():
     }
 
 
-@api_router.post("/connection/test")
+@api_router.post("/connection/test", dependencies=[Depends(require_user)])
 async def test_connection(config: ConnectionConfig):
-    """Test AIS TCP connection."""
+    """Test that an AIS TCP feed is reachable (non-blocking)."""
+    err = await asyncio.to_thread(validate_feed_target, config.ip_address, config.port)
+    if err:
+        return {"success": False, "message": err}
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        result = sock.connect_ex((config.ip_address, config.port))
-        sock.close()
-        
-        if result == 0:
-            return {"success": True, "message": "Connection successful"}
-        elif result == 111:
-            return {"success": False, "message": "Connection refused - Boat Beacon may not be running or the IP is unreachable from this server. For local networks (192.168.x.x), you may need to use Demo Mode."}
-        elif result == 110:
-            return {"success": False, "message": "Connection timed out - check the IP address and ensure Boat Beacon TCP server is enabled."}
-        else:
-            return {"success": False, "message": f"Connection failed (error code: {result})"}
-    except socket.gaierror:
-        return {"success": False, "message": "Invalid IP address format"}
+        _r, w = await asyncio.wait_for(asyncio.open_connection(config.ip_address, config.port), timeout=5)
+        w.close()
+        try:
+            await w.wait_closed()
+        except Exception:
+            pass
+        return {"success": True, "message": "Connection successful"}
+    except ConnectionRefusedError:
+        return {"success": False, "message": "Connection refused - Boat Beacon may not be running or the IP is unreachable from this server."}
+    except asyncio.TimeoutError:
+        return {"success": False, "message": "Connection timed out - check the IP address and ensure Boat Beacon TCP server is enabled."}
+    except OSError as e:
+        return {"success": False, "message": f"Connection failed: {e.strerror or e}"}
+
+
+@api_router.get("/connection/status", dependencies=[Depends(require_user)])
+async def get_connection_status():
+    """Get the current AIS connection status."""
+    return ais_manager.get_status()
+
+
+@api_router.post("/connection/reconnect", dependencies=[Depends(require_user)])
+async def reconnect_ais():
+    """Force reconnection to the AIS feed."""
+    if not ais_manager.config:
+        return {"success": False, "message": "No connection configured"}
+    
+    config = ais_manager.config
+    await ais_manager.configure(
+        config["ip_address"],
+        config["port"],
+        config.get("user_mmsi", ""),
+        config.get("boat_name", "")
+    )
+    return {"success": True, "message": "Reconnection initiated"}
+
+@api_router.post("/connection/start", dependencies=[Depends(require_user)])
+async def start_connection(config: ConnectionConfig):
+    """Start the AIS connection with the given configuration.
+
+    Also persists the config to the `settings` collection under key
+    `last_connection_config` so the connection is auto-restored on backend
+    restart (important for the Pi where the systemd service may restart
+    overnight and we don't want the user to re-enter the phone IP)."""
+    err = await asyncio.to_thread(validate_feed_target, config.ip_address, config.port)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    await ais_manager.configure(
+        config.ip_address,
+        config.port,
+        config.user_mmsi,
+        getattr(config, "boat_name", "") or ""
+    )
+
+    # Persist for auto-restore on reboot.
+    try:
+        await db.settings.update_one(
+            {"key": "last_connection_config"},
+            {"$set": {
+                "value": json.dumps({
+                    "ip_address": config.ip_address,
+                    "port": config.port,
+                    "user_mmsi": config.user_mmsi,
+                    "boat_name": getattr(config, "boat_name", "") or "",
+                }),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        logger.warning(f"Failed to persist last_connection_config: {e}")
+
+    return {"success": True, "message": f"Connection started to {config.ip_address}:{config.port}"}
+
+
+@api_router.post("/connection/stop", dependencies=[Depends(require_user)])
+async def stop_connection():
+    """Stop the AIS connection (manual disconnect from Settings page)."""
+    await ais_manager.disconnect()
+    return {"success": True, "message": "AIS connection stopped"}
+
+
+# =============================================================================
+# NMEA INGEST ENDPOINT (push-based relay)
+# =============================================================================
+# Lets a local relay script (e.g. /app/scripts/ais_relay.py) POST raw NMEA
+# lines over plain HTTPS. The VM's cloud backend cannot dial back into a
+# user's LAN (private RFC1918), so the relay pushes here instead.
+#
+# Request body:
+#   {
+#     "user_mmsi": "367123450",
+#     "boat_name": "MY BOAT",          (optional)
+#     "lines": ["$GPRMC,...", "!AIVDM,...", ...]
+#   }
+#
+# Response: {"accepted": N, "echoed": M}
+@api_router.post("/ais/ingest")
+async def ingest_nmea(payload: dict, request: Request):
+    """Accept a batch of raw NMEA lines from a local relay and process them
+    through the same pipeline used by the live TCP feed.
+
+    The relay is identity-free: AIS sentences already contain MMSI, and GPS
+    sentences get attributed to whichever MMSI is configured on the AIS
+    manager (set when the dashboard user clicks Connect)."""
+    if not _ingest_token_ok(request):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Ingest-Token")
+    lines = payload.get("lines") or []
+    if not isinstance(lines, list):
+        raise HTTPException(status_code=400, detail="`lines` must be a list of NMEA strings")
+    if len(lines) > 2000:
+        raise HTTPException(status_code=413, detail="Too many lines in one batch (max 2000)")
+
+    # Mark the manager as "connected" via push so /api/connection/status
+    # and the UI reflect a live feed even without a TCP dial-in.
+    if not ais_manager._config:
+        ais_manager._config = {
+            "ip_address": "push://relay",
+            "port": 0,
+            "user_mmsi": "",
+            "boat_name": "",
+        }
+    ais_manager._connected = True
+    ais_manager._last_data_time = datetime.now(timezone.utc)
+
+    accepted = 0
+    for raw in lines:
+        if not isinstance(raw, str):
+            continue
+        line = raw.strip()
+        if not line or len(line) > 300:  # NMEA sentences are <= 82 chars; allow slack
+            continue
+        try:
+            await ais_manager._process_line(line)
+            accepted += 1
+        except Exception as e:
+            logger.warning(f"ingest_nmea: failed to process line: {e}")
+
+    return {
+        "accepted": accepted,
+        "received": len(lines),
+        "subscriber_count": ais_manager.subscriber_count,
+        "last_data_time": ais_manager._last_data_time.isoformat() if ais_manager._last_data_time else None,
+    }
+
 
 @api_router.get("/vessel-cache")
 async def get_vessel_cache():
@@ -1587,6 +5894,171 @@ async def get_vessel_cache():
         "cached_vessels": len(vessel_static_cache),
         "cache": vessel_static_cache
     }
+
+
+# Serve the one-click Windows relay launcher. We bake the script's
+# base64 contents into this file so it works inside the backend container
+# without needing the scripts/ directory mounted.
+from fastapi.responses import FileResponse as _FileResponse, Response as _Response  # noqa: E402
+import base64 as _b64  # noqa: E402
+
+def _generate_relay_bat(vm_url: str) -> bytes:
+    """Build RIVERWATCH.bat dynamically with the requested VM URL baked in.
+    The embedded PowerShell relay is the HTTPS-push version."""
+    ps1 = """[CmdletBinding()]
+param(
+    [string]$BoatBeaconIp   = $(if ($env:BOAT_BEACON_IP)   { $env:BOAT_BEACON_IP }   else { "192.168.0.25" }),
+    [int]   $BoatBeaconPort = $(if ($env:BOAT_BEACON_PORT) { [int]$env:BOAT_BEACON_PORT } else { 5353 }),
+    [string]$VmUrl          = $(if ($env:VM_URL)           { $env:VM_URL }           else { "__VM_URL__" }),
+    [string]$IngestToken    = $(if ($env:AIS_INGEST_TOKEN) { $env:AIS_INGEST_TOKEN } else { "__INGEST_TOKEN__" }),
+    [double]$BatchSeconds   = 1.0,
+    [int]   $MaxBatchLines  = 200
+)
+$ErrorActionPreference = "Stop"
+$VmUrl = $VmUrl.TrimEnd('/')
+$IngestUrl = "$VmUrl/api/ais/ingest"
+function Write-Log([string]$msg) { Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] " + $msg) }
+Write-Log "River Watch NMEA Relay -> $IngestUrl"
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+$buffer = New-Object System.Collections.Generic.List[string]
+$lock = New-Object Object
+$stats = [pscustomobject]@{ LinesRead=0; LinesSent=0; BatchesSent=0; Errors=0 }
+function Send-Batch([System.Collections.Generic.List[string]]$lines) {
+    $body = @{ lines = @($lines) } | ConvertTo-Json -Compress
+    try {
+        $resp = Invoke-RestMethod -Uri $IngestUrl -Method Post -ContentType "application/json" -Body $body -TimeoutSec 15 -Headers @{ "X-Ingest-Token" = $IngestToken }
+        $stats.BatchesSent++; $stats.LinesSent += $lines.Count
+        if ($stats.BatchesSent -le 3 -or ($stats.BatchesSent % 30) -eq 0) {
+            Write-Log ("POST -> 200  accepted={0}/{1}  total_sent={2}" -f $resp.accepted, $resp.received, $stats.LinesSent)
+        }
+        return $true
+    } catch { $stats.Errors++; Write-Log ("POST FAILED: " + $_.Exception.Message); return $false }
+}
+$client = $null; $stream = $null; $reader = $null
+$lastFlush = Get-Date
+try {
+    while ($true) {
+        if (-not $client -or -not $client.Connected) {
+            try {
+                Write-Log "Connecting to Boat Beacon @ ${BoatBeaconIp}:${BoatBeaconPort} ..."
+                $client = New-Object System.Net.Sockets.TcpClient
+                $client.ReceiveTimeout = 30000; $client.SendTimeout = 10000
+                $iar = $client.BeginConnect($BoatBeaconIp, $BoatBeaconPort, $null, $null)
+                if (-not $iar.AsyncWaitHandle.WaitOne(10000)) { throw "Boat Beacon connect timeout" }
+                $client.EndConnect($iar)
+                $stream = $client.GetStream(); $stream.ReadTimeout = 30000
+                $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::ASCII)
+                Write-Log "Boat Beacon connected. Streaming NMEA..."
+            } catch { $stats.Errors++; Write-Log ("Connect failed: " + $_.Exception.Message + " - retry 5s"); Start-Sleep 5; continue }
+        }
+        try {
+            $line = $reader.ReadLine()
+            if ($null -eq $line) { Write-Log "Boat Beacon closed connection."; try { $client.Close() } catch {}; $client = $null; Start-Sleep 2; continue }
+            $line = $line.Trim()
+            if ($line.Length -gt 0) {
+                [System.Threading.Monitor]::Enter($lock); try { $buffer.Add($line) | Out-Null; $stats.LinesRead++ } finally { [System.Threading.Monitor]::Exit($lock) }
+                if ($stats.LinesRead -le 5) { Write-Log ("NMEA: " + $line.Substring(0, [Math]::Min(90, $line.Length))) }
+            }
+        } catch [System.IO.IOException] { $stats.Errors++; Write-Log ("Read error: " + $_.Exception.Message); try { $client.Close() } catch {}; $client = $null; Start-Sleep 2; continue }
+        $age = ((Get-Date) - $lastFlush).TotalSeconds
+        if ($age -ge $BatchSeconds) {
+            $toSend = $null
+            [System.Threading.Monitor]::Enter($lock)
+            try {
+                if ($buffer.Count -gt 0) {
+                    $take = [Math]::Min($buffer.Count, $MaxBatchLines)
+                    $toSend = New-Object System.Collections.Generic.List[string]
+                    for ($i = 0; $i -lt $take; $i++) { $toSend.Add($buffer[$i]) | Out-Null }
+                    $buffer.RemoveRange(0, $take)
+                }
+            } finally { [System.Threading.Monitor]::Exit($lock) }
+            if ($toSend -and $toSend.Count -gt 0) {
+                if (-not (Send-Batch $toSend)) {
+                    [System.Threading.Monitor]::Enter($lock); try { $buffer.InsertRange(0, $toSend) } finally { [System.Threading.Monitor]::Exit($lock) }
+                    Start-Sleep 2
+                }
+            }
+            $lastFlush = Get-Date
+        }
+    }
+} finally {
+    foreach ($d in @($reader, $stream, $client)) { if ($d) { try { $d.Dispose() } catch {} } }
+}
+""".replace("__VM_URL__", vm_url).replace("__INGEST_TOKEN__", os.environ.get("AIS_INGEST_TOKEN", ""))
+
+    b64 = _b64.b64encode(ps1.encode("utf-8")).decode("ascii")
+    chunks = [b64[i:i+200] for i in range(0, len(b64), 200)]
+    echo_lines = "\r\n".join([f"echo {c}" for c in chunks])
+
+    bat = (
+        "@echo off\r\n"
+        f'set "VM_URL={vm_url}"\r\n'
+        'set "BOAT_BEACON_IP=192.168.0.25"\r\n'
+        'set "BOAT_BEACON_PORT=5353"\r\n'
+        "setlocal enabledelayedexpansion\r\n"
+        "title River Watch Relay\r\n"
+        "echo ================================================================\r\n"
+        "echo   River Watch Relay (HTTPS push)\r\n"
+        "echo   Beacon : %BOAT_BEACON_IP%:%BOAT_BEACON_PORT%\r\n"
+        "echo   VM URL : %VM_URL%\r\n"
+        "echo ================================================================\r\n"
+        'set "RELAY_PS1=%TEMP%\\riverwatch-relay.ps1"\r\n'
+        'set "RELAY_B64=%TEMP%\\riverwatch-relay.b64"\r\n'
+        '> "%RELAY_B64%" (\r\n'
+        "echo -----BEGIN CERTIFICATE-----\r\n"
+        f"{echo_lines}\r\n"
+        "echo -----END CERTIFICATE-----\r\n"
+        ")\r\n"
+        'certutil -decode -f "%RELAY_B64%" "%RELAY_PS1%" >nul\r\n'
+        'if not exist "%RELAY_PS1%" ( echo ERROR: failed to write relay script. & pause & exit /b 1 )\r\n'
+        'powershell -NoProfile -ExecutionPolicy Bypass -File "%RELAY_PS1%" '
+        '-BoatBeaconIp "%BOAT_BEACON_IP%" -BoatBeaconPort %BOAT_BEACON_PORT% -VmUrl "%VM_URL%"\r\n'
+        "echo Relay exited. Press any key.\r\n"
+        "pause >nul\r\n"
+        "endlocal\r\n"
+    )
+    return bat.encode("utf-8")
+
+
+@api_router.get("/relay/download", dependencies=[Depends(require_user)])
+async def download_relay_bat(request: Request):
+    """Return a freshly-generated RIVERWATCH.bat that points at THIS VM."""
+    # Use the Host header so the .bat always targets whatever URL the client used
+    host = request.headers.get("host") or "127.0.0.1"
+    scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else "http"
+    vm_url = f"{scheme}://{host}"
+    content = _generate_relay_bat(vm_url)
+    return _Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="RIVERWATCH.bat"'},
+    )
+
+
+@api_router.get("/install/tarball")
+async def download_install_tarball():
+    """Return the tarball bundle of the latest backend/frontend/scripts changes."""
+    path = "/app/dist/riverwatch-update.tar.gz"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Install bundle not built on server")
+    return _FileResponse(
+        path,
+        media_type="application/gzip",
+        filename="riverwatch-update.tar.gz",
+    )
+
+
+@api_router.get("/install/bootstrap")
+async def download_install_bootstrap():
+    """Return the one-shot installer shell script."""
+    path = "/app/dist/install.sh"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Installer not built on server")
+    return _FileResponse(
+        path,
+        media_type="text/x-shellscript",
+        filename="install.sh",
+    )
 
 @api_router.get("/river-mile-to-coords/{rm}")
 async def convert_rm_to_coords(rm: float):
@@ -1601,7 +6073,7 @@ async def convert_rm_to_coords(rm: float):
         "estimated_rm_back": estimated_rm
     }
 
-@api_router.post("/vessel-cache/{mmsi}")
+@api_router.post("/vessel-cache/{mmsi}", dependencies=[Depends(require_user)])
 async def set_vessel_name(mmsi: str, data: dict):
     """
     Manually set a vessel name in the cache.
@@ -1622,20 +6094,29 @@ async def set_vessel_name(mmsi: str, data: dict):
         update_data['ship_type'] = data['ship_type']
     
     # Persist to MongoDB for sharing across users and sessions
-    await db.vessel_names.update_one(
-        {"mmsi": mmsi},
-        {"$set": update_data},
-        upsert=True
+    await repos.vessels.save_vessel_name(
+        mmsi=mmsi,
+        name=data.get('name'),
+        ship_type=data.get('ship_type'),
+        source="user"
     )
     logger.info(f"Saved vessel name to database: MMSI {mmsi} = {data.get('name')}")
     
     # Also update active vessel if present
     if mmsi in active_vessels:
         vessel = active_vessels[mmsi]
-        if data.get('name'):
-            vessel.name = data['name']
-        if data.get('ship_type') is not None:
-            vessel.ship_type = data['ship_type']
+        # Handle both dict and Pydantic model
+        if isinstance(vessel, dict):
+            if data.get('name'):
+                vessel['name'] = data['name']
+            if data.get('ship_type') is not None:
+                vessel['ship_type'] = data['ship_type']
+        else:
+            # Pydantic model
+            if data.get('name'):
+                vessel.name = data['name']
+            if data.get('ship_type') is not None:
+                vessel.ship_type = data['ship_type']
     
     return {"success": True, "cached": vessel_static_cache.get(mmsi), "persisted": True}
 
@@ -1644,8 +6125,7 @@ async def load_vessel_names_from_db():
     global vessel_static_cache
     
     try:
-        cursor = db.vessel_names.find({}, {"_id": 0})
-        vessels = await cursor.to_list(length=1000)
+        vessels = await repos.vessels.get_all_vessel_names()
         
         for v in vessels:
             mmsi = v.get("mmsi")
@@ -1663,57 +6143,112 @@ async def load_vessel_names_from_db():
 
 @api_router.get("/vessels")
 async def get_vessels():
-    """Get all tracked vessels."""
+    """Get all tracked vessels, enriched with USACE lock queue data.
+
+    NOTE: This endpoint has no session context, so `is_user_vessel` is always
+    False here. Use `/api/session/{mmsi}/vessels` to get per-session highlighting.
+    """
     vessels = []
+    # Hide demo vessels when live AIS has been received (auto mode)
+    suppress_demo = _should_suppress_demo_vessels()
     for mmsi, vessel in active_vessels.items():
         # Skip filtered/blocked MMSI
         if is_mmsi_blocked(mmsi):
             continue
-        v_dict = vessel.model_dump()
-        v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+        # Hide demo vessels once real AIS has started flowing
+        if suppress_demo and _is_demo_vessel(vessel, mmsi):
+            continue
+        # Use centralized helper to ensure clean data output
+        # IMPORTANT: pass None for session_mmsi so is_user_vessel=False for all.
+        v_dict = prepare_vessel_for_output(vessel, None)
         vessels.append(v_dict)
     return vessels
 
-@api_router.get("/race-analysis/{lock_id}")
-async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
+@api_router.get("/session/{session_mmsi}/race-analysis/{lock_id}")
+async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minutes: int = 20,
+                                    max_speed_mph: float = 25.0):
     """
-    Get race analysis for a specific lock.
+    Get race analysis for a specific session (MMSI) and lock.
+    
+    CRITICAL: This endpoint is EXPLICITLY scoped to a session.
+    Each session gets race analysis calculated for THEIR vessel.
     
     Args:
+        session_mmsi: The session's MMSI (their vessel)
         lock_id: Target lock ID
         buffer_minutes: Minutes of buffer needed before a commercial tow arrives
-                       (to complete your lockage before they get priority)
     """
-    global user_mmsi
+    session_mmsi = str(session_mmsi).strip()
+    
+    # Validate session
+    if not session_mmsi:
+        raise HTTPException(status_code=400, detail="Session MMSI required")
+    
+    logger.info(f"[SESSION:{session_mmsi}] Race analysis requested for {lock_id}")
+    
+    # Distance threshold - don't warn about vessels more than 100 miles from USER
+    MAX_THREAT_DISTANCE = 100.0
     
     if lock_id not in LOCKS:
-        return {"error": "Invalid lock ID"}
+        raise HTTPException(status_code=404, detail="Invalid lock ID")
     
     lock = LOCKS[lock_id]
+    lock_rm = lock["river_mile"]
     
-    # Find user vessel
+    # Find THIS SESSION's vessel - completely isolated
     user_vessel = None
-    if user_mmsi and user_mmsi in active_vessels:
-        user_vessel = active_vessels[user_mmsi].model_dump()
-        user_vessel['timestamp'] = user_vessel['timestamp'].isoformat()
+    user_rm = None
+    if session_mmsi and session_mmsi in active_vessels:
+        user_vessel = prepare_vessel_for_output(active_vessels[session_mmsi], session_mmsi)
+        user_rm = user_vessel.get('river_mile') or estimate_river_mile(user_vessel['lat'], user_vessel['lon'])
     
     # Find competitors heading toward this lock
     competitors = []
     for mmsi, vessel in active_vessels.items():
-        if mmsi == user_mmsi:
+        if mmsi == session_mmsi:
             continue
+
+        # Skip other users' simulated vessels (orphan "Your Vessel" entries from
+        # prior sessions). Demo tows are is_demo=True without is_simulated and
+        # remain eligible as competitors.
+        if isinstance(vessel, dict) and vessel.get('is_simulated') and vessel.get('is_user_vessel'):
+            continue
+
+        # Handle both Pydantic models and dicts (demo vessels are dicts)
+        if hasattr(vessel, 'river_mile'):
+            # Pydantic model
+            vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
+            vessel_speed = vessel.speed
+            vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course, vessel.lat, vessel.lon)
+            vessel_course = vessel.course
+        else:
+            # Dict (demo vessels)
+            vessel_rm = vessel.get('river_mile') or estimate_river_mile(vessel.get('lat'), vessel.get('lon'))
+            vessel_speed = vessel.get('speed', 0)
+            vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0), vessel.get('lat'), vessel.get('lon'))
+            vessel_course = vessel.get('course', 0)
         
         eta = calculate_eta_to_lock(
-            vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon),
-            vessel.speed,
-            vessel.heading or determine_heading(vessel.speed, vessel.course),
-            lock["river_mile"]
+            vessel_rm,
+            vessel_speed,
+            vessel_heading,
+            lock_rm
         )
         
         if eta is not None and eta > 0:
-            v_dict = vessel.model_dump()
-            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+            # Use prepare_vessel_for_output for clean data
+            v_dict = prepare_vessel_for_output(vessel, mmsi)
             v_dict['eta_minutes'] = eta
+            
+            # Calculate distance from this competitor TO THE LOCK (for bi-directional filtering)
+            v_dict['distance_to_lock'] = round(abs(vessel_rm - lock_rm), 1) if vessel_rm else None
+            
+            # Calculate distance from USER to this competitor (for display)
+            if user_rm and vessel_rm:
+                v_dict['distance_from_user'] = round(abs(user_rm - vessel_rm), 1)
+            else:
+                v_dict['distance_from_user'] = None
+                
             competitors.append(v_dict)
     
     # Sort by ETA
@@ -1721,30 +6256,56 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
     
     # Calculate analysis if user vessel exists
     analysis = None
-    if user_vessel and user_vessel.get('river_mile'):
-        user_rm = user_vessel['river_mile']
+    if user_vessel and user_rm:
         user_heading = user_vessel.get('heading', 'southbound')
-        user_distance = abs(user_rm - lock["river_mile"])
+        user_distance = abs(user_rm - lock_rm)
         user_speed_knots = user_vessel.get('speed', 0)
         user_speed_mph = user_speed_knots * 1.15078
         
-        user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock["river_mile"])
+        user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm)
+
+        # If the user's vessel is stopped, do not calculate impossible "speed to beat"
+        # values. A stopped vessel obviously cannot beat traffic to the lock, and the
+        # frontend should not display panic values like 888 MPH.
+        user_stopped_for_timing = (
+            user_speed_mph < 0.5
+            or user_heading == "stationary"
+            or user_eta is None
+        )
         
         # Find most threatening competitor
+        # LOGIC: Any vessel heading TOWARD the lock is a potential competitor,
+        # regardless of which side of the lock they're on (bi-directional).
+        # The competitors list already only contains vessels with valid ETAs
+        # (i.e., vessels heading toward the lock - calculate_eta_to_lock returns None for vessels moving away)
         threat = None
         required_speed = None
         can_beat = True
         
-        if competitors:
-            for comp in competitors:
-                comp_eta = comp.get('eta_minutes')
-                if comp_eta and (user_eta is None or comp_eta < user_eta + buffer_minutes):
-                    # User needs to arrive buffer_minutes BEFORE the tow to get through first
-                    threat = comp
-                    required_speed = calculate_required_speed(user_rm, user_heading, lock["river_mile"], comp_eta, buffer_minutes)
-                    if required_speed and required_speed > 25:
+        for comp in competitors:
+            comp_eta = comp.get('eta_minutes')
+            comp_distance_to_lock = comp.get('distance_to_lock')
+            
+            # Skip if this competitor is more than 100 miles from the LOCK
+            # (using distance to lock, not distance from user, for bi-directional logic)
+            if comp_distance_to_lock is not None and comp_distance_to_lock > MAX_THREAT_DISTANCE:
+                continue
+            
+            # Check if this competitor will arrive before user (with buffer)
+            # Competitors are already sorted by ETA, so first valid one is the biggest threat
+            if comp_eta and (user_stopped_for_timing or user_eta is None or comp_eta < user_eta + buffer_minutes):
+                # User needs to arrive buffer_minutes BEFORE the tow to get through first.
+                # If stopped, keep the traffic threat but suppress impossible speed math.
+                threat = comp
+
+                if user_stopped_for_timing:
+                    required_speed = None
+                    can_beat = False
+                else:
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
+                    if required_speed is None or required_speed > max_speed_mph:
                         can_beat = False
-                    break
+                break
         
         analysis = {
             "user_distance_to_lock": round(user_distance, 1),
@@ -1752,9 +6313,12 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
             "user_current_speed_mph": round(user_speed_mph, 1),
             "threatening_vessel": threat,
             "required_speed_mph": required_speed,
-            "can_beat_at_25mph": can_beat,
-            "max_speed_mph": 25,
-            "buffer_minutes": buffer_minutes
+            "can_beat_at_25mph": can_beat,          # legacy key: evaluated at max_speed_mph
+            "can_beat_at_max_speed": can_beat,
+            "max_speed_mph": max_speed_mph,
+            "buffer_minutes": buffer_minutes,
+            "timing_paused": user_stopped_for_timing,
+            "timing_paused_reason": "stopped" if user_stopped_for_timing else None
         }
     
     return RaceAnalysis(
@@ -1766,40 +6330,324 @@ async def get_race_analysis(lock_id: str, buffer_minutes: int = 20):
         analysis=analysis
     )
 
-@api_router.post("/set-user-mmsi")
-async def set_user_mmsi(data: dict):
-    """Set the user's MMSI number."""
-    global user_mmsi
-    user_mmsi = data.get("mmsi", "")
+
+# Legacy race analysis endpoint - requires mmsi query param
+@api_router.get("/race-analysis/{lock_id}")
+async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minutes: int = 20,
+                                   max_speed_mph: float = 25.0):
+    """
+    LEGACY: Get race analysis for a lock.
+    
+    DEPRECATED: Use GET /session/{mmsi}/race-analysis/{lock_id} instead.
+    """
+    if not mmsi:
+        raise HTTPException(status_code=400, detail="mmsi query parameter required. Use GET /session/{mmsi}/race-analysis/{lock_id}")
+    
+    return await get_session_race_analysis(mmsi, lock_id, buffer_minutes, max_speed_mph)
+
+
+# =============================================================================
+# TRIP PLAN - Chain Race Analysis Across Multiple Locks Ahead
+# =============================================================================
+@api_router.get("/session/{session_mmsi}/trip-plan")
+async def get_session_trip_plan(
+    session_mmsi: str,
+    destination_rm: Optional[float] = None,
+    buffer_minutes: int = 20,
+    max_locks: int = 5,
+    max_speed_mph: float = 25.0,
+):
+    """
+    Compute a multi-lock trip plan for a session's vessel.
+
+    For each lock the user will encounter (in their heading direction), this
+    returns the race-to-beat status against the most threatening commercial
+    tow targeting that same lock.
+
+    Query params:
+    - destination_rm: Optional river mile to stop the chain at (otherwise
+      uses end of river in heading direction).
+    - buffer_minutes: Minutes of buffer required before a competing tow.
+    - max_locks: Max number of locks to include in the chain (1-15).
+
+    Status values per leg:
+    - "clear":     no threatening vessel within 100 mi of the lock
+    - "on_pace":   tow detected but user already on pace at current speed
+    - "speed_up":  beatable but user must increase speed (still <= 25 mph)
+    - "cant_beat": required speed exceeds 25 mph max
+    - "no_data":   insufficient info (no speed/heading) to compute
+    """
+    session_mmsi = str(session_mmsi).strip()
+    if not session_mmsi:
+        raise HTTPException(status_code=400, detail="Session MMSI required")
+
+    max_locks = max(1, min(int(max_locks or 5), 15))
+    MAX_THREAT_DISTANCE = 100.0
+    USER_MAX_MPH = max(1.0, min(float(max_speed_mph or 25.0), 80.0))
+
+    # Find the user vessel
+    if session_mmsi not in active_vessels:
+        return {
+            "session_mmsi": session_mmsi,
+            "user_vessel": None,
+            "heading": None,
+            "destination_rm": destination_rm,
+            "legs": [],
+            "summary": {
+                "total_distance_mi": 0,
+                "cumulative_eta_minutes": None,
+                "legs_count": 0,
+                "cant_beat_count": 0,
+                "speed_up_count": 0,
+                "clear_count": 0,
+                "overall_status": "no_user",
+            },
+        }
+
+    user_vessel = prepare_vessel_for_output(active_vessels[session_mmsi], session_mmsi)
+    user_rm = user_vessel.get('river_mile') or estimate_river_mile(user_vessel.get('lat'), user_vessel.get('lon'))
+    user_speed_knots = user_vessel.get('speed') or 0
+    user_speed_mph = user_speed_knots * 1.15078
+    user_heading = user_vessel.get('heading') or determine_heading(user_speed_knots, user_vessel.get('course'), user_vessel.get('lat'), user_vessel.get('lon'))
+
+    # Build ordered chain of locks ahead of the user in heading direction.
+    locks_sorted = sorted(LOCKS.items(), key=lambda kv: kv[1]['river_mile'])
+    chain: List[tuple] = []  # list of (lock_id, lock_dict)
+    if user_heading == 'northbound':
+        # River miles increase northbound. Take locks with RM > user_rm in ascending order.
+        for lid, ldata in locks_sorted:
+            if ldata['river_mile'] > (user_rm or 0):
+                if destination_rm is not None and ldata['river_mile'] > destination_rm:
+                    break
+                chain.append((lid, ldata))
+    elif user_heading == 'southbound':
+        # River miles decrease southbound. Take locks with RM < user_rm in descending order.
+        for lid, ldata in reversed(locks_sorted):
+            if ldata['river_mile'] < (user_rm or 0):
+                if destination_rm is not None and ldata['river_mile'] < destination_rm:
+                    break
+                chain.append((lid, ldata))
+    else:
+        # Stationary or unknown - no chain
+        chain = []
+
+    chain = chain[:max_locks]
+
+    # Build per-leg analysis
+    legs = []
+    cumulative_eta = 0.0 if user_speed_mph > 0 else None
+    cant_beat_count = 0
+    speed_up_count = 0
+    clear_count = 0
+    last_rm = user_rm
+
+    for lid, ldata in chain:
+        lock_rm = ldata['river_mile']
+        leg_distance = round(abs((last_rm or lock_rm) - lock_rm), 1)
+
+        user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm) if user_rm else None
+
+        # Find threatening competitor for THIS lock (bi-directional)
+        threat = None
+        threat_eta = None
+        required_speed = None
+        for mmsi, vessel in active_vessels.items():
+            if mmsi == session_mmsi:
+                continue
+            # Skip other users' simulated vessels (they are not real commercial traffic).
+            # These can show up as "Your Vessel" orphans from prior test sessions.
+            if isinstance(vessel, dict):
+                if vessel.get('is_simulated') and vessel.get('is_user_vessel'):
+                    continue
+            if hasattr(vessel, 'river_mile'):
+                vessel_rm = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
+                vessel_speed = vessel.speed
+                vessel_heading = vessel.heading or determine_heading(vessel.speed, vessel.course, vessel.lat, vessel.lon)
+            else:
+                vessel_rm = vessel.get('river_mile') or estimate_river_mile(vessel.get('lat'), vessel.get('lon'))
+                vessel_speed = vessel.get('speed', 0)
+                vessel_heading = vessel.get('heading') or vessel.get('heading_direction') or determine_heading(vessel.get('speed', 0), vessel.get('course', 0), vessel.get('lat'), vessel.get('lon'))
+
+            eta = calculate_eta_to_lock(vessel_rm, vessel_speed, vessel_heading, lock_rm)
+            if eta is None or eta <= 0:
+                continue
+
+            # Ignore competitors too far from the lock
+            if vessel_rm is not None and abs(vessel_rm - lock_rm) > MAX_THREAT_DISTANCE:
+                continue
+
+            # Earliest competitor wins; user needs to arrive buffer_minutes before them
+            if user_eta is None or eta < user_eta + buffer_minutes:
+                if threat_eta is None or eta < threat_eta:
+                    v_dict = prepare_vessel_for_output(vessel, mmsi)
+                    v_dict['eta_minutes'] = eta
+                    v_dict['distance_to_lock'] = round(abs(vessel_rm - lock_rm), 1) if vessel_rm else None
+                    threat = v_dict
+                    threat_eta = eta
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, eta, buffer_minutes)
+
+        # Determine status
+        if user_rm is None or user_speed_knots < 0.1 or user_heading not in ('northbound', 'southbound'):
+            status = 'no_data'
+        elif threat is None:
+            status = 'clear'
+            clear_count += 1
+        elif required_speed is None:
+            # Can't compute required speed - treat as can't beat
+            status = 'cant_beat'
+            cant_beat_count += 1
+        elif required_speed > USER_MAX_MPH:
+            status = 'cant_beat'
+            cant_beat_count += 1
+        elif required_speed > user_speed_mph + 0.5:
+            status = 'speed_up'
+            speed_up_count += 1
+        else:
+            status = 'on_pace'
+            clear_count += 1
+
+        legs.append({
+            "lock_id": lid,
+            "lock_name": ldata['name'],
+            "lock_rm": lock_rm,
+            "leg_distance_mi": leg_distance,
+            "user_eta_minutes": user_eta,
+            "threatening_vessel": threat,
+            "required_speed_mph": required_speed,
+            "status": status,
+            "buffer_minutes": buffer_minutes,
+        })
+
+        if cumulative_eta is not None and user_eta is not None:
+            cumulative_eta = user_eta  # Each user_eta already from current position
+        last_rm = lock_rm
+
+    # Total distance is from user position to the final lock in the chain (if any)
+    total_distance = 0.0
+    if chain and user_rm is not None:
+        total_distance = round(abs(chain[-1][1]['river_mile'] - user_rm), 1)
+
+    # Overall status: worst of the chain
+    if cant_beat_count > 0:
+        overall = 'cant_beat'
+    elif speed_up_count > 0:
+        overall = 'speed_up'
+    elif clear_count > 0:
+        overall = 'clear'
+    else:
+        overall = 'no_data'
+
+    return {
+        "session_mmsi": session_mmsi,
+        "user_vessel": user_vessel,
+        "user_rm": user_rm,
+        "user_speed_mph": round(user_speed_mph, 1),
+        "heading": user_heading,
+        "destination_rm": destination_rm,
+        "legs": legs,
+        "summary": {
+            "total_distance_mi": total_distance,
+            "cumulative_eta_minutes": legs[-1]["user_eta_minutes"] if legs else None,
+            "legs_count": len(legs),
+            "cant_beat_count": cant_beat_count,
+            "speed_up_count": speed_up_count,
+            "clear_count": clear_count,
+            "overall_status": overall,
+            "max_speed_mph": USER_MAX_MPH,
+        },
+    }
+
+
+@api_router.post("/set-user-mmsi", dependencies=[Depends(require_user)])
+async def set_user_mmsi_legacy(data: dict):
+    """
+    LEGACY: Set the user's MMSI number.
+    
+    DEPRECATED: Sessions are now created automatically when connecting.
+    This endpoint just creates/updates a session.
+    """
+    mmsi = data.get("mmsi", "")
+    if not mmsi:
+        raise HTTPException(status_code=400, detail="mmsi required")
+    
+    # Create session for this MMSI
+    session_manager.create_session(mmsi)
     
     # Update vessel if already tracked
-    if user_mmsi in active_vessels:
-        active_vessels[user_mmsi].is_user_vessel = True
+    if mmsi in active_vessels:
+        active_vessels[mmsi].is_user_vessel = True
     
-    # Save to database
-    await db.settings.update_one(
-        {"key": "user_mmsi"},
-        {"$set": {"value": user_mmsi, "updated_at": datetime.now(timezone.utc).isoformat()}},
-        upsert=True
-    )
+    logger.info(f"[SESSION:{mmsi}] Session created via set-user-mmsi")
     
-    return {"success": True, "mmsi": user_mmsi}
+    return {"success": True, "mmsi": mmsi}
 
-@api_router.post("/user-position")
-async def update_user_position(data: dict):
+
+@api_router.get("/sessions", dependencies=[Depends(require_admin)])
+async def get_active_sessions():
     """
-    Update user's vessel position directly (bypasses AIS feed).
+    Get list of active sessions (for debugging/admin).
     
-    This solves the common AIS "self-suppression" issue where Boat Beacon
-    and similar apps intentionally filter out your own MMSI from the feed.
+    Shows which MMSIs have active WebSocket connections.
+    """
+    sessions = session_manager.get_active_sessions()
+    return {
+        "total_sessions": len(sessions),
+        "sessions": sessions
+    }
+
+
+@api_router.get("/session/{session_mmsi}/vessels")
+async def get_vessels_for_session(session_mmsi: str):
+    """
+    Get all vessels with is_user_vessel correctly set for this session.
+    
+    CRITICAL: Each session sees their own vessel highlighted.
+    """
+    session_mmsi = str(session_mmsi).strip()
+    if not session_mmsi:
+        raise HTTPException(status_code=400, detail="Session MMSI required")
+    
+    vessels = []
+    for mmsi, vessel in active_vessels.items():
+        if is_mmsi_blocked(mmsi):
+            continue
+        # EXPLICIT: is_user_vessel is TRUE only if vessel MMSI matches session MMSI
+        v_dict = prepare_vessel_for_output(vessel, session_mmsi)
+        v_dict["is_user_vessel"] = (mmsi == session_mmsi)
+        vessels.append(v_dict)
+    
+    logger.info(f"[SESSION:{session_mmsi}] Returned {len(vessels)} vessels")
+    return vessels
+
+
+def _user_owns_mmsi(user: dict, mmsi: str) -> bool:
+    if user.get("is_admin") or user.get("is_super_admin"):
+        return True
+    return any(str(v.get("mmsi")) == str(mmsi) for v in (user.get("vessels") or []) if isinstance(v, dict))
+
+
+@api_router.post("/session/{session_mmsi}/position")
+async def update_session_position(session_mmsi: str, data: dict, user: dict = Depends(require_user)):
+    """
+    Update position for a specific session (MMSI).
+    
+    CRITICAL: This endpoint is EXPLICITLY scoped to a session.
+    Updating position for MMSI 338414076 will NEVER affect MMSI 367555123.
     
     Position can come from:
     - Browser Geolocation API
     - Manual lat/lon entry
     - External GPS source
     """
-    global user_mmsi
+    # Validate session MMSI
+    if not session_mmsi or len(session_mmsi) < 5:
+        raise HTTPException(status_code=400, detail="Valid session MMSI required")
     
+    session_mmsi = str(session_mmsi).strip()
+    # Only the boat's owner (or an admin) may move it on everyone's map.
+    if not _user_owns_mmsi(user, session_mmsi):
+        raise HTTPException(status_code=403, detail="Add this MMSI to your account before sharing its position")
+
     lat = data.get("lat")
     lon = data.get("lon")
     speed = data.get("speed", 0)  # knots
@@ -1807,28 +6655,29 @@ async def update_user_position(data: dict):
     source = data.get("source", "manual")  # "geolocation", "manual", "external"
     
     if lat is None or lon is None:
-        return {"success": False, "error": "lat and lon required"}
+        raise HTTPException(status_code=400, detail="lat and lon required")
     
-    # Use MMSI from request, then global user_mmsi, then default
-    mmsi = data.get("mmsi") or user_mmsi or "USER_VESSEL"
+    logger.info(f"[SESSION:{session_mmsi}] Position update via {source}: lat={lat:.4f}, lon={lon:.4f}")
     
-    # If MMSI provided in request, also update the global user_mmsi
-    if data.get("mmsi") and data.get("mmsi") != user_mmsi:
-        user_mmsi = data.get("mmsi")
-        logger.info(f"Updated user_mmsi to: {user_mmsi}")
+    # Create or get session
+    session_manager.create_session(session_mmsi)
+    session_manager.update_session_activity(session_mmsi)
     
-    # Get boat name - prefer request, then cache, then default
+    # Get boat name from session settings
     boat_name = data.get("name") or "Your Vessel"
-    if mmsi in vessel_static_cache:
-        boat_name = vessel_static_cache[mmsi].get("name", boat_name)
+    user_settings = await db.user_settings.find_one({"mmsi": session_mmsi}, {"_id": 0})
+    if user_settings and user_settings.get("settings", {}).get("boat_name"):
+        boat_name = user_settings["settings"]["boat_name"]
+    elif session_mmsi in vessel_static_cache:
+        boat_name = vessel_static_cache[session_mmsi].get("name", boat_name)
     
     # Calculate river mile and heading
     rm = estimate_river_mile(lat, lon)
-    heading = determine_heading(speed, course)
+    heading = determine_heading(speed, course, lat, lon)
     
-    # Create or update user vessel
+    # Create or update vessel for THIS SESSION ONLY
     vessel = VesselPosition(
-        mmsi=mmsi,
+        mmsi=session_mmsi,
         name=boat_name,
         lat=lat,
         lon=lon,
@@ -1836,29 +6685,89 @@ async def update_user_position(data: dict):
         course=course,
         river_mile=rm,
         heading=heading,
-        is_user_vessel=True,
+        is_user_vessel=True,  # Will be recalculated per-session when sent to clients
         vessel_type="recreational",
     )
     
-    active_vessels[mmsi] = vessel
+    # Store in active_vessels keyed by THIS session's MMSI
+    active_vessels[session_mmsi] = vessel
     
-    logger.info(f"User position updated via {source}: lat={lat:.4f}, lon={lon:.4f}, RM={rm:.1f}")
+    logger.info(f"[SESSION:{session_mmsi}] Position stored: RM={rm}, speed={speed}")
     
-    v_dict = vessel.model_dump()
-    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+    # Persist vessel sighting to database
+    v_dict = prepare_vessel_for_output(vessel, session_mmsi)
     v_dict['source'] = source
+    asyncio.create_task(persist_vessel_sighting(v_dict))
+    # Push to everyone watching, not just the phone that sent it.
+    await ais_manager._broadcast_vessel_update(v_dict)
     
-    return {"success": True, "vessel": v_dict}
+    # Also persist position to user's account if they have this vessel
+    asyncio.create_task(persist_vessel_position_to_user(session_mmsi, {
+        "lat": lat,
+        "lon": lon,
+        "speed": speed,
+        "course": course,
+        "river_mile": rm,
+        "heading_direction": heading,
+        "last_position_update": datetime.now(timezone.utc).isoformat()
+    }))
+    
+    return {"success": True, "session_mmsi": session_mmsi, "vessel": v_dict}
 
-@api_router.get("/settings")
-async def get_settings():
-    """Get saved settings."""
+
+# Legacy endpoint - redirects to session-based endpoint
+@api_router.post("/user-position")
+async def update_user_position_legacy(data: dict, user: dict = Depends(require_user)):
+    """
+    LEGACY: Update user's vessel position.
+    
+    DEPRECATED: Use POST /session/{mmsi}/position instead.
+    This endpoint requires mmsi in the request body.
+    """
+    mmsi = data.get("mmsi")
+    if not mmsi:
+        raise HTTPException(status_code=400, detail="mmsi required in request body. Use POST /session/{mmsi}/position instead.")
+    
+    return await update_session_position(mmsi, data, user)
+
+
+@api_router.get("/settings", dependencies=[Depends(require_user)])
+async def get_settings(mmsi: str = None):
+    """Get saved settings. If mmsi provided, get user-specific settings."""
+    if mmsi:
+        # Get user-specific settings
+        user_settings = await db.user_settings.find_one({"mmsi": mmsi}, {"_id": 0})
+        if user_settings:
+            return user_settings.get("settings", {})
+        # Fall back to defaults
+        return {}
+    
+    # Legacy: get global settings
     settings = await db.settings.find({}, {"_id": 0}).to_list(100)
     return {s["key"]: s["value"] for s in settings}
 
-@api_router.post("/settings")
+@api_router.post("/settings", dependencies=[Depends(require_admin)])
 async def save_settings(data: dict):
-    """Save connection settings."""
+    """Save settings. If mmsi in data, save as user-specific settings."""
+    mmsi = data.pop("mmsi", None) if isinstance(data, dict) else None
+    
+    if mmsi:
+        # Save user-specific settings
+        await db.user_settings.update_one(
+            {"mmsi": mmsi},
+            {
+                "$set": {
+                    "mmsi": mmsi,
+                    "settings": data,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
+            },
+            upsert=True
+        )
+        logger.info(f"Saved settings for user MMSI: {mmsi}")
+        return {"success": True, "mmsi": mmsi}
+    
+    # Legacy: save global settings
     for key, value in data.items():
         await db.settings.update_one(
             {"key": key},
@@ -1867,17 +6776,48 @@ async def save_settings(data: dict):
         )
     return {"success": True}
 
+
+@api_router.get("/user/{mmsi}/settings", dependencies=[Depends(require_user)])
+async def get_user_settings(mmsi: str):
+    """Get settings for a specific user (by MMSI)."""
+    user_settings = await db.user_settings.find_one({"mmsi": mmsi}, {"_id": 0})
+    if user_settings:
+        return {
+            "mmsi": mmsi,
+            "settings": user_settings.get("settings", {}),
+            "updated_at": user_settings.get("updated_at")
+        }
+    return {"mmsi": mmsi, "settings": {}, "updated_at": None}
+
+
+@api_router.post("/user/{mmsi}/settings", dependencies=[Depends(require_user)])  
+async def save_user_settings(mmsi: str, data: dict):
+    """Save settings for a specific user (by MMSI)."""
+    await db.user_settings.update_one(
+        {"mmsi": mmsi},
+        {
+            "$set": {
+                "mmsi": mmsi,
+                "settings": data,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        },
+        upsert=True
+    )
+    logger.info(f"Saved settings for user MMSI: {mmsi}")
+    return {"success": True, "mmsi": mmsi}
+
 # Blocked MMSI Management
 @api_router.get("/blocked-mmsi")
 async def get_blocked_mmsi():
     """Get list of user-blocked MMSIs."""
-    blocked = await db.blocked_mmsi.find({}, {"_id": 0}).to_list(100)
+    blocked = await repos.blocked_mmsi.get_all_blocked()
     return {
         "blocked": blocked,
         "system_filtered": list(FILTERED_MMSI)
     }
 
-@api_router.post("/blocked-mmsi")
+@api_router.post("/blocked-mmsi", dependencies=[Depends(require_admin)])
 async def add_blocked_mmsi(data: dict):
     """Add an MMSI to the block list."""
     global user_blocked_mmsi
@@ -1889,15 +6829,7 @@ async def add_blocked_mmsi(data: dict):
         return {"success": False, "error": "MMSI required"}
     
     # Add to database
-    await db.blocked_mmsi.update_one(
-        {"mmsi": mmsi},
-        {"$set": {
-            "mmsi": mmsi,
-            "reason": reason,
-            "blocked_at": datetime.now(timezone.utc).isoformat()
-        }},
-        upsert=True
-    )
+    await repos.blocked_mmsi.block_mmsi(mmsi, reason)
     
     # Add to in-memory set
     user_blocked_mmsi.add(mmsi)
@@ -1910,27 +6842,39 @@ async def add_blocked_mmsi(data: dict):
     logger.info(f"Blocked MMSI {mmsi}: {reason}")
     return {"success": True, "mmsi": mmsi}
 
-@api_router.delete("/blocked-mmsi/{mmsi}")
+@api_router.delete("/blocked-mmsi/{mmsi}", dependencies=[Depends(require_admin)])
 async def remove_blocked_mmsi(mmsi: str):
     """Remove an MMSI from the block list."""
     global user_blocked_mmsi
     
     # Remove from database
-    result = await db.blocked_mmsi.delete_one({"mmsi": mmsi})
+    success = await repos.blocked_mmsi.unblock_mmsi(mmsi)
     
     # Remove from in-memory set
     user_blocked_mmsi.discard(mmsi)
     
-    if result.deleted_count > 0:
+    if success:
         logger.info(f"Unblocked MMSI {mmsi}")
         return {"success": True, "mmsi": mmsi}
     else:
         return {"success": False, "error": "MMSI not found in block list"}
 
+
+@api_router.get("/filter-config")
+async def get_filter_config():
+    """Get the current vessel filtering configuration."""
+    from config import UPPER_MISSISSIPPI_BOUNDS, ILLINOIS_RIVER_EXCLUSION
+    return {
+        "upper_mississippi_bounds": UPPER_MISSISSIPPI_BOUNDS,
+        "illinois_river_exclusion": ILLINOIS_RIVER_EXCLUSION,
+        "description": "Vessels outside Upper Mississippi bounds or in Illinois River zone are filtered out"
+    }
+
+
 async def load_blocked_mmsi():
     """Load user-blocked MMSIs from database on startup."""
     global user_blocked_mmsi
-    blocked = await db.blocked_mmsi.find({}, {"_id": 0}).to_list(100)
+    blocked = await repos.blocked_mmsi.get_all_blocked()
     user_blocked_mmsi = {item["mmsi"] for item in blocked}
     logger.info(f"Loaded {len(user_blocked_mmsi)} blocked MMSIs from database")
 
@@ -1939,325 +6883,98 @@ def is_mmsi_blocked(mmsi: str) -> bool:
     return mmsi in FILTERED_MMSI or mmsi in user_blocked_mmsi
 
 # WebSocket for real-time AIS data
+# Note: We register both paths - /ws/ais for local and /api/ws/ais for production
+# The /api prefix is needed because Kubernetes ingress routes /api/* to backend
 @app.websocket("/ws/ais")
+@app.websocket("/api/ws/ais")
 async def websocket_ais(websocket: WebSocket):
-    """WebSocket endpoint for real-time AIS data streaming."""
-    await websocket.accept()
+    """
+    WebSocket endpoint for real-time AIS data streaming.
     
-    ais_socket = None
-    connection_active = False
+    Uses the singleton AISConnectionManager - all clients share ONE TCP connection.
+    Each client tracks their own MMSI for per-user vessel highlighting.
+    """
+    await websocket.accept()
+    logger.info("WebSocket client connected to /ws/ais")
+    subscribed = False
+    client_mmsi = ""  # Track this client's MMSI
+    client_boat_name = ""
     
     try:
         while True:
             # Receive config or commands from client
             data = await websocket.receive_text()
             msg = json.loads(data)
+            logger.debug(f"WebSocket received action: {msg.get('action')}")
             
             if msg.get("action") == "connect":
                 ip = msg.get("ip_address")
                 port = msg.get("port", 5353)
-                mmsi = msg.get("user_mmsi", "")
-                boat_name = msg.get("boat_name", "")
+                client_mmsi = msg.get("user_mmsi", "")
+                client_boat_name = msg.get("boat_name", "")
                 
-                global user_mmsi
-                user_mmsi = mmsi
-                
-                try:
-                    # Close existing connection
-                    if ais_socket:
-                        ais_socket.close()
-                    
-                    # Pre-populate user vessel in cache if we have their MMSI
-                    # This ensures they show up even if their own AIS data isn't in the feed
-                    if mmsi and boat_name:
-                        vessel_static_cache[mmsi] = {
-                            'name': boat_name,
-                            'is_user': True
-                        }
-                        logger.info(f"Pre-cached user vessel: {mmsi} = {boat_name}")
-                    
-                    # Connect to AIS feed
-                    ais_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    ais_socket.settimeout(5)
-                    ais_socket.connect((ip, port))
-                    ais_socket.setblocking(False)
-                    connection_active = True
-                    
-                    await websocket.send_json({"type": "connected", "message": f"Connected to {ip}:{port}"})
-                    
-                    # Start reading AIS data
-                    buffer = ""
-                    gps_update_count = 0  # Track GPS updates for logging
-                    
-                    while connection_active:
-                        try:
-                            # Try to receive data (non-blocking)
-                            try:
-                                chunk = ais_socket.recv(4096).decode('ascii', errors='ignore')
-                                if chunk:
-                                    buffer += chunk
-                                    
-                                    # Process complete lines
-                                    while '\n' in buffer:
-                                        line, buffer = buffer.split('\n', 1)
-                                        
-                                        # Broadcast raw line to debug subscribers
-                                        if len(line.strip()) > 0:
-                                            await broadcast_raw_line(line.strip())
-                                        
-                                        # Log raw data for debugging (first 100 chars)
-                                        if len(line) > 5:
-                                            logger.debug(f"Raw NMEA: {line[:100]}")
-                                        
-                                        # First try to parse as GPS (for user's own position)
-                                        gps_data = parse_nmea_gps(line)
-                                        if gps_data and user_mmsi:
-                                            # Update user vessel from GPS data
-                                            rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
-                                            heading = determine_heading(gps_data['speed'], gps_data['course'])
-                                            
-                                            logger.info(f"GPS position for user {user_mmsi}: lat={gps_data['lat']:.4f}, lon={gps_data['lon']:.4f}, RM={rm:.1f}")
-                                            
-                                            # Get name from cache or settings
-                                            vessel_name = boat_name
-                                            if user_mmsi in vessel_static_cache:
-                                                vessel_name = vessel_static_cache[user_mmsi].get('name', boat_name)
-                                            
-                                            vessel = VesselPosition(
-                                                mmsi=user_mmsi,
-                                                name=vessel_name,
-                                                lat=gps_data['lat'],
-                                                lon=gps_data['lon'],
-                                                speed=gps_data['speed'],
-                                                course=gps_data['course'],
-                                                river_mile=rm,
-                                                heading=heading,
-                                                is_user_vessel=True,
-                                                vessel_type='recreational',
-                                            )
-                                            
-                                            active_vessels[user_mmsi] = vessel
-                                            
-                                            # Send update to client (throttle GPS updates)
-                                            gps_update_count += 1
-                                            if gps_update_count % 5 == 0:  # Send every 5th GPS update
-                                                v_dict = vessel.model_dump()
-                                                v_dict['timestamp'] = v_dict['timestamp'].isoformat()
-                                                v_dict['source'] = 'GPS'
-                                                await websocket.send_json({"type": "vessel_update", "vessel": v_dict})
-                                            continue
-                                        
-                                        # Then try to parse as AIS
-                                        vessel_data = parse_nmea_ais(line)
-                                        
-                                        if vessel_data and vessel_data.get('mmsi'):
-                                            mmsi_parsed = vessel_data['mmsi']
-                                            
-                                            # Skip filtered/blocked MMSI (test beacons, user-blocked)
-                                            if is_mmsi_blocked(mmsi_parsed):
-                                                continue
-                                            
-                                            # Calculate river mile and heading
-                                            rm = estimate_river_mile(vessel_data['lat'], vessel_data['lon'])
-                                            heading = determine_heading(vessel_data['speed'], vessel_data['course'])
-                                            
-                                            # Preserve existing name if new data doesn't have one
-                                            vessel_name = vessel_data.get('name', '')
-                                            if not vessel_name and mmsi_parsed in active_vessels:
-                                                vessel_name = active_vessels[mmsi_parsed].name
-                                            
-                                            # Determine if this is the user's vessel
-                                            is_user = (mmsi_parsed == user_mmsi) or vessel_data.get('is_own_vessel', False)
-                                            
-                                            vessel = VesselPosition(
-                                                mmsi=mmsi_parsed,
-                                                name=vessel_name,
-                                                lat=vessel_data['lat'],
-                                                lon=vessel_data['lon'],
-                                                speed=vessel_data['speed'],
-                                                course=vessel_data['course'],
-                                                river_mile=rm,
-                                                heading=heading,
-                                                is_user_vessel=is_user,
-                                                vessel_type=vessel_data.get('vessel_type', 'unknown'),
-                                                ship_type=vessel_data.get('ship_type'),
-                                                length=vessel_data.get('length'),
-                                                width=vessel_data.get('width'),
-                                                draught=vessel_data.get('draught'),
-                                                is_tow=vessel_data.get('is_tow', False),
-                                                barge_count=vessel_data.get('barge_count'),
-                                                tow_config=vessel_data.get('tow_config'),
-                                                estimated_lockage_time=vessel_data.get('estimated_lockage_time'),
-                                                # Additional AIS fields
-                                                turn_rate=vessel_data.get('turn_rate'),
-                                                nav_status=vessel_data.get('nav_status'),
-                                                nav_status_text=vessel_data.get('nav_status_text'),
-                                                destination=vessel_data.get('destination'),
-                                                callsign=vessel_data.get('callsign'),
-                                                imo=vessel_data.get('imo'),
-                                                eta=vessel_data.get('eta'),
-                                            )
-                                            
-                                            # If this is the user vessel, update user_mmsi if not set
-                                            if vessel_data.get('is_own_vessel') and not user_mmsi:
-                                                user_mmsi = mmsi_parsed
-                                                logger.info(f"Auto-detected user vessel MMSI: {mmsi_parsed}")
-                                            
-                                            active_vessels[vessel.mmsi] = vessel
-                                            
-                                            # Track vessel passage through locks
-                                            await track_vessel_lock_passage(vessel.model_dump())
-                                            
-                                            # Persist vessel name to database if we got one from AIS
-                                            if vessel_data.get('name') and vessel_data.get('_persist_to_db'):
-                                                try:
-                                                    await db.vessel_names.update_one(
-                                                        {"mmsi": mmsi_parsed},
-                                                        {"$set": {
-                                                            "mmsi": mmsi_parsed,
-                                                            "name": vessel_data['name'],
-                                                            "ship_type": vessel_data.get('ship_type'),
-                                                            "source": "AIS",
-                                                            "updated_at": datetime.now(timezone.utc).isoformat()
-                                                        }},
-                                                        upsert=True
-                                                    )
-                                                except Exception as e:
-                                                    logger.error(f"Failed to persist vessel name to DB: {e}")
-                                            
-                                            # Send update to client
-                                            v_dict = vessel.model_dump()
-                                            v_dict['timestamp'] = v_dict['timestamp'].isoformat()
-                                            v_dict['source'] = 'AIS'
-                                            await websocket.send_json({"type": "vessel_update", "vessel": v_dict})
-                                            
-                            except BlockingIOError:
-                                pass
-                            
-                            # Check for client messages (non-blocking)
-                            try:
-                                client_msg = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
-                                client_data = json.loads(client_msg)
-                                if client_data.get("action") == "disconnect":
-                                    connection_active = False
-                                    break
-                            except asyncio.TimeoutError:
-                                pass
-                            
-                            await asyncio.sleep(0.1)
-                            
-                        except Exception as e:
-                            logger.error(f"Error reading AIS data: {e}")
-                            await asyncio.sleep(1)
-                            
-                except Exception as e:
-                    await websocket.send_json({"type": "error", "message": f"Connection failed: {str(e)}"})
+                # The TCP feed is shared by every viewer and owned by the server
+                # (set via POST /api/connection/start, restored on restart).
+                # Opening a dashboard only subscribes: a viewer's stale browser
+                # config must never re-point the live feed for everyone. The
+                # ip_address/port fields older clients send are ignored.
+                current = ais_manager.config or {}
+                if ip and (current.get("ip_address") != ip or current.get("port") != port):
+                    logger.info(
+                        f"WebSocket connect asked for {ip}:{port}; keeping server feed "
+                        f"{current.get('ip_address')}:{current.get('port')} (change it in Settings)"
+                    )
+                if client_mmsi:
+                    session_manager.create_session(client_mmsi)
+                    if client_boat_name:
+                        vessel_static_cache[client_mmsi] = {"name": client_boat_name, "is_user": True}
+
+                # Subscribe this WebSocket with user's MMSI for per-user vessel tracking
+                if not subscribed:
+                    await ais_manager.subscribe(websocket, client_mmsi, client_boat_name)
+                    subscribed = True
+                    logger.info(f"WebSocket subscribed to AIS updates (MMSI: {client_mmsi})")
+                else:
+                    # Update existing subscription with new MMSI if changed
+                    ais_manager._subscribers[websocket] = {"mmsi": client_mmsi, "boat_name": client_boat_name}
+                    logger.info(f"Updated subscription MMSI: {client_mmsi}")
                     
             elif msg.get("action") == "disconnect":
-                connection_active = False
-                if ais_socket:
-                    ais_socket.close()
-                    ais_socket = None
-                await websocket.send_json({"type": "disconnected", "message": "Disconnected from AIS feed"})
+                # Just unsubscribe from updates - don't close the shared connection
+                if subscribed:
+                    await ais_manager.unsubscribe(websocket)
+                    subscribed = False
+                await websocket.send_json({"type": "disconnected", "message": "Unsubscribed from AIS feed"})
                 
             elif msg.get("action") == "get_vessels":
                 vessels = []
                 for mmsi, vessel in active_vessels.items():
-                    v_dict = vessel.model_dump()
-                    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
+                    # Use client's MMSI to mark their vessel
+                    v_dict = prepare_vessel_for_output(vessel, client_mmsi)
                     vessels.append(v_dict)
                 await websocket.send_json({"type": "vessels", "vessels": vessels})
                 
+            elif msg.get("action") == "status":
+                # Return current connection status
+                await websocket.send_json({
+                    "type": "status",
+                    "status": ais_manager.get_status()
+                })
+                
     except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
+        logger.info(f"WebSocket client disconnected (MMSI: {client_mmsi})")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
-        if ais_socket:
-            ais_socket.close()
-
-# Demo endpoint to add test vessels (for development)
-@api_router.post("/demo/add-vessel")
-async def add_demo_vessel(vessel: VesselPosition):
-    """Add a demo vessel for testing."""
-    vessel.river_mile = vessel.river_mile or estimate_river_mile(vessel.lat, vessel.lon)
-    vessel.heading = vessel.heading or determine_heading(vessel.speed, vessel.course)
-    
-    # Estimate tow info if not provided
-    if vessel.is_tow and vessel.barge_count is None:
-        tow_info = estimate_tow_info({
-            'shipname': vessel.name,
-            'ship_type': vessel.ship_type_code or 31,  # Default to towing
-            'length': vessel.length,
-            'width': vessel.width,
-        })
-        vessel.barge_count = tow_info.get('barge_count')
-        vessel.tow_config = tow_info.get('tow_config')
-        vessel.estimated_lockage_time = tow_info.get('estimated_lockage_time')
-    
-    active_vessels[vessel.mmsi] = vessel
-    
-    # Track vessel passage through locks
-    await track_vessel_lock_passage(vessel.model_dump())
-    
-    v_dict = vessel.model_dump()
-    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
-    return {"success": True, "vessel": v_dict}
-
-@api_router.post("/demo/add-tow")
-async def add_demo_tow(data: dict):
-    """Add a demo tow with specific barge configuration for testing."""
-    barge_count = data.get('barge_count', 6)
-    
-    vessel = VesselPosition(
-        mmsi=data.get('mmsi', str(uuid.uuid4())[:9]),
-        name=data.get('name', 'M/V TEST TOW'),
-        lat=data.get('lat', 44.7),
-        lon=data.get('lon', -92.8),
-        speed=data.get('speed', 4),
-        course=data.get('course', 0),
-        vessel_type='towing',
-        is_tow=True,
-        barge_count=barge_count,
-        tow_config=data.get('tow_config', '2x3'),
-        length=data.get('length', 200),
-        width=data.get('width', 22),
-    )
-    
-    vessel.river_mile = estimate_river_mile(vessel.lat, vessel.lon)
-    vessel.heading = determine_heading(vessel.speed, vessel.course)
-    
-    # Calculate lockage time based on barge count
-    # Upper Mississippi locks are 600ft - >9 barges requires double lockage
-    if barge_count:
-        if barge_count <= 6:
-            vessel.estimated_lockage_time = 30
-        elif barge_count <= 9:
-            vessel.estimated_lockage_time = 45
-        else:
-            # Double lockage required
-            vessel.estimated_lockage_time = 90 + (barge_count - 9) * 5
-    
-    active_vessels[vessel.mmsi] = vessel
-    
-    # Track vessel passage through locks (demo vessels too!)
-    await track_vessel_lock_passage(vessel.model_dump())
-    
-    v_dict = vessel.model_dump()
-    v_dict['timestamp'] = v_dict['timestamp'].isoformat()
-    return {"success": True, "vessel": v_dict}
-
-@api_router.delete("/demo/clear-vessels")
-async def clear_demo_vessels():
-    """Clear all demo vessels."""
-    active_vessels.clear()
-    return {"success": True}
+        if subscribed:
+            await ais_manager.unsubscribe(websocket)
 
 # Store raw data subscribers for broadcasting
 raw_data_subscribers: set = set()
 
 # WebSocket for raw NMEA data streaming (debug/diagnostic tool)
 @app.websocket("/ws/raw")
+@app.websocket("/api/ws/raw")
 async def websocket_raw(websocket: WebSocket):
     """
     WebSocket endpoint for streaming raw NMEA data for debugging.
@@ -2311,30 +7028,604 @@ async def broadcast_raw_line(line: str):
     # Clean up disconnected clients
     raw_data_subscribers.difference_update(disconnected)
 
+
+def generate_nmea_checksum(sentence: str) -> str:
+    """Calculate NMEA checksum for a sentence (without $ and *)."""
+    checksum = 0
+    for char in sentence:
+        checksum ^= ord(char)
+    return f"{checksum:02X}"
+
+
+async def broadcast_demo_nmea(mmsi: str, lat: float, lon: float, speed_knots: float, course: float):
+    """Generate and broadcast simulated NMEA sentences for demo vessels."""
+    if not raw_data_subscribers:
+        return
+    
+    # Generate simulated AIS position report (Message Type 1)
+    # Format: !AIVDM,1,1,,A,<payload>,0*<checksum>
+    # For simplicity, we'll create a readable pseudo-NMEA that shows the data
+    
+    now = datetime.now(timezone.utc)
+    time_str = now.strftime("%H%M%S")
+    date_str = now.strftime("%d%m%y")
+    
+    # Convert lat/lon to NMEA format (DDMM.MMMM)
+    lat_deg = int(abs(lat))
+    lat_min = (abs(lat) - lat_deg) * 60
+    lat_dir = 'N' if lat >= 0 else 'S'
+    lat_nmea = f"{lat_deg:02d}{lat_min:07.4f}"
+    
+    lon_deg = int(abs(lon))
+    lon_min = (abs(lon) - lon_deg) * 60
+    lon_dir = 'W' if lon < 0 else 'E'
+    lon_nmea = f"{lon_deg:03d}{lon_min:07.4f}"
+    
+    # Generate simulated GPRMC (GPS position)
+    gprmc_body = f"GPRMC,{time_str}.00,A,{lat_nmea},{lat_dir},{lon_nmea},{lon_dir},{speed_knots:.1f},{course:.1f},{date_str},,,A"
+    gprmc_checksum = generate_nmea_checksum(gprmc_body)
+    gprmc_sentence = f"${gprmc_body}*{gprmc_checksum}"
+    
+    # Generate simulated AIS VDM (simplified - shows MMSI and position in comment format)
+    # Real AIS is binary encoded, but for demo we'll use a readable format
+    aivdm_comment = f"!AIVDM,1,1,,A,DEMO:{mmsi}:LAT{lat:.4f}:LON{lon:.4f}:SPD{speed_knots:.1f}:CRS{course:.0f},0*00"
+    
+    # Broadcast both sentences
+    await broadcast_raw_line(f"[DEMO] {gprmc_sentence}")
+    await broadcast_raw_line(f"[DEMO] {aivdm_comment}")
+
+
+# =============================================================================
+# TRIPS - Create / Save / Load planned trips
+# =============================================================================
+class TripCreate(BaseModel):
+    name: str
+    start_rm: Optional[float] = None
+    end_rm: Optional[float] = None
+    heading: Optional[str] = None   # "northbound" | "southbound"
+    departure_time: Optional[str] = None  # ISO 8601 string
+    notes: Optional[str] = None
+    locks: Optional[List[str]] = None  # ordered lock ids the trip traverses
+
+
+def _trip_doc_to_public(doc: dict) -> dict:
+    """Strip Mongo internals + ensure JSON-safe fields."""
+    if not doc:
+        return {}
+    out = {k: v for k, v in doc.items() if k != "_id"}
+    for k in ("created_at", "updated_at"):
+        v = out.get(k)
+        if isinstance(v, datetime):
+            out[k] = v.isoformat()
+    return out
+
+
+@api_router.post("/trips")
+async def create_trip(trip: TripCreate, request: Request):
+    """Create a new saved trip for the current user."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    name = (trip.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Trip name is required")
+
+    now = datetime.now(timezone.utc)
+    doc = {
+        "trip_id": f"trip_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "name": name,
+        "start_rm": trip.start_rm,
+        "end_rm": trip.end_rm,
+        "heading": trip.heading,
+        "departure_time": trip.departure_time,
+        "notes": (trip.notes or "").strip(),
+        "locks": list(trip.locks or []),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.trips.insert_one(doc)
+    return _trip_doc_to_public(doc)
+
+
+@api_router.get("/trips")
+async def list_trips(request: Request):
+    """List the current user's saved trips, newest first."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    cursor = db.trips.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0},
+    ).sort("created_at", -1)
+    trips = []
+    async for doc in cursor:
+        for k in ("created_at", "updated_at"):
+            v = doc.get(k)
+            if isinstance(v, datetime):
+                doc[k] = v.isoformat()
+        trips.append(doc)
+    return {"trips": trips, "count": len(trips)}
+
+
+@api_router.get("/trips/{trip_id}")
+async def get_trip(trip_id: str, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    doc = await db.trips.find_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"_id": 0},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    for k in ("created_at", "updated_at"):
+        v = doc.get(k)
+        if isinstance(v, datetime):
+            doc[k] = v.isoformat()
+    return doc
+
+
+@api_router.put("/trips/{trip_id}")
+async def update_trip(trip_id: str, trip: TripCreate, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    update_fields = {
+        "name": (trip.name or "").strip(),
+        "start_rm": trip.start_rm,
+        "end_rm": trip.end_rm,
+        "heading": trip.heading,
+        "departure_time": trip.departure_time,
+        "notes": (trip.notes or "").strip(),
+        "locks": list(trip.locks or []),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if not update_fields["name"]:
+        raise HTTPException(status_code=400, detail="Trip name is required")
+    result = await db.trips.update_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"$set": update_fields},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    doc = await db.trips.find_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+        {"_id": 0},
+    )
+    for k in ("created_at", "updated_at"):
+        v = doc.get(k)
+        if isinstance(v, datetime):
+            doc[k] = v.isoformat()
+    return doc
+
+
+@api_router.delete("/trips/{trip_id}")
+async def delete_trip(trip_id: str, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    result = await db.trips.delete_one(
+        {"trip_id": trip_id, "user_id": user["user_id"]},
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return {"deleted": trip_id}
+
+
+
+
+@api_router.post("/debug/inject-nmea", dependencies=[Depends(require_admin)])
+async def inject_test_nmea(request: Request):
+    """
+    Inject a test NMEA sentence to verify the raw data pipeline is working.
+    Useful for debugging when you're not sure if:
+    - The WebSocket connection to browser is working
+    - The AIS TCP connection to Boat Beacon is working
+    """
+    body = await request.json()
+    sentence = body.get("sentence", "!AIVDM,1,1,,A,TEST_SENTENCE_FROM_DEBUG_ENDPOINT,0*00")
+    
+    # Broadcast to all raw data subscribers
+    await broadcast_raw_line(f"[TEST] {sentence}")
+    
+    return {
+        "success": True,
+        "message": "Test sentence broadcasted",
+        "sentence": sentence,
+        "subscriber_count": len(raw_data_subscribers)
+    }
+
+
+@api_router.get("/debug/raw-subscribers", dependencies=[Depends(require_admin)])
+async def get_raw_subscribers():
+    """Check how many clients are subscribed to raw NMEA data."""
+    return {
+        "subscriber_count": len(raw_data_subscribers),
+        "ais_connected": ais_manager.is_connected,
+        "ais_config": ais_manager.get_status().get("config"),
+        "last_data_time": ais_manager.get_status().get("last_data_time")
+    }
+
+
+def _generate_phone_localhost_relay_script(vm_url: str) -> bytes:
+    """Build an Android/Termux relay for Boat Beacon localhost TCP output."""
+    ingest_url = vm_url.rstrip("/") + "/api/ais/ingest"
+
+    script = r"""#!/data/data/com.termux/files/usr/bin/bash
+set -u
+
+BOAT_BEACON_HOST="${BOAT_BEACON_HOST:-127.0.0.1}"
+BOAT_BEACON_PORT="${BOAT_BEACON_PORT:-5353}"
+INGEST_URL="__INGEST_URL__"
+INGEST_TOKEN="${AIS_INGEST_TOKEN:-__INGEST_TOKEN__}"
+BATCH_SECONDS="${BATCH_SECONDS:-1}"
+MAX_BATCH_LINES="${MAX_BATCH_LINES:-200}"
+
+log() {
+  printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+json_escape() {
+  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().rstrip("\n")))'
+}
+
+send_batch() {
+  local tmpfile="$1"
+  local count
+  count=$(wc -l < "$tmpfile" | tr -d ' ')
+
+  if [ "$count" = "0" ]; then
+    return 0
+  fi
+
+  local lines_json
+  local line
+  local escaped
+  local first
+
+  lines_json="["
+  first=1
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    escaped=$(printf '%s' "$line" | json_escape)
+
+    if [ "$first" = "1" ]; then
+      lines_json="$lines_json$escaped"
+      first=0
+    else
+      lines_json="$lines_json,$escaped"
+    fi
+  done < "$tmpfile"
+
+  lines_json="$lines_json]"
+  body="{\"lines\":$lines_json}"
+
+  if curl -fsS -X POST "$INGEST_URL" \
+      -H "Content-Type: application/json" \
+      -H "X-Ingest-Token: $INGEST_TOKEN" \
+      --data "$body" >/tmp/riverwatch-phone-relay-response.json 2>/tmp/riverwatch-phone-relay-error.log; then
+    log "POST ok: $count line(s)"
+    : > "$tmpfile"
+    return 0
+  else
+    log "POST failed: $(cat /tmp/riverwatch-phone-relay-error.log 2>/dev/null)"
+    return 1
+  fi
+}
+
+log "RiverWatch Phone Localhost Relay"
+log "Boat Beacon source: $BOAT_BEACON_HOST:$BOAT_BEACON_PORT"
+log "RiverWatch ingest: $INGEST_URL"
+
+if ! need_cmd python3; then
+  log "python3 not found. Installing..."
+  pkg install -y python || {
+    log "ERROR: Could not install python. Run: pkg install python"
+    exit 1
+  }
+fi
+
+if ! need_cmd curl; then
+  log "curl not found. Installing..."
+  pkg install -y curl || {
+    log "ERROR: Could not install curl. Run: pkg install curl"
+    exit 1
+  }
+fi
+
+if ! need_cmd nc; then
+  log "netcat not found. Installing..."
+  pkg install -y netcat-openbsd || pkg install -y busybox || {
+    log "ERROR: Could not install netcat. Run: pkg install netcat-openbsd"
+    exit 1
+  }
+fi
+
+batch_file="/tmp/riverwatch-phone-nmea-batch.txt"
+: > "$batch_file"
+
+while true; do
+  log "Connecting to Boat Beacon localhost feed..."
+  log "If this loops, confirm Boat Beacon is outputting TCP/NMEA on 127.0.0.1:5353."
+
+  last_flush="$(date +%s)"
+
+  nc "$BOAT_BEACON_HOST" "$BOAT_BEACON_PORT" | while IFS= read -r line || [ -n "$line" ]; do
+    line="$(printf '%s' "$line" | tr -d '\r')"
+
+    if [ -z "$line" ]; then
+      continue
+    fi
+
+    printf '%s\n' "$line" >> "$batch_file"
+
+    current_count=$(wc -l < "$batch_file" | tr -d ' ')
+    if [ "$current_count" -ge "$MAX_BATCH_LINES" ]; then
+      send_batch "$batch_file" || true
+    fi
+
+    now="$(date +%s)"
+    elapsed=$((now - last_flush))
+
+    if [ "$elapsed" -ge "$BATCH_SECONDS" ]; then
+      send_batch "$batch_file" || true
+      last_flush="$now"
+    fi
+  done
+
+  send_batch "$batch_file" || true
+  log "Boat Beacon connection closed or failed. Retrying in 5 seconds..."
+  sleep 5
+done
+"""
+
+    script = script.replace("__INGEST_URL__", ingest_url).replace("__INGEST_TOKEN__", os.environ.get("AIS_INGEST_TOKEN", ""))
+    return script.encode("utf-8")
+
+
+@api_router.get("/relay/phone-localhost/download", dependencies=[Depends(require_user)])
+async def download_phone_localhost_relay(request: Request):
+    """Return an Android/Termux relay script for Boat Beacon localhost TCP output."""
+    host = request.headers.get("host") or "127.0.0.1"
+    scheme = "https" if request.headers.get("x-forwarded-proto") == "https" else "http"
+    vm_url = f"{scheme}://{host}"
+    content = _generate_phone_localhost_relay_script(vm_url)
+    return _Response(
+        content=content,
+        media_type="text/x-shellscript",
+        headers={"Content-Disposition": 'attachment; filename="riverwatch-phone-localhost-relay.sh"'},
+    )
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
+# River Traffic Planning routes (Trip Planner, Lock Queue, Meetings, Bottlenecks)
+try:
+    from routes.planning import router as planning_router
+    app.include_router(planning_router, prefix="/api")
+    logger.info("Traffic Planning routes loaded at /api/planning/*")
+except ImportError as e:
+    logger.error(f"Failed to load planning routes: {e}")
+
+# AIS scanner proxy routes (forwards to ais-relay:8088)
+try:
+    from routes.ais_scan import router as ais_scan_router
+    # LAN scans and upstream selection: signed-in users only.
+    app.include_router(ais_scan_router, prefix="/api", dependencies=[Depends(require_user)])
+    logger.info("AIS Scanner proxy routes loaded at /api/ais-scan/*")
+except ImportError as e:
+    logger.error(f"Failed to load ais-scan routes: {e}")
+
+# CORS: When credentials are used, specific origins must be listed (not '*').
+# A wildcard together with credentials would let ANY website make signed-in
+# requests and read the responses, so '*' disables credentialed CORS.
+cors_origins = get_cors_origins()
+_cors_credentials = "*" not in cors_origins
+if not _cors_credentials:
+    logger.warning("CORS_ORIGINS='*': credentialed cross-origin requests are disabled. "
+                   "List explicit origins to allow a separate frontend origin.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=_cors_credentials,
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Demo vessel simulation for testing
+DEMO_VESSELS_ENABLED = True  # Set to False to disable demo vessels
+
+DEMO_VESSELS = {
+    "demo_tow_1": {
+        "mmsi": "DEMO001",
+        "name": "M/V DELTA QUEEN",
+        "ship_type": 70,  # Cargo
+        "is_tow": True,
+        "barge_count": 12,
+        "tow_config": "3x4",
+        "usace_source": True,
+        "start_rm": 830.0,  # Start north of Lock 2 (815.2), heading downstream
+        "direction": "downstream",
+        "speed_knots": 4.5,  # ~5 mph downstream
+        "estimated_lockage_time": 45,
+        "is_double_lockage": True,
+    },
+    "demo_tow_2": {
+        "mmsi": "DEMO002", 
+        "name": "M/V RIVER RUNNER",
+        "ship_type": 70,
+        "is_tow": True,
+        "barge_count": 6,
+        "tow_config": "2x3",
+        "usace_source": True,
+        "start_rm": 800.0,  # Start south of Lock 2 (815.2), heading upstream
+        "direction": "upstream",
+        "speed_knots": 3.0,  # ~3.5 mph upstream (slower against current)
+        "estimated_lockage_time": 30,
+        "is_double_lockage": False,
+    }
+}
+
+demo_vessel_positions = {}  # Track current positions
+
+async def simulate_demo_vessels():
+    """Background task to simulate demo vessel movement."""
+    global demo_vessel_positions, demo_vessels_active
+    
+    if not DEMO_VESSELS_ENABLED:
+        return
+    
+    # Initialize positions
+    for vessel_id, config in DEMO_VESSELS.items():
+        demo_vessel_positions[vessel_id] = config["start_rm"]
+    
+    logger.info(f"Demo vessel simulation started with {len(DEMO_VESSELS)} vessels")
+    
+    while True:
+        try:
+            await asyncio.sleep(10)  # Update every 10 seconds
+            
+            # Skip if demo vessels are disabled, or hidden because real AIS
+            # traffic is flowing (RIVERWATCH_DEMO_VESSELS_MODE=auto).
+            if not demo_vessels_active or _should_suppress_demo_vessels():
+                # Remove demo vessels if present
+                for vessel_id, config in DEMO_VESSELS.items():
+                    mmsi = config["mmsi"]
+                    if mmsi in active_vessels:
+                        del active_vessels[mmsi]
+                continue
+            
+            for vessel_id, config in DEMO_VESSELS.items():
+                mmsi = config["mmsi"]
+                
+                # Skip paused vessels (manual control mode)
+                if mmsi in demo_vessels_paused:
+                    continue
+                
+                current_rm = demo_vessel_positions[vessel_id]
+                speed_mph = config["speed_knots"] * 1.15078
+                
+                # Calculate movement (river miles per 10 seconds)
+                # Speed is mph, so movement = speed * (10/3600) hours
+                movement = speed_mph * (10 / 3600)
+                
+                if config["direction"] == "downstream":
+                    new_rm = current_rm - movement
+                    course = 180  # South
+                    heading_dir = "southbound"
+                    direction_display = "downriver"
+                    # Wrap around if past Lock 27
+                    if new_rm < 185:
+                        new_rm = 847.0
+                else:
+                    new_rm = current_rm + movement
+                    course = 0  # North
+                    heading_dir = "northbound"
+                    direction_display = "upriver"
+                    # Wrap around if past Lock 1
+                    if new_rm > 847:
+                        new_rm = 185.0
+                
+                demo_vessel_positions[vessel_id] = new_rm
+                
+                # Calculate lat/lon from river mile
+                lat, lon = _river_mile_to_coords(new_rm)
+                
+                # Find nearest lock
+                nearest_lock = None
+                min_dist = float('inf')
+                for lock_id, lock_info in LOCKS.items():
+                    dist = abs(lock_info["river_mile"] - new_rm)
+                    if dist < min_dist:
+                        min_dist = dist
+                        nearest_lock = lock_id
+                
+                # Create vessel entry with direction info
+                vessel = {
+                    "mmsi": config["mmsi"],
+                    "name": vessel_static_cache.get(config["mmsi"], {}).get("name") or config["name"],  # Use cached name if renamed
+                    "lat": lat,
+                    "lon": lon,
+                    "speed": config["speed_knots"],
+                    "course": course,
+                    "heading": heading_dir,  # String: 'northbound' or 'southbound' for race analysis
+                    "heading_direction": heading_dir,
+                    "direction": direction_display,  # 'upriver' or 'downriver'
+                    "ship_type": vessel_static_cache.get(config["mmsi"], {}).get("ship_type") or config["ship_type"],  # Use cached type if changed
+                    "nav_status": 0,  # Under way using engine
+                    "river_mile": round(new_rm, 1),
+                    "is_tow": config["is_tow"],
+                    "barge_count": config["barge_count"],
+                    "tow_config": config["tow_config"],
+                    "usace_source": config["usace_source"],
+                    "usace_lock": nearest_lock,
+                    "usace_status": "in_transit",
+                    "estimated_lockage_time": config["estimated_lockage_time"],
+                    "is_double_lockage": config["is_double_lockage"],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "is_demo": True,  # Mark as demo vessel
+                }
+                
+                # Store in active_vessels
+                active_vessels[config["mmsi"]] = vessel
+                
+                # Generate simulated NMEA and broadcast to raw data subscribers
+                await broadcast_demo_nmea(config["mmsi"], lat, lon, config["speed_knots"], course)
+                
+                # Persist to database
+                asyncio.create_task(persist_vessel_sighting(vessel))
+            
+            # ALSO simulate user vessels if enabled
+            for mmsi, sim in list(user_vessel_simulation.items()):
+                if not sim.get('enabled'):
+                    continue
+                
+                current_rm = sim.get('river_mile', 815.0)
+                speed_knots = sim.get('speed_knots', 0)
+                heading = sim.get('heading', 'southbound')
+                
+                # Skip if not moving
+                if speed_knots < 0.1:
+                    continue
+                
+                speed_mph = speed_knots * 1.15078
+                movement = speed_mph * (10 / 3600)  # Movement per 10 seconds
+                
+                if heading == "southbound":
+                    new_rm = current_rm - movement
+                else:
+                    new_rm = current_rm + movement
+                
+                # Clamp to river bounds
+                new_rm = max(180.0, min(860.0, new_rm))
+                
+                # Update simulation state
+                sim['river_mile'] = new_rm
+                
+                # Update vessel in active_vessels
+                await _update_simulated_user_vessel(mmsi, sim)
+                
+                logger.debug(f"[USER SIM] {mmsi}: RM {current_rm:.1f} -> {new_rm:.1f} ({heading})")
+            
+        except asyncio.CancelledError:
+            logger.info("Demo vessel simulation stopped")
+            break
+        except Exception as e:
+            logger.error(f"Error in demo vessel simulation: {e}")
+            await asyncio.sleep(30)
+
+
 @app.on_event("startup")
 async def startup_event():
     """Load settings, blocked MMSIs, and vessel names from database on startup."""
-    global user_mmsi
-    
-    # Load user MMSI from settings
-    try:
-        mmsi_setting = await db.settings.find_one({"key": "user_mmsi"})
-        if mmsi_setting and mmsi_setting.get("value"):
-            user_mmsi = mmsi_setting["value"]
-            logger.info(f"Loaded user MMSI from settings: {user_mmsi}")
-    except Exception as e:
-        logger.error(f"Failed to load user MMSI: {e}")
+    # NOTE: No global user_mmsi - sessions are created per-connection
     
     # Load blocked MMSIs
     await load_blocked_mmsi()
@@ -2342,6 +7633,82 @@ async def startup_event():
     # Load persisted vessel names (shared across all users)
     await load_vessel_names_from_db()
 
+    # Optional second AIS source: aisstream.io (needs AISSTREAM_API_KEY).
+    global _aisstream_task
+    if _aisstream.api_key():
+        _aisstream_task = asyncio.create_task(_aisstream.run(
+            vessel_data_from_decoded,
+            ais_manager.ingest_vessel_data,
+            vessel_static_cache,
+            ais_manager._apply_static_to_active,
+        ))
+    
+    restored = await load_usace_queue_snapshot()
+    if restored:
+        logger.info(f"Restored USACE queues for {restored} locks from the last run")
+
+    # USACE lock queues + lockage history: refreshed continuously in the
+    # background, one lock at a time (USACE allows 5 requests per minute).
+    asyncio.create_task(usace_refresh_task())
+    
+    # Start demo vessel simulation
+    if DEMO_VESSELS_ENABLED:
+        asyncio.create_task(simulate_demo_vessels())
+
+    # Periodic stale-vessel pruning (removes leftover test/injected MMSIs)
+    asyncio.create_task(stale_vessel_sweep_task())
+    # Auto-restore last AIS connection (so the Pi reconnects to the phone
+    # automatically after a reboot without the user re-entering the IP).
+    try:
+        doc = await db.settings.find_one({"key": "last_connection_config"}, {"_id": 0})
+        if doc and doc.get("value"):
+            saved = json.loads(doc["value"])
+            ip = saved.get("ip_address")
+            port = int(saved.get("port") or 5353)
+            mmsi = saved.get("user_mmsi", "") or ""
+            boat = saved.get("boat_name", "") or ""
+            if ip and ip not in ("ais-relay", "push://relay"):
+                logger.info(f"Auto-restoring AIS connection to {ip}:{port} (mmsi={mmsi})")
+                asyncio.create_task(ais_manager.configure(ip, port, mmsi, boat))
+            else:
+                logger.info(f"Skipping AIS auto-restore (ip={ip!r} is stale/non-routable)")
+    except Exception as e:
+        logger.warning(f"Failed to auto-restore AIS connection: {e}")
+
+
+async def usace_refresh_task():
+    """Walk the Upper Mississippi locks forever, one USACE request at a time."""
+    passes = 0
+    async with httpx.AsyncClient(timeout=30.0, headers=OUTBOUND_HEADERS) as client:
+        while True:
+            total = 0
+            for lock_no in UPPER_MISS_LOCKS:
+                while True:
+                    try:
+                        total += await fetch_usace_lock(client, lock_no)
+                        break
+                    except UsaceRateLimited:
+                        logger.info(f"USACE rate limit hit at lock {lock_no}; pausing 65 s")
+                        await asyncio.sleep(65)
+                    except asyncio.CancelledError:
+                        return
+                    except Exception as e:
+                        logger.warning(f"USACE lock {lock_no} fetch failed: {e}")
+                        break
+                try:
+                    await asyncio.sleep(USACE_SPACING_S)
+                except asyncio.CancelledError:
+                    return
+            passes += 1
+            logger.info(f"USACE pass {passes} complete: {total} vessels waiting/locking across {len(usace_lock_fetched_at)} locks")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    """Clean up resources on shutdown."""
+    if _aisstream_task and not _aisstream_task.done():
+        _aisstream_task.cancel()
+    # Close HTTP client pool
+    await close_http_client()
+    # Close MongoDB connection
     client.close()
+    logger.info("Server shutdown complete")

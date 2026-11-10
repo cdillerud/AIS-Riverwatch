@@ -1,163 +1,129 @@
 {
   "identity": {
-    "name": "E1",
-    "role": "The Anti-AI Designer",
-    "mission": "Create a 'Tactical Sonar' aesthetic that feels like a high-end maritime instrument, not a generic SaaS dashboard.",
-    "principles": [
-      "Fusion: Mix 'Military Radar' precision with 'Consumer App' usability.",
-      "Emotion: The user should feel like a captain in a command center.",
-      "Content: Data is the hero. Speed, ETA, and Distance must be instantly readable.",
-      "Dark Mode Only: Preserves night vision, fits the nautical context."
+    "name": "River Watch Design System",
+    "persona": "E1 - The Anti-AI Designer",
+    "aesthetic": "Tactical Maritime",
+    "core_principles": [
+      "Fusion: Naval HUD meets Modern SaaS",
+      "Clarity: High contrast for sunlight/night visibility",
+      "Hierarchy: Critical data (Time to Lock) > Context (Map) > Details (Vessel List)",
+      "Tactility: Glassmorphism with sharp 1px borders (no muddy shadows)"
     ]
   },
-  "design_system": {
-    "theme": "dark",
-    "colors": {
-      "palette_name": "Deep Ocean Command",
-      "background": {
-        "default": "#020617",
-        "surface": "#0f172a",
-        "surface_highlight": "#1e293b"
-      },
-      "primary": {
-        "default": "#06b6d4",
-        "hover": "#22d3ee",
-        "foreground": "#000000"
-      },
-      "secondary": {
-        "default": "#3b82f6",
-        "foreground": "#ffffff"
-      },
-      "accent": {
-        "default": "#f59e0b",
-        "glow": "rgba(245, 158, 11, 0.5)"
-      },
-      "danger": {
-        "default": "#ef4444",
-        "glow": "rgba(239, 68, 68, 0.5)"
-      },
-      "text": {
-        "primary": "#f8fafc",
-        "secondary": "#94a3b8",
-        "muted": "#64748b"
-      },
-      "border": {
-        "default": "rgba(255, 255, 255, 0.1)",
-        "active": "rgba(6, 182, 212, 0.5)"
-      }
+  "typography": {
+    "font_family": {
+      "heading": "Rajdhani, sans-serif",
+      "body": "Manrope, sans-serif",
+      "mono": "JetBrains Mono, monospace"
     },
-    "typography": {
-      "headings": {
-        "family": "Rajdhani, sans-serif",
-        "weights": ["600", "700"],
-        "usage": "Page titles, Section headers, Critical Alerts"
-      },
-      "body": {
-        "family": "Manrope, sans-serif",
-        "weights": ["400", "500"],
-        "usage": "General UI text, labels, instructions"
-      },
-      "data": {
-        "family": "JetBrains Mono, monospace",
-        "weights": ["500"],
-        "usage": "Coordinates, Speed (MPH), ETA, MMSI numbers, River Miles"
-      }
+    "usage_rules": [
+      "Headings (H1-H3): Rajdhani, Uppercase, tracking-wide (0.05em), weight 600/700",
+      "Body Text: Manrope, weight 400/500, relaxed leading",
+      "Data/Metrics: JetBrains Mono, tabular-nums for changing numbers",
+      "Labels/Overlines: Rajdhani, Uppercase, text-xs, tracking-widest, text-muted-foreground"
+    ],
+    "scale": {
+      "h1": "text-4xl md:text-5xl lg:text-6xl font-bold uppercase tracking-tight",
+      "h2": "text-3xl md:text-4xl font-semibold uppercase tracking-wide",
+      "h3": "text-xl md:text-2xl font-medium uppercase tracking-wide",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm text-muted-foreground"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#020617",
+      "surface": "#0f172a",
+      "surface_highlight": "#1e293b",
+      "primary": "#06b6d4",
+      "primary_foreground": "#000000",
+      "secondary": "#334155",
+      "accent": "#f59e0b",
+      "destructive": "#ef4444",
+      "success": "#22c55e",
+      "text_primary": "#f8fafc",
+      "text_secondary": "#94a3b8",
+      "border": "#1e293b"
+    },
+    "usage": {
+      "primary": "Main actions, 'Safe' status, active states",
+      "accent": "Warnings, 'Connecting' status, attention-grabbing highlights",
+      "destructive": "Critical alerts, 'Disconnected' status, danger zones",
+      "success": "Good status, 'On Time' indicators",
+      "glass": "bg-slate-950/80 backdrop-blur-md border-white/10"
+    },
+    "gradients": {
+      "ocean_depth": "linear-gradient(to bottom, #020617, #0f172a)",
+      "radar_sweep": "conic-gradient(from 0deg, transparent 0deg, rgba(6, 182, 212, 0.1) 360deg)"
+    }
+  },
+  "layout": {
+    "grid_system": "Bento Grid",
+    "dashboard_structure": {
+      "mobile": "flex flex-col gap-4 p-4",
+      "desktop": "grid grid-cols-12 gap-6 p-6 h-screen overflow-hidden"
+    },
+    "areas": {
+      "map": "col-span-12 lg:col-span-8 xl:col-span-9 row-span-full relative rounded-xl overflow-hidden border border-white/10",
+      "sidebar": "col-span-12 lg:col-span-4 xl:col-span-3 flex flex-col gap-4 h-full overflow-y-auto pr-2"
     },
     "spacing": {
-      "scale": "Tailwind default",
-      "strategy": "Generous padding inside containers (p-6, p-8) to prevent 'data claustrophobia'. Tight gaps (gap-2, gap-4) between related data points."
-    },
-    "visual_enhancers": {
-      "glassmorphism": "bg-slate-900/80 backdrop-blur-md border border-white/10 shadow-xl",
-      "hud_borders": "Use 1px borders with corner accents (brackets) to simulate a Heads-Up Display.",
-      "glow_effects": "Use drop-shadow-[0_0_10px_rgba(6,182,212,0.3)] for active elements.",
-      "radar_scan": "Implement a subtle rotating radar sweep animation on the map background."
+      "container_padding": "p-4 md:p-6 lg:p-8",
+      "card_padding": "p-5",
+      "gap": "gap-4 md:gap-6"
     }
   },
   "components": {
-    "buttons": {
-      "style": "Sharp edges or slightly rounded (rounded-sm). High contrast.",
-      "primary": "bg-cyan-500 hover:bg-cyan-400 text-black font-bold uppercase tracking-wider",
-      "destructive": "bg-red-900/50 border border-red-500 text-red-100 hover:bg-red-900"
-    },
     "cards": {
-      "style": "Glassmorphism base. No solid white backgrounds.",
-      "border": "border-white/10",
-      "hover": "hover:border-cyan-500/50 transition-colors duration-300"
+      "style": "glass-panel",
+      "classes": "bg-slate-950/70 backdrop-blur-xl border border-white/10 shadow-2xl rounded-xl",
+      "hover": "hover:border-cyan-500/30 transition-colors duration-300"
+    },
+    "buttons": {
+      "primary": "bg-cyan-500 hover:bg-cyan-400 text-black font-bold uppercase tracking-wider font-heading rounded-sm shadow-[0_0_15px_rgba(6,182,212,0.3)] hover:shadow-[0_0_25px_rgba(6,182,212,0.5)] transition-all",
+      "secondary": "bg-slate-800 hover:bg-slate-700 text-white border border-white/10 font-heading uppercase tracking-wider rounded-sm",
+      "ghost": "hover:bg-white/5 text-slate-400 hover:text-white"
+    },
+    "badges": {
+      "style": "sharp-edges",
+      "classes": "rounded-sm px-2 py-0.5 text-xs font-mono uppercase tracking-wider border"
     },
     "inputs": {
-      "style": "bg-slate-950 border-slate-700 focus:border-cyan-500 focus:ring-cyan-500/20 text-white font-mono"
-    },
-    "map_markers": {
-      "user_vessel": "Cyan arrow with pulsing ring.",
-      "commercial_vessel": "Orange square/diamond (standard AIS symbology).",
-      "lock": "White circle with icon."
+      "style": "tactical",
+      "classes": "bg-slate-950/50 border-white/10 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 rounded-sm font-mono text-sm"
     }
   },
-  "layout_strategy": {
-    "dashboard": {
-      "type": "Bento Grid",
-      "grid_cols": "grid-cols-1 md:grid-cols-12",
-      "areas": [
-        "Map: col-span-full md:col-span-8 lg:col-span-9 row-span-full (The Stage)",
-        "Sidebar: col-span-full md:col-span-4 lg:col-span-3 (The Control Panel)"
-      ]
+  "visual_enhancers": {
+    "hud_elements": {
+      "corners": "Use .hud-border class for critical data containers to add corner brackets",
+      "scanlines": "Optional subtle scanline overlay for 'retro-tech' feel on map",
+      "glow": "Use .cyan-glow for active elements"
     },
-    "sidebar_modules": [
-      "Connection Status (Top)",
-      "Race Analysis (Middle - Critical)",
-      "Vessel List (Bottom - Scrollable)"
-    ]
+    "motion": {
+      "hover": "transform: translateY(-1px)",
+      "pulse": "animate-pulse for live status dots",
+      "transitions": "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+    }
   },
-  "assets": {
-    "images": [
-      {
-        "url": "https://images.unsplash.com/photo-1646971195459-063c881eb461",
-        "description": "Barge pushing upriver - Use for 'Commercial Traffic' context or empty states.",
-        "category": "context"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1759355070579-fc32728771e0",
-        "description": "Recreational boats at sunset - Use for 'User Vessel' setup or welcome screen.",
-        "category": "mood"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1564356764157-ec2c222f14f6",
-        "description": "Aerial view of lock - Use for 'Lock Info' panels.",
-        "category": "location"
-      }
-    ],
-    "icons": "Use 'lucide-react' for standard UI. Use 'phosphor-icons' (Duotone) for nautical specific if available, otherwise stick to Lucide with custom styling."
+  "images": {
+    "landing_hero": "https://images.unsplash.com/photo-1609359972809-fa361cf5b1d0?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "feature_recreational": "https://images.unsplash.com/photo-1594466179542-a1759efdd629?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "feature_atmospheric": "https://images.unsplash.com/photo-1755619514325-cfd55b30273e?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "logo_placeholder": "Use text 'RIVER WATCH' in Rajdhani Bold with a cyan radar icon"
   },
-  "universal_guidelines": [
-    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
-    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
-    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
-    "Create depth through layered design elements with z-index hierarchy.",
-    "Use glass-morphism effects with backdrop filters (12-24px blur).",
-    "You MUST NOT apply universal transition. Eg: 'transition: all'. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms.",
-    "You MUST NOT center align the app container, ie do not add '.App { text-align: center; }' in the css file. This disrupts the human natural reading flow of text.",
-    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
-    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯📚🎭🎬🎪🎉🎊🎁🎀🎂🍰🎈🎨🎰💰💵💳🏦💎🪙💸🤑📊📈📉💹🔢🏆🥇 etc for icons.",
-    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
-    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
-    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
-    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN.",
-    "Prioritize using pre-existing components from src/components/ui when applicable.",
-    "Create new components that match the style and conventions of existing components when needed.",
-    "Examine existing components to understand the project's component patterns before creating new ones.",
-    "Components MUST use named exports (export const ComponentName = ...).",
-    "Pages MUST use default exports (export default function PageName() {...}).",
-    "Use 'sonner' for toasts. Sonner component are located in '/app/src/components/ui/sonner.tsx'."
-  ],
   "instructions_to_main_agent": [
-    "1. INSTALL FONTS: Add '@fontsource/rajdhani', '@fontsource/manrope', and '@fontsource/jetbrains-mono' to package.json.",
-    "2. SETUP THEME: Update 'tailwind.config.js' with the 'Deep Ocean Command' palette defined above.",
-    "3. CREATE LAYOUT: Build the 'Bento Grid' layout. The Map should be the background/main layer, with UI panels floating on top.",
-    "4. BUILD COMPONENTS: Customize Shadcn components (Card, Button, Input) to match the 'Glassmorphism' and 'HUD' styles.",
-    "5. MAP INTEGRATION: Use a dark mode map style (e.g., CartoDB Dark Matter or custom Mapbox dark style).",
-    "6. DATA DISPLAY: Ensure all numerical data (Speed, ETA) uses 'JetBrains Mono' for precision look.",
-    "7. ALERTS: Implement the 'Speed > 25 MPH' alert using a pulsing red border/overlay on the dashboard.",
-    "8. ANIMATION: Add a subtle 'radar sweep' effect to the map container using CSS keyframes."
+    "1. LANDING PAGE: Create a new LandingPage.js. Use the 'landing_hero' image as a full-screen background with a heavy dark overlay (bg-slate-950/80). Center the value proposition: 'Beat the Traffic. Master the River.'",
+    "2. DASHBOARD LAYOUT: Refactor Dashboard.js to use the 'Bento Grid' layout defined above. The Map must be the hero. The 'Lock Timing' calculator should be a floating glass panel ON TOP of the map on mobile, or a dedicated sidebar card on desktop.",
+    "3. HEADER CLEANUP: Remove the 'badge soup'. Group status indicators (GPS, WS, Lock) into a single 'System Status' compact dropdown or minimal icon row. Only show text labels on hover.",
+    "4. COLOR DISCIPLINE: Stop using random colors. Map every color to a meaning: Cyan=Safe/Active, Amber=Warning/Wait, Red=Danger/Stop. Convert all other colors to Slate scales.",
+    "5. TYPOGRAPHY: Enforce Rajdhani for ALL headers and labels. Enforce JetBrains Mono for ALL numbers (speed, coordinates, time).",
+    "6. MOBILE OPTIMIZATION: Ensure all touch targets are 44px+. Use a bottom sheet (Drawer) for the vessel list on mobile instead of cramping the screen."
+  ],
+  "universal_guidelines": [
+    "Do not use gradients for text.",
+    "Do not use rounded-full for buttons (use rounded-sm or rounded-md for tactical feel).",
+    "Always add data-testid to interactive elements.",
+    "Use 'sonner' for all notifications.",
+    "Ensure 4.5:1 contrast ratio for all text."
   ]
 }

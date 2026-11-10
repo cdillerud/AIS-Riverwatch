@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,11 +8,20 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
-  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings,
-  Play, Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
-  Edit3, Check, RefreshCw, RotateCcw
+  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings, Map,
+  Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
+  Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info,
+  LogOut, Radio, User, Eye, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
+  Search
 } from "lucide-react";
 import { toast } from "sonner";
 import RiverVisualization from "@/components/RiverVisualization";
@@ -21,10 +30,37 @@ import VesselList from "@/components/VesselList";
 import ConnectionStatus from "@/components/ConnectionStatus";
 import LockStatusPanel from "@/components/LockStatusPanel";
 import VesselDetailModal from "@/components/VesselDetailModal";
+import LockDetailModal from "@/components/LockDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
-import { getVesselDisplayName } from "@/utils/vesselDisplay";
+import Speedometer from "@/components/Speedometer";
+import TripPlanPanel from "@/components/TripPlanPanel";
+import { getVesselDisplayName, hasRiverMile, formatRiverMile, formatSpeedMph, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, lockShortLabel } from "@/utils/vesselDisplay";
+import { useAuth } from "@/context/AuthContext";
 
-const API = process.env.REACT_APP_BACKEND_URL + '/api';
+import { API } from "@/lib/api";
+import LockageRow, { fmtDuration } from "@/components/LockageRow";
+import LockBoard, { WAIT_TOOLTIP } from "@/components/LockBoard";
+
+// Map (vessel positions) or Locks (lock-first board from USACE data).
+const VIEW_KEY = "riverwatch_main_view";
+function readView() {
+  try { return localStorage.getItem(VIEW_KEY) === "locks" ? "locks" : "map"; } catch { return "map"; }
+}
+function ViewToggle({ value, onChange }) {
+  const btn = (v, label) => (
+    <button
+      onClick={() => onChange(v)}
+      className={`px-2.5 py-1 text-xs rounded ${value === v ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}
+      data-testid={`view-toggle-${v}`}
+    >{label}</button>
+  );
+  return (
+    <div className="flex items-center gap-0.5 bg-slate-900/60 border border-slate-700 rounded p-0.5" role="tablist">
+      {btn("map", "Map")}
+      {btn("locks", "Locks")}
+    </div>
+  );
+}
 
 export default function Dashboard({ 
   isConnected, 
@@ -35,28 +71,47 @@ export default function Dashboard({
   lockageTimes = {},
   raceAnalysis,
   selectedLock,
+  activeTimingLock,
   onSelectLock,
   onDisconnect,
   onResetConnection,
   onReconnect,
-  onAddDemoVessels,
-  onClearDemo,
   onOpenSettings,
   connectionConfig,
   userSettings = {},
-  demoMode = false,
   onRefresh,
   onFullRefresh,
-  lastRefresh
+  lastRefresh,
+  accountType = "vessel_owner",
+  watchPoint = null
 }) {
+  const { user, logout } = useAuth();
+  const isTrafficWatch = accountType === "traffic_watch";
+  const [mainView, setMainViewState] = useState(readView);
+  const setMainView = (v) => {
+    setMainViewState(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* per-device preference only */ }
+  };
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [desktopPanel, setDesktopPanel] = useState("timing"); // "map" | "timing" | "vessels" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(20); // Zoom range in miles (10-500)
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [trafficSummary, setTrafficSummary] = useState(null);
+  const [vesselSearchQuery, setVesselSearchQuery] = useState("");
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+      // The AuthProvider will clear user state and ProtectedRoute will redirect to login
+    } catch (error) {
+      toast.error("Failed to logout");
+    }
+  };
 
   // Handle manual refresh with visual feedback
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     toast.info("Refreshing data...");
     
@@ -68,7 +123,7 @@ export default function Dashboard({
       setIsRefreshing(false);
       toast.success("Data refreshed");
     }, 1000);
-  };
+  }, [onRefresh]);
 
   // Handle full page refresh
   const handleFullRefresh = () => {
@@ -89,6 +144,7 @@ export default function Dashboard({
     return `${hours}h ago`;
   };
   const [selectedVessel, setSelectedVessel] = useState(null); // For vessel detail modal
+  const [selectedLockDetail, setSelectedLockDetail] = useState(null); // For lock detail modal
   
   // Quick position editor state
   const [showPositionEditor, setShowPositionEditor] = useState(false);
@@ -102,16 +158,48 @@ export default function Dashboard({
   // Alert dismissal - tracks which threat was dismissed
   const [dismissedThreatMmsi, setDismissedThreatMmsi] = useState(null);
 
-  // Find user vessel
+  // Selecting a lock on the map or the Locks board makes it the lock every
+  // panel (Lock Timing, Traffic Summary) describes.
+  const highlightLock = (lockId) => {
+    if (!lockId) return;
+    setAutoNextLock(false);
+    onSelectLock(lockId);
+  };
+
+  // Fetch traffic summary for Traffic Watch users
+  useEffect(() => {
+    if (!isTrafficWatch || !selectedLock) return;
+    
+    const fetchTrafficSummary = async () => {
+      try {
+        const response = await fetch(`${API}/traffic-summary/${selectedLock}`);
+        if (response.ok) {
+          const data = await response.json();
+          setTrafficSummary(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch traffic summary:", error);
+      }
+    };
+    
+    fetchTrafficSummary();
+    const interval = setInterval(fetchTrafficSummary, 30000); // Refresh every 30s
+    
+    return () => clearInterval(interval);
+  }, [isTrafficWatch, selectedLock]);
+
+  // Find user vessel - ONLY match by MMSI, not is_user_vessel flag
+  // (is_user_vessel from server can be stale/wrong if multiple sessions exist)
   const userVessel = useMemo(() => {
-    return vessels.find(v => v.mmsi === userMmsi || v.is_user_vessel);
+    if (!userMmsi) return null;
+    return vessels.find(v => v.mmsi === userMmsi);
   }, [vessels, userMmsi]);
 
   // Calculate next lock based on vessel position and heading
   const nextLock = useMemo(() => {
-    if (!userVessel || !userVessel.river_mile || !locks.length) return null;
-    
-    const userRM = userVessel.river_mile;
+    if (!userVessel || !hasRiverMile(userVessel) || !locks.length) return null;
+
+    const userRM = Number(userVessel.river_mile);
     const heading = userVessel.heading;
     
     // Sort locks by river mile
@@ -153,35 +241,302 @@ export default function Dashboard({
     }
   }, [autoNextLock, nextLock, selectedLock, onSelectLock]);
 
-  // Commercial vessels (non-user)
+  // Commercial vessels (non-user) - ONLY exclude by MMSI match
   const commercialVessels = useMemo(() => {
-    return vessels.filter(v => v.mmsi !== userMmsi && !v.is_user_vessel);
+    if (!userMmsi) return vessels;
+    return vessels.filter(v => v.mmsi !== userMmsi);
   }, [vessels, userMmsi]);
 
-  // Check if speed requirement is dangerous
-  const isDangerous = raceAnalysis?.analysis?.required_speed_mph && 
-                      raceAnalysis.analysis.required_speed_mph > 25;
+  // Check if speed requirement is dangerous.
+  // If the user's vessel is stopped, do not treat the required-speed estimate
+  // as an active traffic delay.
+  const userSpeedMph = userVessel?.speed ? userVessel.speed * 1.15078 : 0;
+  const maxAllowedSpeedMph = userSettings.max_speed_mph || 25;
+  const isUserEffectivelyStopped = !isTrafficWatch && !!userVessel && userSpeedMph < 0.5;
+  const hasRequiredSpeed = Number.isFinite(raceAnalysis?.analysis?.required_speed_mph);
+  const isTimingPaused = isUserEffectivelyStopped && !!raceAnalysis?.analysis?.threatening_vessel;
+  const isDangerous = !isTimingPaused &&
+                      hasRequiredSpeed &&
+                      raceAnalysis.analysis.required_speed_mph > maxAllowedSpeedMph;
   
   // Track current threatening vessel to reset alert when it changes
   const currentThreatMmsi = raceAnalysis?.analysis?.threatening_vessel?.mmsi;
 
-  // Get the selected lock object for the modal
-  const selectedLockObj = useMemo(() => {
+  // Map lock = what the dropdown/map is looking at.
+  // Timing lock = the live navigation target used for HUD, Lock Timing, queue, and race analysis.
+  // For vessel owners, timing follows the next lock in the vessel's current direction.
+  // For Traffic Watch, selected lock remains the timing/watch target.
+  const selectedMapLockObj = useMemo(() => {
     return locks.find(l => l.id === selectedLock);
   }, [locks, selectedLock]);
 
-  // Handle vessel click (from map or list)
+  const activeTimingLockId = isTrafficWatch
+    ? selectedLock
+    : (activeTimingLock || nextLock?.id || selectedLock);
+
+  const selectedLockObj = useMemo(() => {
+    return locks.find(l => l.id === activeTimingLockId) || selectedMapLockObj;
+  }, [locks, activeTimingLockId, selectedMapLockObj]);
+
+  // Current queue and estimated wait at the target lock - the same USACE-based
+  // estimate the Locks board shows.
+  const [targetLockBoard, setTargetLockBoard] = useState(null);
+  useEffect(() => {
+    if (!activeTimingLockId) { setTargetLockBoard(null); return undefined; }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${API}/locks/board?lock_id=${encodeURIComponent(activeTimingLockId)}`, { credentials: "include" });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled) setTargetLockBoard(data.locks?.[0] || null);
+      } catch { /* keep the last value */ }
+    };
+    load();
+    const id = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [activeTimingLockId]);
+
+  // USACE queues at every lock, drawn on the map beside each lock.
+  const [lockQueues, setLockQueues] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${API}/locks/board?scope=all`, { credentials: "include" });
+        if (!r.ok) return;
+        const data = await r.json();
+        const byLock = {};
+        for (const lk of data.locks || []) {
+          const entries = [...(lk.locking || []), ...(lk.waiting || [])];
+          if (entries.length) byLock[lk.lock_id] = entries;
+        }
+        if (!cancelled) setLockQueues(byLock);
+      } catch { /* keep the last queues */ }
+    };
+    load();
+    const id = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // Calculate distance to selected lock and travel time
+  const lockTravelInfo = useMemo(() => {
+    if (!hasRiverMile(userVessel) || !selectedLockObj?.river_mile) {
+      return { distance: null, travelMinutes: null, estimatedWait: null };
+    }
+    
+    const distance = Math.abs(Number(userVessel.river_mile) - selectedLockObj.river_mile);
+    const speedMph = (Number(userVessel.speed) || 0) * 1.15078; // knots to mph
+    const travelMinutes = speedMph > 0 ? (distance / speedMph) * 60 : null;
+    
+    // Calibrated wait for a boat arriving now (USACE queue). A towboat's own
+    // vessel gets the tow estimate; everyone else the pleasure-boat one.
+    const board = targetLockBoard?.lock_id === activeTimingLockId ? targetLockBoard : null;
+    const userIsTow = !!(userVessel?.is_tow || Number(userVessel?.barge_count) > 0);
+    const wait = board ? (userIsTow ? board.wait_estimate_minutes : board.wait_estimate_recreational_minutes) : null;
+
+    return {
+      distance: distance.toFixed(1),
+      travelMinutes: travelMinutes?.toFixed(0),
+      estimatedWait: wait,
+      queueCount: board ? board.queue_count : null,
+      waitKind: userIsTow ? 'tow' : 'pleasure',
+      towWait: board ? board.wait_estimate_minutes : null,
+      pleasureWait: board ? board.wait_estimate_recreational_minutes : null,
+      totalMinutes: travelMinutes && wait != null ? (parseFloat(travelMinutes) + wait).toFixed(0) : null
+    };
+  }, [userVessel, selectedLockObj, activeTimingLockId, targetLockBoard]);
+
+  // Get vessels near the target lock (within 5 RM, heading towards it)
+  const lockQueue = useMemo(() => {
+    if (!selectedLockObj?.river_mile) return [];
+    
+    const lockRM = selectedLockObj.river_mile;
+    const queueRange = 10; // vessels within 10 miles of lock
+    
+    return vessels
+      .filter(v => {
+        // ONLY exclude by MMSI match, not is_user_vessel flag
+        if (userMmsi && v.mmsi === userMmsi) return false;
+        if (!hasRiverMile(v)) return false;
+        // Stale (not live) positions are not shown as queued traffic
+        if (isVesselStale(v)) return false;
+                
+        const distToLock = Math.abs(v.river_mile - lockRM);
+        if (distToLock > queueRange) return false;
+        
+        // Check if heading towards lock
+        if (v.river_mile > lockRM && v.heading === 'southbound') return true;
+        if (v.river_mile < lockRM && v.heading === 'northbound') return true;
+        // Include stationary vessels very close to lock
+        if (distToLock < 2) return true;
+        
+        return false;
+      })
+      .sort((a, b) => {
+        // Sort by distance to lock
+        const distA = Math.abs(a.river_mile - lockRM);
+        const distB = Math.abs(b.river_mile - lockRM);
+        return distA - distB;
+      })
+      .slice(0, 5); // Max 5 vessels in queue view
+  }, [vessels, selectedLockObj, userMmsi]);
+
+  // Get last lockage info from lockageTimes
+  const lastLockage = useMemo(() => {
+    const lockData = lockageTimes?.[selectedLock];
+    if (!lockData?.last_lockage) return null;
+    
+    return {
+      vesselName: lockData.last_lockage.vessel_name || 'Unknown',
+      bargeCount: lockData.last_lockage.barge_count || 0,
+      minutesAgo: lockData.last_lockage.minutes_ago || null,
+      direction: lockData.last_lockage.direction || null
+    };
+  }, [lockageTimes, selectedLock]);
+
+  // Focused vessel - when set, map will center on this vessel
+  const [focusedVessel, setFocusedVessel] = useState(null);
+
+  // Helper function to find the nearest lock to a given vessel based on its heading
+  // Wrapped with useCallback to be a stable dependency for sortedNearbyVessels
+  const findNearestLock = useCallback((vessel) => {
+    if (!hasRiverMile(vessel) || !locks.length) return null;
+
+    const vesselRM = Number(vessel.river_mile);
+    const heading = vessel.heading;
+    const sortedLocks = [...locks].sort((a, b) => a.river_mile - b.river_mile);
+    
+    // If vessel has a heading, find the next lock in that direction
+    if (heading === 'southbound') {
+      for (let i = sortedLocks.length - 1; i >= 0; i--) {
+        if (sortedLocks[i].river_mile < vesselRM) {
+          return sortedLocks[i];
+        }
+      }
+    } else if (heading === 'northbound') {
+      for (let i = 0; i < sortedLocks.length; i++) {
+        if (sortedLocks[i].river_mile > vesselRM) {
+          return sortedLocks[i];
+        }
+      }
+    }
+    
+    // Fallback: find the closest lock regardless of direction
+    let closest = sortedLocks[0];
+    let minDist = Math.abs(sortedLocks[0].river_mile - vesselRM);
+    for (const lock of sortedLocks) {
+      const dist = Math.abs(lock.river_mile - vesselRM);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = lock;
+      }
+    }
+    return closest;
+  }, [locks]);
+
+  // Sort nearby vessels by descending RM distance from their next lock
+  // Also calculate RM distance from user's vessel or watch point
+  // Show all vessels (no distance filter - previously limited to 100 miles)
+  const sortedNearbyVessels = useMemo(() => {
+    // Traffic Watch: distances from the lock being watched (the saved watch
+    // point is only a fallback); vessel owners: from their own boat.
+    const centerRM = isTrafficWatch
+      ? (selectedLockObj?.river_mile ?? watchPoint?.river_mile)
+      : userVessel?.river_mile;
+    
+    return vessels.map(vessel => {
+      // Find this vessel's next lock
+      const nextLock = findNearestLock(vessel);
+      const rmToNextLock = nextLock && hasRiverMile(vessel)
+        ? Math.abs(Number(vessel.river_mile) - nextLock.river_mile)
+        : 0;
+      
+      // Calculate RM distance from center point (user vessel or watch point)
+      const rmFromUser = Number.isFinite(Number(centerRM)) && centerRM !== null && centerRM !== undefined && hasRiverMile(vessel)
+        ? Math.abs(Number(vessel.river_mile) - Number(centerRM))
+        : null;
+      
+      return {
+        ...vessel,
+        nextLockInfo: nextLock,
+        rmToNextLock,
+        rmFromUser
+      };
+    })
+    // No distance filter - show all vessels
+    .filter(vessel => {
+      // For vessel owners, always show user's vessel first
+      if (!isTrafficWatch && userMmsi && vessel.mmsi === userMmsi) return true;
+      // Include all vessels with valid river_mile
+      return hasRiverMile(vessel);
+    })
+    .sort((a, b) => {
+      // Traffic Watch: nearest to the watched lock first.
+      if (isTrafficWatch && a.rmFromUser != null && b.rmFromUser != null) {
+        return a.rmFromUser - b.rmFromUser;
+      }
+      // Otherwise River Mile descending (following the river downstream)
+      const rmA = a.river_mile || 0;
+      const rmB = b.river_mile || 0;
+      return rmB - rmA;
+    });
+  }, [vessels, userVessel, userMmsi, findNearestLock, isTrafficWatch, watchPoint, selectedLockObj]);
+
+  // Filter vessels by search query (for Traffic Watch mode)
+  const filteredNearbyVessels = useMemo(() => {
+    if (!vesselSearchQuery.trim()) {
+      return sortedNearbyVessels;
+    }
+    
+    const query = vesselSearchQuery.toLowerCase().trim();
+    return sortedNearbyVessels.filter(vessel => {
+      const mmsiMatch = vessel.mmsi?.toString().includes(query);
+      const nameMatch = vessel.name?.toLowerCase().includes(query);
+      return mmsiMatch || nameMatch;
+    });
+  }, [sortedNearbyVessels, vesselSearchQuery]);
+
+  // Handle vessel click from map (no longer used - map handles its own overlay)
   const handleVesselClick = (vessel) => {
-    setSelectedVessel(vessel);
+    // Map now handles its own info overlay, but we keep this for backwards compatibility
+  };
+
+  // Handle vessel click specifically from list (switches to map and centers)
+  const handleVesselClickFromList = (vessel) => {
+    // First switch to map tab
+    setDesktopPanel("map");
+    setMobilePanel("map");
+    
+    // Auto-select the nearest lock to this vessel
+    const nearestLock = findNearestLock(vessel);
+    if (nearestLock) {
+      setAutoNextLock(false); // Disable auto-tracking since we're manually selecting
+      onSelectLock(nearestLock.id);
+    }
+    
+    // Then set focused vessel after a brief delay to ensure map component is mounted
+    setTimeout(() => {
+      setFocusedVessel(vessel);
+    }, 100);
   };
 
   // Open position editor with current values
-  const openPositionEditor = () => {
+  const openPositionEditor = useCallback(() => {
     if (userVessel) {
-      setEditRM(userVessel.river_mile?.toFixed(1) || "");
-      setEditSpeed((userVessel.speed * 1.15078).toFixed(1) || "");
+      setEditRM(hasRiverMile(userVessel) ? formatRiverMile(userVessel.river_mile) : "");
+      setEditSpeed(formatSpeedMph(userVessel.speed) === '--' ? "" : formatSpeedMph(userVessel.speed));
       setEditCourse(userVessel.course?.toFixed(0) || "180");
     }
+    setShowPositionEditor(true);
+  }, [userVessel]);
+
+  // Handle user vessel edit from map click
+  const handleUserVesselEdit = (vessel) => {
+    // Pre-fill the form with current vessel data
+    setEditRM(hasRiverMile(vessel) ? formatRiverMile(vessel.river_mile) : "");
+    setEditSpeed(formatSpeedMph(vessel.speed) === '--' ? "" : formatSpeedMph(vessel.speed));
+    setEditCourse(vessel.course?.toFixed(0) || "180");
     setShowPositionEditor(true);
   };
 
@@ -207,7 +562,17 @@ export default function Dashboard({
       
       // Convert speed from MPH to knots
       const speedKnots = (speed || 0) * 0.868976;
-      
+
+      // Resolve MMSI: user account vessel -> active session MMSI -> connection config
+      const effectiveMmsi = userMmsi
+        || userVessel?.mmsi
+        || connectionConfig?.user_mmsi
+        || "";
+      if (!effectiveMmsi) {
+        toast.error("No MMSI set. Open Settings > Vessels and add your MMSI first.");
+        return;
+      }
+
       // Update position
       const response = await fetch(`${API}/user-position`, {
         method: "POST",
@@ -218,573 +583,378 @@ export default function Dashboard({
           speed: speedKnots,
           course: course || 0,
           source: "manual",
-          mmsi: userMmsi || userVessel?.mmsi,
+          mmsi: effectiveMmsi,
           name: userSettings.boat_name || userVessel?.name || "Your Vessel"
         })
       });
-      
+
       if (response.ok) {
         toast.success(`Position updated to RM ${rm}`);
         setShowPositionEditor(false);
+        // Refresh data to show updated position
+        if (onRefresh) {
+          await onRefresh();
+        }
       } else {
-        toast.error("Failed to update position");
+        const errDetail = await response.json().catch(() => null);
+        toast.error(errDetail?.detail || `Failed to update position (HTTP ${response.status})`);
       }
     } catch (error) {
       console.error("Position update error:", error);
-      toast.error("Failed to update position");
+      toast.error(error?.message || "Failed to update position");
     }
   };
 
   // Quick stats for mobile header
-  const requiredSpeed = raceAnalysis?.analysis?.required_speed_mph;
-  const userEta = raceAnalysis?.analysis?.user_eta_minutes;
+  const requiredSpeed = isTimingPaused ? null : raceAnalysis?.analysis?.required_speed_mph;
+  const userEta = isTimingPaused ? null : raceAnalysis?.analysis?.user_eta_minutes;
+
+  // Keyboard shortcuts - must be after all handler functions
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger shortcuts when typing in inputs
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      // Don't trigger with modifier keys
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      
+      switch (e.key.toLowerCase()) {
+        case 'p':
+          // P = Edit Position (Vessel Owner only)
+          if (!isTrafficWatch) {
+            e.preventDefault();
+            openPositionEditor();
+          }
+          break;
+        case 'l':
+          // L = Switch to Locks tab
+          e.preventDefault();
+          setDesktopPanel("locks");
+          setMobilePanel("locks");
+          toast.info("Switched to Locks", { duration: 1500 });
+          break;
+        case 'v':
+          // V = Switch to Vessels tab
+          e.preventDefault();
+          setDesktopPanel("vessels");
+          setMobilePanel("vessels");
+          toast.info("Switched to Vessels", { duration: 1500 });
+          break;
+        case 'm':
+          // M = Switch to Map tab
+          e.preventDefault();
+          setDesktopPanel("map");
+          setMobilePanel("map");
+          toast.info("Switched to Map", { duration: 1500 });
+          break;
+        case 'r':
+          // R = Refresh data
+          e.preventDefault();
+          handleRefresh();
+          break;
+        case 'escape':
+          // Escape = Close position editor or modals
+          if (showPositionEditor && !isTrafficWatch) {
+            setShowPositionEditor(false);
+          } else if (selectedVessel) {
+            setSelectedVessel(null);
+          } else if (selectedLockDetail) {
+            setSelectedLockDetail(null);
+          }
+          break;
+        case '?':
+          // ? = Show keyboard shortcuts help
+          e.preventDefault();
+          toast.info(
+            <div className="space-y-1 text-xs">
+              <p className="font-bold mb-2">Keyboard Shortcuts</p>
+              {!isTrafficWatch && <p><kbd className="bg-slate-700 px-1 rounded">P</kbd> Edit Position</p>}
+              <p><kbd className="bg-slate-700 px-1 rounded">M</kbd> Map Tab</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">L</kbd> Locks Tab</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">V</kbd> Vessels Tab</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">R</kbd> Refresh</p>
+              <p><kbd className="bg-slate-700 px-1 rounded">Esc</kbd> Close Modal</p>
+            </div>,
+            { duration: 5000 }
+          );
+          break;
+        default:
+          break;
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showPositionEditor, selectedVessel, selectedLockDetail, openPositionEditor, handleRefresh]);
 
   return (
-    <div className="min-h-screen bg-[#020617]" data-testid="dashboard">
-      {/* Header - Mobile Optimized */}
-      <header className="glass-panel border-b border-white/10 sticky top-0 z-50">
-        <div className="container mx-auto px-3 md:px-4 py-2 md:py-3">
+    <div className="min-h-screen bg-slate-950 font-sans" data-testid="dashboard">
+      {/* Clean Header */}
+      <header className="bg-slate-950/95 backdrop-blur-xl border-b border-white/5 sticky top-0 z-50">
+        <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            {/* Logo & Status */}
-            <div className="flex items-center gap-2 md:gap-4">
+            {/* Left: Logo + Status */}
+            <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <Anchor className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
-                <h1 className="text-lg md:text-xl font-bold text-white tracking-wide">
-                  RIVER WATCH
-                  <span className="text-xs md:text-sm font-normal text-slate-500 ml-2">v1.0</span>
-                </h1>
+                <Radio className="w-5 h-5 text-cyan-400" />
+                <span className="font-heading font-bold text-base sm:text-lg uppercase tracking-wider text-white">
+                  RiverWatch<span className="text-cyan-400 ml-1">AIS</span>
+                </span>
               </div>
-              <ConnectionStatus 
-                isConnected={isConnected} 
-                config={connectionConfig}
-                compact={true}
-                demoMode={demoMode}
-              />
+              
+              {/* Connection Status - Minimal */}
+              <div
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-sm ${isConnected ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                title={isConnected
+                  ? "Live vessel positions are arriving from the AIS feed (Settings > AIS Connection)."
+                  : "The AIS feed (Settings > AIS Connection) is not connected, so vessel positions on the map are not updating. Lock queues, waits and history come from USACE and stay current."}
+              >
+                <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'} ${isConnected ? 'animate-pulse' : ''}`} />
+                <span className="text-xs font-mono uppercase">{isConnected ? 'AIS live' : 'AIS offline'}</span>
+              </div>
             </div>
             
-            {/* Desktop Actions */}
-            <div className="hidden md:flex items-center gap-3">
-              {!isConnected && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onReconnect}
-                  className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10"
-                  data-testid="reconnect-btn"
-                >
-                  <Wifi className="w-4 h-4 mr-1" />
-                  Retry Connection
-                </Button>
-              )}
-              
-              {/* Demo Mode buttons - only show when using default test MMSI */}
-              {userMmsi === "123456789" && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onAddDemoVessels}
-                    className="border-slate-600 text-slate-300 hover:bg-slate-800"
-                    data-testid="demo-vessels-btn"
-                  >
-                    <Play className="w-4 h-4 mr-1" />
-                    Demo Mode
-                  </Button>
-                  
-                  {demoMode && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={onClearDemo}
-                      className="border-red-500/50 text-red-400 hover:bg-red-500/10"
-                      data-testid="exit-demo-btn"
-                    >
-                      <X className="w-4 h-4 mr-1" />
-                      Exit Demo
-                    </Button>
-                  )}
-                </>
-              )}
-              
+            {/* Right: Actions */}
+            <div className="flex items-center gap-2">
+              {/* Traffic Planning - Icon only */}
               <Button
-                variant="outline"
-                size="sm"
-                onClick={onOpenSettings}
-                className="border-slate-600 text-slate-300 hover:bg-slate-800"
-                data-testid="settings-btn"
+                variant="ghost"
+                size="icon"
+                onClick={() => { window.location.href = '/planning'; }}
+                className="text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 w-9 h-9"
+                data-testid="planning-nav-btn"
+                title="River Traffic Planning"
               >
-                <Settings className="w-4 h-4 mr-1" />
-                Settings
+                <Compass className="w-4 h-4" />
+              </Button>
+              {/* My Trips */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.location.assign('/trips')}
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                data-testid="trips-nav-btn"
+                title="My Trips"
+              >
+                <Map className="w-4 h-4" />
+              </Button>
+
+              {/* Settings - Icon only */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onOpenSettings}
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
+                data-testid="settings-btn"
+                title="Settings"
+              >
+                <Settings className="w-4 h-4" />
               </Button>
               
-              {/* Refresh Button */}
+              {/* Refresh - Icon only */}
               <Button
-                variant="outline"
-                size="sm"
+                variant="ghost"
+                size="icon"
                 onClick={handleRefresh}
                 disabled={isRefreshing}
-                className="border-slate-600 text-slate-300 hover:bg-slate-800"
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-9 h-9"
                 data-testid="refresh-btn"
-                title={`Last refresh: ${getTimeSinceRefresh()}`}
+                title={`Refresh (${getTimeSinceRefresh()})`}
               >
-                <RefreshCw className={`w-4 h-4 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
-                Refresh
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               </Button>
               
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onResetConnection}
-                className="border-slate-600 text-slate-300 hover:bg-slate-800"
-                data-testid="change-connection-btn"
-              >
-                <Wifi className="w-4 h-4 mr-1" />
-                Connection
-              </Button>
-            </div>
-
-            {/* Mobile Menu Button */}
-            <Sheet open={showMobileMenu} onOpenChange={setShowMobileMenu}>
-              <SheetTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="md:hidden text-slate-300"
-                  data-testid="mobile-menu-btn"
-                >
-                  <Menu className="w-5 h-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="bg-slate-900 border-slate-700 w-72">
-                <div className="flex flex-col gap-3 mt-6">
-                  {!isConnected && (
-                    <Button
-                      variant="outline"
-                      onClick={() => { onReconnect(); setShowMobileMenu(false); }}
-                      className="border-cyan-500/50 text-cyan-400 justify-start"
-                    >
-                      <Wifi className="w-4 h-4 mr-2" />
-                      Retry Connection
-                    </Button>
-                  )}
-                  
-                  <Button
-                    variant="outline"
-                    onClick={() => { onAddDemoVessels(); setShowMobileMenu(false); }}
-                    className="border-slate-600 text-slate-300 justify-start"
-                  >
-                    <Play className="w-4 h-4 mr-2" />
-                    Demo Mode
-                  </Button>
-                  
-                  <Button
-                    variant="outline"
-                    onClick={() => { onOpenSettings(); setShowMobileMenu(false); }}
-                    className="border-slate-600 text-slate-300 justify-start"
-                  >
-                    <Settings className="w-4 h-4 mr-2" />
-                    Settings
-                  </Button>
-                  
-                  {/* Mobile Refresh Button */}
-                  <Button
-                    variant="outline"
-                    onClick={() => { handleRefresh(); setShowMobileMenu(false); }}
-                    disabled={isRefreshing}
-                    className="border-slate-600 text-slate-300 justify-start"
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    Refresh Data
-                  </Button>
-                  
-                  {/* Full Refresh Button */}
-                  <Button
-                    variant="outline"
-                    onClick={() => { handleFullRefresh(); setShowMobileMenu(false); }}
-                    className="border-amber-500/50 text-amber-400 justify-start"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Full Reload
-                  </Button>
-                  
-                  <Button
-                    variant="outline"
-                    onClick={() => { onResetConnection(); setShowMobileMenu(false); }}
-                    className="border-slate-600 text-slate-300 justify-start"
-                  >
-                    <Wifi className="w-4 h-4 mr-2" />
-                    Change Connection
-                  </Button>
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
-        </div>
-
-        {/* Mobile Quick Stats Bar */}
-        <div className="md:hidden border-t border-white/5 px-3 py-2 flex items-center justify-between bg-slate-900/50">
-          <div className="flex items-center gap-3">
-            {/* Your Position */}
-            {userVessel ? (
-              <div className="text-center">
-                <div className="text-[10px] text-slate-500 uppercase">Your RM</div>
-                <div className="text-lg font-mono text-cyan-400">
-                  {userVessel.river_mile?.toFixed(1) || '--'}
-                </div>
-              </div>
-            ) : userMmsi ? (
+              {/* User Menu */}
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-auto py-1 px-2 text-cyan-400 border border-cyan-500/30"
-                    data-testid="set-position-btn-mobile"
+                    className="text-slate-400 hover:text-white hover:bg-white/5 gap-2"
+                    data-testid="user-menu-btn"
                   >
-                    <MapPin className="w-3 h-3 mr-1" />
-                    <span className="text-xs">Set Pos</span>
+                    <User className="w-4 h-4" />
+                    <span className="hidden lg:inline text-sm">{user?.name || 'Account'}</span>
+                    <ChevronDown className="w-3 h-3 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-64 bg-slate-900 border-slate-700" align="start">
-                  <div className="space-y-3">
-                    <h4 className="text-sm font-medium text-white">Set Your Position</h4>
-                    <div className="space-y-2">
-                      <div>
-                        <Label className="text-xs text-slate-400">River Mile</Label>
-                        <Input
-                          type="number"
-                          placeholder="830"
-                          value={editRM}
-                          onChange={(e) => setEditRM(e.target.value)}
-                          className="bg-slate-950 border-slate-700 text-white font-mono h-8"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs text-slate-400">Speed (MPH)</Label>
-                          <Input
-                            type="number"
-                            placeholder="15"
-                            value={editSpeed}
-                            onChange={(e) => setEditSpeed(e.target.value)}
-                            className="bg-slate-950 border-slate-700 text-white font-mono h-8"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-slate-400">Course (°)</Label>
-                          <Input
-                            type="number"
-                            placeholder="180"
-                            value={editCourse}
-                            onChange={(e) => setEditCourse(e.target.value)}
-                            className="bg-slate-950 border-slate-700 text-white font-mono h-8"
-                          />
-                        </div>
+                <PopoverContent className="w-56 bg-slate-900 border-slate-700 p-2" align="end">
+                  <div className="space-y-1">
+                    <div className="px-2 py-1.5 border-b border-slate-700 mb-2">
+                      <p className="text-xs text-slate-500 uppercase tracking-wider font-heading">Signed in as</p>
+                      <p className="text-sm text-white truncate">{user?.email}</p>
+                      <div className="flex items-center gap-1 mt-1">
+                        {isTrafficWatch ? (
+                          <Badge className="text-[10px] bg-purple-500/20 text-purple-400 border-purple-500/50">
+                            <Eye className="w-3 h-3 mr-1" />
+                            Traffic Watch
+                          </Badge>
+                        ) : (
+                          <Badge className="text-[10px] bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
+                            <Ship className="w-3 h-3 mr-1" />
+                            Vessel Owner
+                          </Badge>
+                        )}
                       </div>
                     </div>
+                    {/* Mode Toggle */}
                     <Button
+                      variant="ghost"
                       size="sm"
-                      onClick={updateQuickPosition}
-                      className="w-full bg-cyan-600 hover:bg-cyan-700 text-white h-8"
+                      onClick={async () => {
+                        const newType = isTrafficWatch ? "vessel_owner" : "traffic_watch";
+                        try {
+                          await fetch(`${API}/user/account-type`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({ account_type: newType })
+                          });
+                          toast.success(`Switching to ${newType === "vessel_owner" ? "Vessel Owner" : "Traffic Watch"} mode...`);
+                          setTimeout(() => window.location.reload(), 1000);
+                        } catch (e) {
+                          toast.error("Failed to switch mode");
+                        }
+                      }}
+                      className={`w-full justify-start ${isTrafficWatch ? 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10' : 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10'}`}
                     >
-                      <Check className="w-3 h-3 mr-1" />
-                      Set Position
+                      {isTrafficWatch ? (
+                        <>
+                          <Ship className="w-4 h-4 mr-2" />
+                          Switch to Vessel Mode
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-4 h-4 mr-2" />
+                          Switch to Traffic Watch
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={onResetConnection}
+                      className="w-full justify-start text-slate-400 hover:text-white hover:bg-white/5"
+                    >
+                      <Wifi className="w-4 h-4 mr-2" />
+                      Change Connection
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleLogout}
+                      className="w-full justify-start text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      data-testid="logout-btn"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Sign Out
                     </Button>
                   </div>
                 </PopoverContent>
               </Popover>
-            ) : null}
-            
-            <div className="text-center">
-              <div className="text-[10px] text-slate-500 uppercase">Speed Req</div>
-              <div className={`text-lg font-mono font-bold ${isDangerous ? 'text-red-400' : requiredSpeed ? 'text-green-400' : 'text-slate-500'}`}>
-                {requiredSpeed?.toFixed(0) || '--'}
-                <span className="text-xs ml-0.5">mph</span>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-[10px] text-slate-500 uppercase">Your ETA</div>
-              <div className="text-lg font-mono text-white">
-                {userEta?.toFixed(0) || '--'}
-                <span className="text-xs ml-0.5">min</span>
-              </div>
             </div>
           </div>
-          
-          {isDangerous && (
-            <div className="flex items-center gap-1 text-red-400 text-xs font-semibold animate-pulse">
-              <AlertTriangle className="w-4 h-4" />
-              DELAY
-            </div>
-          )}
-          
-          {/* Lock Selector - Mobile */}
-          <select
-            value={selectedLock}
-            onChange={(e) => {
-              setAutoNextLock(false);
-              onSelectLock(e.target.value);
-            }}
-            className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono"
-            data-testid="lock-selector-mobile"
-          >
-            {locks.map(lock => (
-              <option key={lock.id} value={lock.id}>
-                L{lock.id.replace('lock_', '')}
-              </option>
-            ))}
-          </select>
         </div>
       </header>
 
-      {/* Your Vessel Status Bar - Desktop */}
-      <div className="hidden md:block border-b border-white/10 bg-slate-900/50">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${userVessel ? 'bg-cyan-400 user-vessel-pulse' : 'bg-slate-600'}`} />
-                <span className="text-sm font-semibold text-white">Your Vessel</span>
-                {userVessel ? (
-                  <>
-                    <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/50">
-                      {getVesselDisplayName(userVessel, userSettings.show_vessel_names !== false)}
-                    </Badge>
-                    {userVessel.source && (
-                      <Badge className={`text-xs ${userVessel.source === 'GPS' ? 'bg-green-900/30 text-green-400 border-green-500/30' : 'bg-blue-900/30 text-blue-400 border-blue-500/30'}`}>
-                        {userVessel.source}
-                      </Badge>
-                    )}
-                  </>
-                ) : userMmsi ? (
-                  <Badge className="bg-slate-700 text-slate-400 border-slate-600">
-                    MMSI: {userMmsi} <span className="text-xs ml-1">(awaiting position data)</span>
-                  </Badge>
-                ) : (
-                  <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30">
-                    No MMSI configured
-                  </Badge>
-                )}
-              </div>
-            </div>
-            
-            {userVessel ? (
-              <div className="flex items-center gap-4 md:gap-6">
-                <div className="text-center">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">River Mile</div>
-                  <div className="text-lg font-mono text-white">
-                    {userVessel.river_mile?.toFixed(1) || '--'}
+      {/* HUD Bar - Aligned left under logo */}
+      <div className="hidden md:block bg-slate-900/30 border-b border-white/5">
+        <div className="container mx-auto px-4 py-1.5">
+          <div className="flex items-center">
+            <div className="flex items-center bg-slate-950/80 border border-white/10 rounded text-xs">
+              {/* Traffic Watch mode indicator */}
+              {isTrafficWatch ? (
+                <>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                    <Eye className="w-3 h-3 text-purple-400" />
+                    <span className="text-purple-400 font-medium">Traffic Watch</span>
                   </div>
-                </div>
-                <div className="text-center">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Speed</div>
-                  <div className="text-lg font-mono text-white">
-                    {(userVessel.speed * 1.15078).toFixed(1)} <span className="text-xs text-slate-400">MPH</span>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                    <span className="text-slate-500 font-heading uppercase text-[10px]">Watching</span>
+                    <span className="font-mono text-white font-semibold">RM {formatRiverMile(selectedLockObj?.river_mile ?? watchPoint?.river_mile)}</span>
                   </div>
-                </div>
-                <div className="text-center hidden sm:block">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Course</div>
-                  <div className="text-lg font-mono text-white">
-                    {userVessel.course?.toFixed(0)}°
-                  </div>
-                </div>
-                <div className="text-center hidden md:block">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Direction</div>
-                  <div className="text-lg font-semibold text-white capitalize">
-                    {userVessel.heading || '--'}
-                  </div>
-                </div>
-                
-                {/* Quick Position Edit Button */}
-                <Popover open={showPositionEditor} onOpenChange={setShowPositionEditor}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={openPositionEditor}
-                      className="text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10"
-                      data-testid="quick-position-edit-btn"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-72 bg-slate-900 border-slate-700" align="end">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-medium text-white">Quick Position Edit</h4>
-                        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">
-                          Testing
-                        </Badge>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <div>
-                          <Label className="text-xs text-slate-400">River Mile</Label>
-                          <Input
-                            type="number"
-                            placeholder="830"
-                            value={editRM}
-                            onChange={(e) => setEditRM(e.target.value)}
-                            className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                            data-testid="quick-edit-rm"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label className="text-xs text-slate-400">Speed (MPH)</Label>
-                            <Input
-                              type="number"
-                              placeholder="15"
-                              value={editSpeed}
-                              onChange={(e) => setEditSpeed(e.target.value)}
-                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                              data-testid="quick-edit-speed"
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs text-slate-400">Course (°)</Label>
-                            <Input
-                              type="number"
-                              placeholder="180"
-                              value={editCourse}
-                              onChange={(e) => setEditCourse(e.target.value)}
-                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                              data-testid="quick-edit-course"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowPositionEditor(false)}
-                          className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800"
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={updateQuickPosition}
-                          className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
-                          data-testid="quick-edit-save-btn"
-                        >
-                          <Check className="w-4 h-4 mr-1" />
-                          Update
-                        </Button>
-                      </div>
-                      
-                      <p className="text-[10px] text-slate-500">
-                        0°=North, 180°=South (downriver)
-                      </p>
+                </>
+              ) : (
+                <>
+                  {/* MMSI & Vessel Name - Vessel Owner only */}
+                  {userMmsi && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                      <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="font-mono text-slate-400">{userMmsi}</span>
+                      {userVessel?.name && (
+                        <>
+                          <span className="text-slate-600">|</span>
+                          <span className="text-cyan-400 font-medium">{userVessel.name}</span>
+                        </>
+                      )}
                     </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div className="text-sm text-slate-500">
-                  {isConnected ? 'Waiting for your vessel position from AIS feed...' : 'Not connected to AIS'}
+                  )}
+
+                  {/* Position with Edit Button - Vessel Owner only */}
+                  <button 
+                    onClick={openPositionEditor}
+                    className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10 hover:bg-white/5 transition-colors cursor-pointer group"
+                    data-testid="hud-position-edit-btn"
+                    title="Edit position (P)"
+                  >
+                    {hasRiverMile(userVessel) ? (
+                      <>
+                        <span className="text-slate-500 font-heading uppercase text-[10px]">RM</span>
+                        <span className="font-mono text-white font-semibold">{formatRiverMile(userVessel.river_mile)}</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-500 text-[10px]">Set Position</span>
+                    )}
+                    <Edit3 className="w-3 h-3 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+                  </button>
+                  
+                  {/* Speed - Vessel Owner only */}
+                  {userVessel && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                      <span className="font-mono text-white font-semibold">{formatSpeedMph(userVessel.speed, 0)}</span>
+                      <span className="text-slate-500 text-[10px]">mph</span>
+                    </div>
+                  )}
+
+                  {/* Required Speed - Vessel Owner only */}
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                    <span className="text-slate-500 font-heading uppercase text-[10px]">Need</span>
+                    <span className={`font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                      {requiredSpeed?.toFixed(0) || '--'}
+                    </span>
+                    <span className="text-slate-500 text-[10px]">mph</span>
+                  </div>
+
+                  {/* ETA - Vessel Owner only */}
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
+                    <span className="text-slate-500 font-heading uppercase text-[10px]">ETA</span>
+                    <span className="font-mono text-amber-400 font-semibold">{userEta ? `${Math.round(userEta)}m` : '--'}</span>
+                  </div>
+                </>
+              )}
+
+              {/* Status */}
+              {isTrafficWatch ? (
+                <div className="flex items-center gap-1 px-2.5 py-1 bg-purple-500/10 rounded-r">
+                  <span className="font-heading text-[10px] font-bold uppercase tracking-wider text-purple-400">
+                    {sortedNearbyVessels.length} VESSELS
+                  </span>
                 </div>
-                {/* Allow setting position even without existing vessel data */}
-                {userMmsi && (
-                  <Popover open={showPositionEditor} onOpenChange={setShowPositionEditor}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditRM("");
-                          setEditSpeed("15");
-                          setEditCourse("180");
-                          setShowPositionEditor(true);
-                        }}
-                        className="text-cyan-400 border-cyan-500/50 hover:bg-cyan-500/10"
-                        data-testid="set-position-btn"
-                      >
-                        <MapPin className="w-4 h-4 mr-1" />
-                        Set Position
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-72 bg-slate-900 border-slate-700" align="end">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-medium text-white">Set Your Position</h4>
-                          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-xs">
-                            Testing
-                          </Badge>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <div>
-                            <Label className="text-xs text-slate-400">River Mile</Label>
-                            <Input
-                              type="number"
-                              placeholder="830"
-                              value={editRM}
-                              onChange={(e) => setEditRM(e.target.value)}
-                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <Label className="text-xs text-slate-400">Speed (MPH)</Label>
-                              <Input
-                                type="number"
-                                placeholder="15"
-                                value={editSpeed}
-                                onChange={(e) => setEditSpeed(e.target.value)}
-                                className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs text-slate-400">Course (°)</Label>
-                              <Input
-                                type="number"
-                                placeholder="180"
-                                value={editCourse}
-                                onChange={(e) => setEditCourse(e.target.value)}
-                                className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowPositionEditor(false)}
-                            className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800"
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={updateQuickPosition}
-                            className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
-                          >
-                            <Check className="w-4 h-4 mr-1" />
-                            Set
-                          </Button>
-                        </div>
-                        
-                        <p className="text-[10px] text-slate-500">
-                          0°=North, 180°=South (downriver)
-                        </p>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                )}
-              </div>
-            )}
+              ) : (
+                <div className={`flex items-center gap-1 px-2.5 py-1 ${isDangerous ? 'bg-red-500/10' : isTimingPaused ? 'bg-slate-500/10' : 'bg-green-500/10'} rounded-r`}>
+                  <span className={`font-heading text-[10px] font-bold uppercase tracking-wider ${isDangerous ? 'text-red-400' : isTimingPaused ? 'text-slate-300' : 'text-green-400'}`}>
+                    {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : 'CLEAR'}
+                  </span>
+                  {isDangerous && <AlertTriangle className="w-3 h-3 text-red-400 animate-pulse" />}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <main className="container mx-auto px-2 md:px-4 py-3 md:py-6">
+      <main className="container mx-auto px-2 md:px-4 py-2 md:py-3">
         
         {/* Mobile Tab Navigation */}
         <div className="md:hidden mb-3">
@@ -854,107 +1024,44 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Desktop Tabbed Layout */}
+        {/* Desktop Split-View Layout */}
         <div className="hidden md:block">
-          {/* Tab Navigation */}
-          <div className="flex gap-1 mb-4 bg-slate-900/50 p-1 rounded-lg">
-            <button
-              onClick={() => setDesktopPanel("map")}
-              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "map" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Navigation className="w-4 h-4 inline mr-2" />
-              Map
-            </button>
-            <button
-              onClick={() => setDesktopPanel("timing")}
-              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "timing" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Target className="w-4 h-4 inline mr-2" />
-              Lock Timing
-            </button>
-            <button
-              onClick={() => setDesktopPanel("vessels")}
-              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "vessels" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Ship className="w-4 h-4 inline mr-2" />
-              Vessels ({vessels.length})
-            </button>
-            <button
-              onClick={() => setDesktopPanel("locks")}
-              className={`flex-1 px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "locks" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Lock className="w-4 h-4 inline mr-2" />
-              Locks
-            </button>
-            <button
-              onClick={() => setDesktopPanel("debug")}
-              className={`px-4 py-2.5 rounded text-sm font-medium transition-colors ${
-                desktopPanel === "debug" 
-                  ? "bg-cyan-500/20 text-cyan-400" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/50"
-              }`}
-            >
-              <Terminal className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Tab Content - Only render active panel */}
-          
-          {/* Map Panel */}
-          {desktopPanel === "map" && (
-            <Card className="glass-panel hud-border min-h-[600px]" data-testid="river-map-card">
-              <CardHeader className="border-b border-white/10 pb-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg text-white flex items-center gap-2">
-                    <Navigation className="w-5 h-5 text-cyan-400" />
-                    River Map
-                    {autoNextLock && nextLock && (
-                      <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-xs ml-2">
-                        Auto
-                      </Badge>
-                    )}
-                  </CardTitle>
+          {/* Desktop Split-View Layout - Map always visible with sidebar */}
+          <div className="grid grid-cols-12 gap-4" style={{ height: 'calc(100vh - 220px)', minHeight: '500px' }}>
+            {/* Main Map Area - Takes 8 columns */}
+            <div className="col-span-8">
+              <Card className="glass-panel hud-border h-full" data-testid="river-map-card">
+                {/* Compact Map Header */}
+                <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+                  <div className="flex items-center gap-3">
+                    <Navigation className="w-4 h-4 text-cyan-400" />
+                    <ViewToggle value={mainView} onChange={setMainView} />
+                  </div>
                   
-                  {/* Lock Selector + Zoom Slider */}
-                  <div className="flex items-center gap-4">
-                    {/* Auto Next Lock Toggle */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setAutoNextLock(!autoNextLock);
-                        if (!autoNextLock && nextLock) {
-                          onSelectLock(nextLock.id);
-                          toast.success(`Auto-tracking: ${nextLock.name}`);
-                        }
-                      }}
-                      className={`border-slate-600 ${autoNextLock ? 'bg-green-500/20 text-green-400 border-green-500/50' : 'text-slate-400'}`}
-                      data-testid="auto-next-lock-btn"
-                      title={nextLock ? `Next lock: ${nextLock.name} (RM ${nextLock.river_mile})` : 'No vessel heading detected'}
-                    >
-                      <Target className="w-4 h-4 mr-1" />
-                      {autoNextLock ? 'Auto' : 'Next'}
-                    </Button>
+                  <div className={`flex items-center gap-3 ${mainView === "locks" ? "hidden" : ""}`}>
+                    {/* Auto Next Lock Toggle - Only show for Vessel Owners */}
+                    {!isTrafficWatch && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setAutoNextLock(!autoNextLock);
+                          if (!autoNextLock && nextLock) {
+                            onSelectLock(nextLock.id);
+                            toast.success(`Auto-tracking: ${nextLock.name}`);
+                          }
+                        }}
+                        className={`h-7 px-2 ${autoNextLock ? 'bg-green-500/20 text-green-400' : 'text-slate-400 hover:text-white'}`}
+                        title={nextLock ? `Next lock: ${nextLock.name}` : 'No heading detected'}
+                      >
+                        <Target className="w-3 h-3 mr-1" />
+                        {autoNextLock ? 'Auto' : 'Next'}
+                      </Button>
+                    )}
                     
-                    {/* Zoom Slider */}
-                    <div className="flex items-center gap-2">
-                      <ZoomOut className="w-4 h-4 text-slate-400" />
+                    {/* Zoom Controls */}
+                    <div className="flex items-center gap-1">
+                      <ZoomOut className="w-3 h-3 text-slate-500" />
                       <input
                         type="range"
                         min="10"
@@ -962,14 +1069,13 @@ export default function Dashboard({
                         step="10"
                         value={zoomLevel}
                         onChange={(e) => setZoomLevel(parseInt(e.target.value))}
-                        className="w-24 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                        data-testid="zoom-slider"
+                        className="w-20 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                       />
-                      <ZoomIn className="w-4 h-4 text-slate-400" />
-                      <span className="text-xs text-slate-400 w-12">{zoomLevel < 500 ? `${zoomLevel}mi` : 'Full'}</span>
+                      <ZoomIn className="w-3 h-3 text-slate-500" />
+                      <span className="text-[10px] text-slate-500 w-8">{zoomLevel < 500 ? `${zoomLevel}mi` : 'Full'}</span>
                     </div>
                     
-                    {/* Manual Lock Selector */}
+                    {/* Lock Selector */}
                     <select
                       value={selectedLock}
                       onChange={(e) => {
@@ -977,127 +1083,634 @@ export default function Dashboard({
                         onSelectLock(e.target.value);
                       }}
                       disabled={autoNextLock}
-                      className={`bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm font-mono focus:border-cyan-500 focus:outline-none ${autoNextLock ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      data-testid="lock-selector"
+                      className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs font-mono"
                     >
                       {locks.map(lock => (
                         <option key={lock.id} value={lock.id}>
-                          Lock {lock.id.replace('lock_', '')} (RM {lock.river_mile})
+                          {lockShortLabel(lock.id)} (RM {lock.river_mile})
                         </option>
                       ))}
                     </select>
                   </div>
                 </div>
-              </CardHeader>
-              
-              <CardContent className="p-0 h-[550px]">
-                <RiverVisualization
-                  vessels={vessels}
-                  userMmsi={userMmsi}
-                  locks={locks}
-                  selectedLock={selectedLock}
-                  raceAnalysis={raceAnalysis}
-                  zoomRange={zoomLevel}
-                  onVesselClick={handleVesselClick}
-                  showVesselNames={userSettings.show_vessel_names !== false}
-                />
-              </CardContent>
-            </Card>
-          )}
+                
+                {/* Map Content with Floating Overlays */}
+                <div className="relative h-[calc(100%-44px)]">
+                  {mainView === "locks" && (
+                    <div className="absolute inset-0 z-40 bg-[#020617]">
+                      <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail} />
+                    </div>
+                  )}
+                  <RiverVisualization
+                    vessels={vessels}
+                    userMmsi={userMmsi}
+                    locks={locks}
+                    selectedLock={selectedLock}
+                    raceAnalysis={raceAnalysis}
+                    maxSpeedMph={maxAllowedSpeedMph}
+                    zoomRange={zoomLevel}
+                    onVesselClick={handleVesselClick}
+                    onLockClick={(id) => { highlightLock(id); setSelectedLockDetail(id); }}
+                    onUserVesselEdit={handleUserVesselEdit}
+                    showVesselNames={userSettings.show_vessel_names !== false}
+                    focusedVessel={focusedVessel}
+                    onFocusClear={() => setFocusedVessel(null)}
+                    onVesselDetails={(vessel) => setSelectedVessel(vessel)}
+                    lockQueues={lockQueues}
+                  />
+                  
+                  {/* Feature #4: Mini Compass/Heading Indicator - Top Right */}
+                  {userVessel && (
+                    <div className="absolute top-3 right-3 z-30 glass-panel border border-slate-600 rounded-lg p-2">
+                      <div className="flex items-center gap-2">
+                        <div className="relative w-10 h-10">
+                          {/* Compass circle */}
+                          <div className="absolute inset-0 rounded-full border border-slate-500 bg-slate-900/80">
+                            {/* Cardinal directions */}
+                            <span className="absolute top-0 left-1/2 -translate-x-1/2 text-[8px] text-red-400 font-bold">N</span>
+                            <span className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[8px] text-slate-500">S</span>
+                            <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[8px] text-slate-500">W</span>
+                            <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[8px] text-slate-500">E</span>
+                          </div>
+                          {/* Heading needle */}
+                          <div 
+                            className="absolute inset-0 flex items-center justify-center"
+                            style={{ 
+                              transform: `rotate(${userVessel.course || 0}deg)`,
+                              transition: 'transform 0.5s ease-out'
+                            }}
+                          >
+                            <div className="w-0.5 h-4 bg-gradient-to-t from-transparent via-cyan-400 to-cyan-400 rounded-full" />
+                          </div>
+                          {/* Center dot */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] text-slate-500 uppercase">Heading</div>
+                          <div className="text-sm font-mono text-white">
+                            {userVessel.course ? `${Math.round(userVessel.course)}°` : '--'}
+                          </div>
+                          <div className={`text-[10px] font-semibold ${
+                            isUpbound(userVessel.heading) ? 'text-green-400' :
+                            isDownbound(userVessel.heading) ? 'text-red-400' : 'text-slate-400'
+                          }`}>
+                            {isUpbound(userVessel.heading) ? '↑ UPBOUND' :
+                             isDownbound(userVessel.heading) ? '↓ DOWNBOUND' : directionLabel(userVessel.heading).toUpperCase()}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Floating Position Editor - Shows when editing from map click (Vessel Owner only) */}
+                  {!isTrafficWatch && showPositionEditor && (
+                    <div className="absolute top-3 left-3 z-50 glass-panel border border-cyan-500/50 rounded-lg shadow-xl w-64" data-testid="map-position-editor">
+                      <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-cyan-400" />
+                          Edit Position
+                        </h4>
+                        <button 
+                          onClick={() => setShowPositionEditor(false)}
+                          className="text-slate-400 hover:text-white p-1"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="p-3 space-y-3">
+                        <div>
+                          <Label className="text-xs text-slate-400">River Mile</Label>
+                          <Input
+                            type="number"
+                            placeholder="e.g., 830"
+                            value={editRM}
+                            onChange={(e) => setEditRM(e.target.value)}
+                            className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                            data-testid="map-edit-rm"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs text-slate-400">Speed (MPH)</Label>
+                            <Input
+                              type="number"
+                              placeholder="15"
+                              value={editSpeed}
+                              onChange={(e) => setEditSpeed(e.target.value)}
+                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              data-testid="map-edit-speed"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-slate-400">Course (°)</Label>
+                            <Input
+                              type="number"
+                              placeholder="180"
+                              value={editCourse}
+                              onChange={(e) => setEditCourse(e.target.value)}
+                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
+                              data-testid="map-edit-course"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowPositionEditor(false)}
+                            className="flex-1 border-slate-600 text-slate-400 hover:bg-slate-800"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={updateQuickPosition}
+                            className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
+                            data-testid="map-edit-save-btn"
+                          >
+                            <Check className="w-4 h-4 mr-1" />
+                            Update
+                          </Button>
+                        </div>
+                        
+                        <p className="text-[10px] text-slate-500">
+                          0°=North, 180°=South (downriver)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+            
+            {/* Sidebar - Takes 4 columns, matches map height */}
+            <div className="col-span-4 flex flex-col gap-4 h-full">
+              {/* Traffic Summary Card - For Traffic Watch users */}
+              {isTrafficWatch ? (
+                <Card className="glass-panel hud-border flex-shrink-0" data-testid="traffic-summary-sidebar">
+                  <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-purple-400" />
+                      <span className="text-sm font-medium text-white">Traffic Summary</span>
+                    </div>
+                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/50 text-[10px]">
+                      {trafficSummary ? `${trafficSummary.total_vessels} near lock` : '…'}
+                    </Badge>
+                  </div>
+                  <div className="p-3 space-y-3">
+                    {/* Vessel Search Bar */}
+                    <div className="relative">
+                      <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search MMSI or vessel name..."
+                        value={vesselSearchQuery}
+                        onChange={(e) => setVesselSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-800/50 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20"
+                        data-testid="vessel-search-input"
+                      />
+                      {vesselSearchQuery && (
+                        <button
+                          onClick={() => setVesselSearchQuery("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Watch Point Info - Clickable to open lock details */}
+                    <div 
+                      className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
+                      onClick={() => setSelectedLockDetail(activeTimingLockId)}
+                      title="Click to view lock details"
+                    >
+                      <div className="text-[10px] text-slate-500 uppercase">Watching</div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-white font-semibold">{selectedLockObj?.name || watchPoint?.name || 'Select Lock'}</div>
+                          <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile || watchPoint?.river_mile}</div>
+                        </div>
+                        <ChevronDown className="w-4 h-4 text-purple-400" />
+                      </div>
+                    </div>
+                    
+                    {/* USACE queue at the watched lock */}
+                    {targetLockBoard?.lock_id === activeTimingLockId && (
+                      <div className="pb-2 border-b border-slate-700 text-xs" data-testid="traffic-summary-lock-queue">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">At this lock (USACE)</span>
+                          <span className={`font-mono text-right ${targetLockBoard.queue_count === 0 ? 'text-green-400' : targetLockBoard.wait_estimate_minutes >= 60 ? 'text-amber-400' : 'text-white'}`}
+                                title={WAIT_TOOLTIP}>
+                            {targetLockBoard.queue_count === 0 ? 'No queue · ' : ''}tow ≈ {fmtDuration(targetLockBoard.wait_estimate_minutes)} · pleasure ≈ {fmtDuration(targetLockBoard.wait_estimate_recreational_minutes)}
+                          </span>
+                        </div>
+                        {[...(targetLockBoard.locking || []), ...(targetLockBoard.waiting || [])].slice(0, 4).map((v, i) => (
+                          <div key={i} className="flex justify-between text-slate-300 mt-1">
+                            <span className="truncate">
+                              {v.vessel_name || 'Unknown'}{' '}
+                              <span className={v.direction === 'upbound' ? 'text-green-400' : 'text-red-400'}>{v.direction === 'upbound' ? '↑' : '↓'}</span>
+                            </span>
+                            <span className="text-slate-500 shrink-0">
+                              {v.barges ? `${v.barges} ${v.barges === 1 ? 'barge' : 'barges'}` : 'light'}
+                              {v.started_at
+                                ? <span className="text-cyan-400">{` · locking${v.cuts_completed ? ` · cut ${v.cuts_completed} of ${v.cuts_completed + 1} done` : ''}`}</span>
+                                : (v.waiting_minutes != null ? ` · at lock ${fmtDuration(v.waiting_minutes)}` : '')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-          {/* Lock Timing Panel */}
-          {desktopPanel === "timing" && (
-            <RaceAnalysisPanel 
-              raceAnalysis={raceAnalysis}
-              userVessel={userVessel}
-              isDangerous={isDangerous}
-              showVesselNames={userSettings.show_vessel_names !== false}
-            />
-          )}
+                    {/* Traffic Direction Summary */}
+                    <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-700">
+                      <div className="p-2 bg-green-500/10 rounded-lg text-center">
+                        <div className="flex items-center justify-center gap-1 text-green-400 mb-1">
+                          <ArrowUpRight className="w-4 h-4" />
+                          <span className="text-lg font-bold">{trafficSummary?.northbound || 0}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">Upbound · near lock</div>
+                      </div>
+                      <div className="p-2 bg-red-500/10 rounded-lg text-center">
+                        <div className="flex items-center justify-center gap-1 text-red-400 mb-1">
+                          <ArrowDownRight className="w-4 h-4" />
+                          <span className="text-lg font-bold">{trafficSummary?.southbound || 0}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">Downbound · near lock</div>
+                      </div>
+                    </div>
+                    
+                    {/* Vessels Near Lock */}
+                    {trafficSummary && (
+                      <div className="text-[10px] text-slate-500 -mt-1" data-testid="traffic-summary-count-note">
+                        {trafficSummary.stationary > 0 && <span className="text-slate-400">{trafficSummary.stationary} stopped or moored · </span>}
+                        Within {trafficSummary.radius_mi ?? 20} river miles of the lock or in its USACE queue
+                        {trafficSummary.feed_vessels != null && ` · ${trafficSummary.feed_vessels} on the AIS feed river-wide`}
+                      </div>
+                    )}
 
-          {/* Vessels Panel */}
-          {desktopPanel === "vessels" && (
-            <Card className="glass-panel hud-border" data-testid="vessel-list-card">
-              <CardHeader className="border-b border-white/10 pb-3">
-                <CardTitle className="text-lg text-white flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Ship className="w-5 h-5 text-cyan-400" />
-                    Tracked Vessels
-                  </span>
-                  <Badge variant="outline" className="border-cyan-500/50 text-cyan-400">
-                    {vessels.length}
+                    {trafficSummary?.vessels_near_lock?.length > 0 && (
+                      <div className="pb-2 border-b border-slate-700">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <Ship className="w-3 h-3 text-cyan-400" />
+                          <span className="text-[10px] text-cyan-400 uppercase font-semibold">
+                            Near Lock ({trafficSummary.vessels_near_lock.length})
+                          </span>
+                        </div>
+                        <div className="space-y-1 max-h-[120px] overflow-y-auto">
+                          {trafficSummary.vessels_near_lock.slice(0, 5).map((vessel) => (
+                            <div 
+                              key={vessel.mmsi}
+                              className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/50 cursor-pointer hover:bg-slate-700/50"
+                              onClick={() => setSelectedVessel(vessel)}
+                            >
+                              <span className="text-slate-300 truncate max-w-[100px]">
+                                {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={isUpbound(vessel.heading) ? 'text-green-400' : isDownbound(vessel.heading) ? 'text-red-400' : 'text-slate-500'}>
+                                  {isUpbound(vessel.heading) ? '↑U' : isDownbound(vessel.heading) ? '↓D' : '—'}
+                                </span>
+                                <span className="text-slate-500 font-mono">
+                                  {vessel.distance_to_lock?.toFixed(1)}mi
+                                </span>
+                                {vessel.eta_to_lock && (
+                                  <span className="text-amber-400 font-mono">
+                                    {vessel.eta_to_lock < 60 
+                                      ? `${Math.round(vessel.eta_to_lock)}m`
+                                      : `${Math.floor(vessel.eta_to_lock / 60)}h${Math.round(vessel.eta_to_lock % 60)}m`
+                                    }
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Recent Lockages */}
+                    {trafficSummary?.recent_lockages?.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <History className="w-3 h-3 text-amber-400" />
+                          <span className="text-[10px] text-amber-400 uppercase font-semibold">
+                            Recent Lockages
+                          </span>
+                        </div>
+                        <div>
+                          {trafficSummary.recent_lockages.slice(0, 3).map((lockage, idx) => (
+                            <LockageRow key={idx} lockage={lockage} title={lockage.vessel_name} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              ) : (
+              /* Lock Timing Card - Enhanced (for vessel owners) */
+              <Card className="glass-panel hud-border flex-shrink-0" data-testid="timing-sidebar">
+                <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-cyan-400" />
+                    <span className="text-sm font-medium text-white">Lock Timing</span>
+                  </div>
+                  <Badge className={`text-[10px] ${
+                    isDangerous
+                      ? 'bg-red-500/20 text-red-400 border-red-500/50'
+                      : isTimingPaused
+                        ? 'bg-slate-500/20 text-slate-300 border-slate-500/50'
+                        : raceAnalysis?.analysis?.threatening_vessel
+                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
+                          : 'bg-green-500/20 text-green-400 border-green-500/50'
+                  }`}>
+                    {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
                   </Badge>
-                </CardTitle>
-              </CardHeader>
-              
-              <CardContent className="p-0">
-                <Tabs defaultValue="all" className="w-full">
-                  <TabsList className="w-full bg-slate-900/50 border-b border-white/10 rounded-none">
-                    <TabsTrigger 
-                      value="all" 
-                      className="flex-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400"
-                    >
-                      All ({vessels.length})
-                    </TabsTrigger>
-                    <TabsTrigger 
-                      value="commercial"
-                      className="flex-1 data-[state=active]:bg-cyan-500/10 data-[state=active]:text-cyan-400"
-                    >
-                      Commercial ({commercialVessels.length})
-                    </TabsTrigger>
-                  </TabsList>
+                </div>
+                <div className="p-3 space-y-3">
+                  {/* Target Lock Info - Clickable to open details */}
+                  <div 
+                    className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
+                    onClick={() => setSelectedLockDetail(activeTimingLockId)}
+                    title="Click to view lock details"
+                  >
+                    <div className="text-[10px] text-slate-500 uppercase">Target Lock</div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
+                        <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
+                        {!isTrafficWatch && selectedLock !== activeTimingLockId && (
+                          <div className="text-[10px] text-cyan-400 mt-1">
+                            Timing follows your next lock. Map view: L{selectedLock.replace('lock_', '')}.
+                          </div>
+                        )}
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-cyan-400" />
+                    </div>
+                  </div>
                   
-                  <TabsContent value="all" className="mt-0">
-                    <ScrollArea className="h-[500px]">
-                      <VesselList 
-                        vessels={vessels} 
-                        userMmsi={userMmsi}
-                        selectedLock={locks.find(l => l.id === selectedLock)}
-                        onVesselClick={handleVesselClick}
-                        showVesselNames={userSettings.show_vessel_names !== false}
-                      />
-                    </ScrollArea>
-                  </TabsContent>
+                  {/* Feature #1: Distance & Time Breakdown */}
+                  {lockTravelInfo.distance && (
+                    <>
+                      {/* Show warning if lock is very far away */}
+                      {parseFloat(lockTravelInfo.distance) > 100 && (
+                        <div className="text-[10px] text-slate-500 bg-slate-800/50 rounded px-2 py-1.5 mb-2 flex items-center gap-1.5">
+                          <Route className="w-3 h-3" />
+                          <span>This lock is {parseFloat(lockTravelInfo.distance).toFixed(0)} miles away. Select a closer lock for relevant timing data.</span>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-2 text-xs pb-2 border-b border-slate-700">
+                        <div className="flex items-center gap-1.5">
+                          <Route className="w-3 h-3 text-slate-500" />
+                          <span className="text-slate-400">Distance:</span>
+                          <span className="text-white font-mono">{lockTravelInfo.distance} mi</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Timer className="w-3 h-3 text-slate-500" />
+                          <span className="text-slate-400">Travel:</span>
+                          <span className="text-white font-mono">{lockTravelInfo.travelMinutes || '--'} min</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 text-slate-500" />
+                          <span className="text-slate-400">Est. Wait:</span>
+                          <span className="text-amber-400 font-mono"
+                                title={`${WAIT_TOOLTIP}${lockTravelInfo.towWait != null ? ` Tow ≈ ${fmtDuration(lockTravelInfo.towWait)}, pleasure boat ≈ ${fmtDuration(lockTravelInfo.pleasureWait)}.` : ''}`}>
+                            {lockTravelInfo.estimatedWait == null ? '--'
+                              : `~${fmtDuration(lockTravelInfo.estimatedWait)} ${lockTravelInfo.waitKind}${lockTravelInfo.queueCount ? ` (${lockTravelInfo.queueCount} ahead)` : ''}`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Gauge className="w-3 h-3 text-slate-500" />
+                          <span className="text-slate-400">Total:</span>
+                          <span className="text-cyan-400 font-mono font-semibold">~{lockTravelInfo.totalMinutes || '--'} min</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                   
-                  <TabsContent value="commercial" className="mt-0">
-                    <ScrollArea className="h-[500px]">
-                      <VesselList 
-                        vessels={commercialVessels}
-                        userMmsi={userMmsi}
-                        selectedLock={locks.find(l => l.id === selectedLock)}
-                        onVesselClick={handleVesselClick}
-                        showVesselNames={userSettings.show_vessel_names !== false}
-                      />
-                    </ScrollArea>
-                  </TabsContent>
-                </Tabs>
-              </CardContent>
-            </Card>
-          )}
+                  {/* Threat Info / Clear Status */}
+                  {raceAnalysis?.analysis?.threatening_vessel ? (
+                    <div className="space-y-2 pb-2 border-b border-slate-700">
+                      <div className="flex items-center gap-2 text-amber-400">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span className="text-sm font-semibold">Traffic Ahead</span>
+                      </div>
+                      <div className="bg-slate-800/50 rounded p-2 text-xs">
+                        <div className="font-medium text-white mb-1">
+                          {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)}
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-slate-400">
+                          <span>ETA: {raceAnalysis.analysis.threatening_vessel.eta_minutes?.toFixed(0) || '--'}m</span>
+                          <span>RM: {formatRiverMile(raceAnalysis.analysis.threatening_vessel.river_mile)}</span>
+                        </div>
+                      </div>
+                      <div className="text-center py-2">
+                        <div className="text-[10px] text-slate-500 uppercase">Speed Needed to Arrive Before Tow</div>
+                        {isTimingPaused ? (
+                          <>
+                            <div className="text-2xl font-mono font-bold text-slate-300">Stopped</div>
+                            <div className="text-[10px] text-slate-400 mt-1">
+                              Start moving or enter a speed to estimate the speed needed to arrive before the tow.
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                              {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
+                            </div>
+                            {isDangerous && (
+                              <div className="text-[10px] text-red-400 mt-1">Exceeds max speed ({maxAllowedSpeedMph} mph)</div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-3 pb-2 border-b border-slate-700">
+                      <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-1">
+                        <Check className="w-4 h-4 text-green-400" />
+                      </div>
+                      <div className="text-green-400 font-semibold text-sm">No Traffic</div>
+                      <div className="text-[10px] text-slate-400">Clear path to lock</div>
+                    </div>
+                  )}
+                  
+                  {/* Feature #2: Lock Queue Preview */}
+                  {lockQueue.length > 0 && (
+                    <div className="pb-2 border-b border-slate-700">
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Users className="w-3 h-3 text-amber-400" />
+                        <span className="text-[10px] text-amber-400 uppercase font-semibold">
+                          Queue ({lockQueue.length} vessel{lockQueue.length > 1 ? 's' : ''})
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        {lockQueue.map((vessel, idx) => (
+                          <div 
+                            key={vessel.mmsi}
+                            className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/50"
+                          >
+                            <span className="text-slate-300 truncate max-w-[120px]">
+                              {idx + 1}. {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {vessel.barge_count > 0 && (
+                                <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
+                                  {vessel.barge_count}B
+                                </Badge>
+                              )}
+                              <span className="text-slate-500 font-mono">
+                                {Math.abs(Number(vessel.river_mile) - selectedLockObj.river_mile).toFixed(1)}mi
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        {/* Show "You" in queue ONLY if this is the lock you're heading toward */}
+                        {userVessel && nextLock && activeTimingLockId === nextLock.id && (
+                          <div className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-cyan-900/30 border border-cyan-500/30">
+                            <span className="text-cyan-400 font-semibold">
+                              {lockQueue.length + 1}. You
+                            </span>
+                            <span className="text-cyan-400 font-mono">
+                              {lockTravelInfo.distance}mi
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Feature #8: Last Lockage Info */}
+                  {lastLockage && (
+                    <div className="pt-2 border-t border-slate-700">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <History className="w-3 h-3 text-slate-500" />
+                        <span className="text-[10px] text-slate-500 uppercase">Last Through</span>
+                      </div>
+                      <div className="text-xs">
+                        <span className="text-slate-300">{lastLockage.vesselName}</span>
+                        {lastLockage.bargeCount > 0 && (
+                          <span className="text-amber-400 ml-1">({lastLockage.bargeCount} barges)</span>
+                        )}
+                        {lastLockage.minutesAgo && (
+                          <span className="text-slate-500 ml-1">• {lastLockage.minutesAgo} min ago</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Card>
+              )}
 
-          {/* Locks Panel */}
-          {desktopPanel === "locks" && (
-            <LockStatusPanel
-              locks={locks}
-              lockStatus={lockStatus}
-              lockageTimes={lockageTimes}
-              selectedLock={selectedLock}
-              onSelectLock={(lockId) => {
-                setAutoNextLock(false);
-                onSelectLock(lockId);
-              }}
-              compact={false}
-            />
-          )}
+              {/* Trip Plan - Multi-Lock Chain Analysis (vessel_owner only) */}
+              {!isTrafficWatch && userMmsi && (
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={5} bufferMinutes={20} compact={true} />
+              )}
 
-          {/* Debug Panel */}
-          {desktopPanel === "debug" && (
-            <RawDataPanel 
-              vessels={vessels}
-              raceAnalysis={raceAnalysis}
-              connectionConfig={connectionConfig}
-            />
-          )}
+              {/* Nearby Vessels Card - Expands to fill remaining space */}
+              <Card className="glass-panel hud-border flex-1 flex flex-col min-h-0" data-testid="vessels-sidebar">
+                <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between flex-shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Ship className="w-4 h-4 text-cyan-400" />
+                    <span className="text-sm font-medium text-white">Nearby Vessels</span>
+                  </div>
+                  <Badge variant="outline" className="border-cyan-500/50 text-cyan-400 text-[10px]">
+                    {isTrafficWatch && vesselSearchQuery ? `${filteredNearbyVessels.length}/${sortedNearbyVessels.length}` : sortedNearbyVessels.length}
+                  </Badge>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="p-2 space-y-1">
+                    {/* Use filtered list in Traffic Watch mode when search is active */}
+                    {(() => {
+                      const displayVessels = isTrafficWatch ? filteredNearbyVessels : sortedNearbyVessels;
+                      
+                      if (displayVessels.length === 0) {
+                        return (
+                          <div className="text-center py-4 text-slate-500 text-sm">
+                            {vesselSearchQuery ? 'No vessels match your search' : 'No vessels in range'}
+                          </div>
+                        );
+                      }
+                      
+                      return (
+                        <>
+                          {displayVessels.slice(0, 12).map(vessel => {
+                            // ONLY match by MMSI, not is_user_vessel flag
+                            const isUser = userMmsi && vessel.mmsi === userMmsi;
+                            // Highlight search matches
+                            const isSearchMatch = vesselSearchQuery && (
+                              vessel.mmsi?.toString().includes(vesselSearchQuery.toLowerCase()) ||
+                              vessel.name?.toLowerCase().includes(vesselSearchQuery.toLowerCase())
+                            );
+                            const stale = isVesselStale(vessel);
+                            return (
+                              <div
+                                key={vessel.mmsi}
+                                className={`p-2 rounded cursor-pointer transition-colors ${
+                                  isUser ? 'bg-cyan-500/10 border-l-2 border-cyan-500' :
+                                  isSearchMatch ? 'bg-purple-500/10 border-l-2 border-purple-500' :
+                                  'hover:bg-slate-800/50'
+                                } ${stale ? 'opacity-50' : ''}`}
+                                title={stale ? `Stale position — ${lastSeenLabel(vessel)}` : undefined}
+                                onClick={() => handleVesselClickFromList(vessel)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className={`text-xs font-medium truncate max-w-[140px] ${
+                                    isUser ? 'text-cyan-400' : 
+                                    isSearchMatch ? 'text-purple-400' : 
+                                    'text-white'
+                                  }`}>
+                                    {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    RM {formatRiverMile(vessel.river_mile)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
+                                  <span>{formatSpeedMph(vessel.speed)} mph</span>
+                                  <span className={vessel.direction === 'upriver' || isUpbound(vessel.heading) ? 'text-green-400' : vessel.direction === 'downriver' || isDownbound(vessel.heading) ? 'text-red-400' : ''}>
+                                    {vessel.direction === 'upriver' || isUpbound(vessel.heading) ? '↑U' : vessel.direction === 'downriver' || isDownbound(vessel.heading) ? '↓D' : '—'}
+                                  </span>
+                                  {stale && <span className="text-amber-400">{lastSeenLabel(vessel)}</span>}
+                                  {vessel.barge_count > 0 && (
+                                    <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
+                                      {vessel.barge_count}B
+                                    </Badge>
+                                  )}
+                                </div>
+                                {/* Second row: RM from user/watch point + RM to next lock */}
+                                <div className="flex items-center justify-between mt-1 text-[10px]">
+                                  {vessel.rmFromUser !== null && !isUser && (
+                                    <span className="text-purple-400">
+                                      {vessel.rmFromUser.toFixed(1)} mi {isTrafficWatch ? 'away' : 'from you'}
+                                    </span>
+                                  )}
+                                  {isUser && <span className="text-cyan-400">Your vessel</span>}
+                                  {vessel.nextLockInfo && (
+                                    <span className="text-slate-500">
+                                      → {lockShortLabel(vessel.nextLockInfo.id)} in {vessel.rmToNextLock.toFixed(1)} mi
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {displayVessels.length > 12 && (
+                            <div className="text-center py-2 text-xs text-slate-500">
+                              +{displayVessels.length - 12} more vessels
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </ScrollArea>
+              </Card>
+            </div>
+          </div>
         </div>
 
         {/* Mobile Content Panels */}
@@ -1109,10 +1722,16 @@ export default function Dashboard({
                 raceAnalysis={raceAnalysis}
                 userVessel={userVessel}
                 isDangerous={isDangerous}
+                isTimingPaused={isTimingPaused}
+                maxAllowedSpeedMph={maxAllowedSpeedMph}
                 compact={true}
                 showVesselNames={userSettings.show_vessel_names !== false}
               />
-              
+
+              {!isTrafficWatch && userMmsi && (
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={4} bufferMinutes={20} compact={true} />
+              )}
+
               {userVessel && (
                 <Card className="glass-panel border-cyan-500/30">
                   <CardContent className="p-3">
@@ -1195,11 +1814,11 @@ export default function Dashboard({
                     <div className="grid grid-cols-4 gap-2 text-center">
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">RM</div>
-                        <div className="text-base font-mono text-white">{userVessel.river_mile?.toFixed(1)}</div>
+                        <div className="text-base font-mono text-white">{formatRiverMile(userVessel.river_mile)}</div>
                       </div>
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">Speed</div>
-                        <div className="text-base font-mono text-white">{(userVessel.speed * 1.15078).toFixed(1)}</div>
+                        <div className="text-base font-mono text-white">{formatSpeedMph(userVessel.speed)}</div>
                       </div>
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">Course</div>
@@ -1207,7 +1826,7 @@ export default function Dashboard({
                       </div>
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase">Dir</div>
-                        <div className="text-base font-mono text-white capitalize">{userVessel.heading?.slice(0,1) || '-'}</div>
+                        <div className="text-base font-mono text-white">{isUpbound(userVessel.heading) ? 'UB' : isDownbound(userVessel.heading) ? 'DB' : '—'}</div>
                       </div>
                     </div>
                   </CardContent>
@@ -1224,12 +1843,7 @@ export default function Dashboard({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-cyan-400" />
-                    <span className="text-sm font-medium text-white">River Map</span>
-                    {autoNextLock && (
-                      <Badge className="bg-green-500/20 text-green-400 border-green-500/50 text-[10px]">
-                        Auto
-                      </Badge>
-                    )}
+                    <ViewToggle value={mainView} onChange={setMainView} />
                   </div>
                   <div className="flex items-center gap-2">
                     {/* Auto Next Lock - Mobile */}
@@ -1264,17 +1878,29 @@ export default function Dashboard({
                   </div>
                 </div>
               </div>
-              <CardContent className="p-0 h-[calc(100vh-260px)] min-h-[350px]">
+              <CardContent className="p-0 h-[calc(100vh-260px)] min-h-[350px] relative">
+                {mainView === "locks" && (
+                  <div className="absolute inset-0 z-40 bg-[#020617] p-2">
+                    <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail} compact />
+                  </div>
+                )}
                 <RiverVisualization
                   vessels={vessels}
                   userMmsi={userMmsi}
                   locks={locks}
                   selectedLock={selectedLock}
                   raceAnalysis={raceAnalysis}
+                  maxSpeedMph={maxAllowedSpeedMph}
                   compact={true}
                   zoomRange={zoomLevel}
                   onVesselClick={handleVesselClick}
+                  onLockClick={(id) => { highlightLock(id); setSelectedLockDetail(id); }}
+                  onUserVesselEdit={handleUserVesselEdit}
                   showVesselNames={userSettings.show_vessel_names !== false}
+                  focusedVessel={focusedVessel}
+                  onFocusClear={() => setFocusedVessel(null)}
+                  onVesselDetails={(vessel) => setSelectedVessel(vessel)}
+                  lockQueues={lockQueues}
                 />
               </CardContent>
             </Card>
@@ -1307,7 +1933,7 @@ export default function Dashboard({
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         compact={true}
-                        onVesselClick={handleVesselClick}
+                        onVesselClick={handleVesselClickFromList}
                         showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>
@@ -1320,7 +1946,7 @@ export default function Dashboard({
                         userMmsi={userMmsi}
                         selectedLock={locks.find(l => l.id === selectedLock)}
                         compact={true}
-                        onVesselClick={handleVesselClick}
+                        onVesselClick={handleVesselClickFromList}
                         showVesselNames={userSettings.show_vessel_names !== false}
                       />
                     </ScrollArea>
@@ -1338,6 +1964,7 @@ export default function Dashboard({
               lockageTimes={lockageTimes}
               selectedLock={selectedLock}
               onSelectLock={onSelectLock}
+              onLockDetails={setSelectedLockDetail}
               compact={true}
             />
           )}
@@ -1359,7 +1986,7 @@ export default function Dashboard({
             <div>
               <div className="text-red-400 font-bold">Traffic Delay Expected</div>
               <div className="text-sm text-slate-300">
-                Required speed ({raceAnalysis?.analysis?.required_speed_mph?.toFixed(1)} MPH) exceeds your max (25 MPH)
+                Required speed ({raceAnalysis?.analysis?.required_speed_mph?.toFixed(1)} MPH) exceeds your max ({maxAllowedSpeedMph} MPH)
               </div>
             </div>
             <button
@@ -1379,6 +2006,17 @@ export default function Dashboard({
         isOpen={!!selectedVessel}
         onClose={() => setSelectedVessel(null)}
         selectedLock={selectedLockObj}
+      />
+
+      {/* Lock Detail Modal */}
+      <LockDetailModal
+        lockId={selectedLockDetail}
+        isOpen={!!selectedLockDetail}
+        onClose={() => setSelectedLockDetail(null)}
+        onSelectOnMap={(lockId) => {
+          onSelectLock(lockId);
+          setDesktopPanel("timing");
+        }}
       />
     </div>
   );

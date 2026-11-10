@@ -1,0 +1,247 @@
+# River Watch Backend - Configuration
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
+
+# MongoDB Configuration
+MONGO_URL = os.environ['MONGO_URL']
+DB_NAME = os.environ['DB_NAME']
+
+# CORS Configuration
+def get_cors_origins():
+    """Get CORS origins from environment or use defaults."""
+    cors_origins_env = os.environ.get('CORS_ORIGINS', '')
+    if cors_origins_env:
+        return [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+    # Default: local development only. Production must set CORS_ORIGINS
+    # explicitly (e.g. "https://app.example.com"); same-origin deployments
+    # behind the bundled nginx don't need CORS at all.
+    return ["http://localhost:3000"]
+
+# AIS Connection defaults
+DEFAULT_AIS_HOST = "136.116.165.255"
+DEFAULT_AIS_PORT = 7000
+
+# Lock definitions for Upper Mississippi River.
+# river_mile / lat / lon come from the USACE National Waterway Network lock links
+# (backend/data/umr_centerline.json); several hand-entered coordinates were
+# miles off (e.g. Lock 3 was placed ~5 mi from the dam).
+LOCKS = {
+    "lock_1": {"name": "Lock & Dam #1 (Minneapolis)", "river_mile": 847.6, "lat": 44.9155, "lon": -93.20085, "phone": "612-724-2971"},
+    "lock_2": {"name": "Lock & Dam #2 (Hastings)", "river_mile": 815.2, "lat": 44.76097, "lon": -92.86612, "phone": "651-436-2900"},
+    "lock_3": {"name": "Lock & Dam #3 (Red Wing)", "river_mile": 796.9, "lat": 44.61193, "lon": -92.61023, "phone": "651-388-5794"},
+    "lock_4": {"name": "Lock & Dam #4 (Alma)", "river_mile": 752.8, "lat": 44.32422, "lon": -91.92108, "phone": "608-685-4421"},
+    "lock_5": {"name": "Lock & Dam #5 (Minnesota City)", "river_mile": 738.1, "lat": 44.16004, "lon": -91.81104, "phone": "507-689-2101"},
+    "lock_5a": {"name": "Lock & Dam #5A (Fountain City)", "river_mile": 728.5, "lat": 44.08867, "lon": -91.66799, "phone": "507-452-2789"},
+    "lock_6": {"name": "Lock & Dam #6 (Trempealeau)", "river_mile": 714.0, "lat": 43.99808, "lon": -91.43883, "phone": "608-534-6424"},
+    "lock_7": {"name": "Lock & Dam #7 (Dresbach)", "river_mile": 702.0, "lat": 43.86438, "lon": -91.30794, "phone": "507-895-2170"},
+    "lock_8": {"name": "Lock & Dam #8 (Genoa)", "river_mile": 679.0, "lat": 43.57177, "lon": -91.22982, "phone": "608-689-2625"},
+    "lock_9": {"name": "Lock & Dam #9 (Lynxville)", "river_mile": 647.0, "lat": 43.21331, "lon": -91.10148, "phone": "608-874-4311"},
+    "lock_10": {"name": "Lock & Dam #10 (Guttenberg)", "river_mile": 615.0, "lat": 42.786, "lon": -91.0923, "phone": "563-252-1261"},
+    "lock_11": {"name": "Lock & Dam #11 (Dubuque)", "river_mile": 583.0, "lat": 42.54078, "lon": -90.64321, "phone": "563-582-0881"},
+    "lock_12": {"name": "Lock & Dam #12 (Bellevue)", "river_mile": 556.0, "lat": 42.2605, "lon": -90.42044, "phone": "563-872-4384"},
+    "lock_13": {"name": "Lock & Dam #13 (Fulton)", "river_mile": 522.0, "lat": 41.89677, "lon": -90.1578, "phone": "815-589-2274"},
+    "lock_14": {"name": "Lock & Dam #14 (Le Claire)", "river_mile": 493.0, "lat": 41.57317, "lon": -90.39875, "phone": "563-289-4233"},
+    "lock_15": {"name": "Lock & Dam #15 (Rock Island)", "river_mile": 482.9, "lat": 41.51968, "lon": -90.56518, "phone": "309-794-5338"},
+    "lock_16": {"name": "Lock & Dam #16 (Muscatine)", "river_mile": 457.2, "lat": 41.42684, "lon": -91.0123, "phone": "563-263-7913"},
+    "lock_17": {"name": "Lock & Dam #17 (New Boston)", "river_mile": 437.1, "lat": 41.19138, "lon": -91.05908, "phone": "309-587-8461"},
+    "lock_18": {"name": "Lock & Dam #18 (Gladstone)", "river_mile": 410.5, "lat": 40.88113, "lon": -91.0249, "phone": "319-524-2933"},
+    "lock_19": {"name": "Lock & Dam #19 (Keokuk)", "river_mile": 364.2, "lat": 40.39043, "lon": -91.37326, "phone": "319-524-2933"},
+    "lock_20": {"name": "Lock & Dam #20 (Canton)", "river_mile": 343.2, "lat": 40.14168, "lon": -91.51099, "phone": "573-853-4213"},
+    "lock_21": {"name": "Lock & Dam #21 (Quincy)", "river_mile": 324.9, "lat": 39.90499, "lon": -91.43033, "phone": "217-228-0890"},
+    "lock_22": {"name": "Lock & Dam #22 (Saverton)", "river_mile": 301.2, "lat": 39.63695, "lon": -91.2474, "phone": "573-754-4451"},
+    "lock_24": {"name": "Lock & Dam #24 (Clarksville)", "river_mile": 273.4, "lat": 39.37528, "lon": -90.90384, "phone": "573-242-3564"},
+    "lock_25": {"name": "Lock & Dam #25 (Cap au Gris)", "river_mile": 241.4, "lat": 39.00369, "lon": -90.68635, "phone": "636-899-2301"},
+    "melvin_price": {"name": "Melvin Price Lock & Dam (Alton)", "river_mile": 200.8, "lat": 38.86761, "lon": -90.15109, "phone": "618-462-6979"},
+    "chain_of_rocks": {"name": "Chain of Rocks Lock (Granite City)", "river_mile": 185.5, "lat": 38.7003, "lon": -90.19688, "phone": "314-355-6100"},
+}
+
+# Upper Mississippi lock numbers for USACE API
+# USACE lock queue codes. Locks 1-9 must be zero-padded ("02"); "2" returns
+# an empty feed. 5A's code is unconfirmed (neither "5A" nor "05A" returned rows).
+UPPER_MISS_LOCKS = [
+    "01", "02", "03", "04", "05", "05A", "06", "07", "08", "09", "10",
+    "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+    "21", "22", "24", "25", "26", "27"  # no 23 (never built); 26 = Mel Price, 27 = Chain of Rocks
+]
+
+# USGS Gauge stations near locks for water conditions data
+# Maps lock_id to nearest USGS gauge station
+USGS_GAUGES = {
+    # Format: lock_id: { site_id, name, parameters available }
+    "lock_1": {"site_id": "05331000", "name": "Mississippi River at St. Paul, MN", "river_mile": 839.3},
+    "lock_2": {"site_id": "05344500", "name": "Mississippi River at Prescott, WI", "river_mile": 811.0},
+    "lock_3": {"site_id": "05344500", "name": "Mississippi River at Prescott, WI", "river_mile": 811.0},  # Closest
+    "lock_4": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_5": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_5a": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_6": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_7": {"site_id": "05378500", "name": "Mississippi River at Winona, MN", "river_mile": 725.7},
+    "lock_8": {"site_id": "05389500", "name": "Mississippi River at McGregor, IA", "river_mile": 633.4},
+    "lock_9": {"site_id": "05389500", "name": "Mississippi River at McGregor, IA", "river_mile": 633.4},
+    "lock_10": {"site_id": "05389500", "name": "Mississippi River at McGregor, IA", "river_mile": 633.4},
+    "lock_11": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_12": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_13": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_14": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_15": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_16": {"site_id": "05420500", "name": "Mississippi River at Clinton, IA", "river_mile": 511.8},
+    "lock_17": {"site_id": "05474500", "name": "Mississippi River at Keokuk, IA", "river_mile": 364.2},
+    "lock_18": {"site_id": "05474500", "name": "Mississippi River at Keokuk, IA", "river_mile": 364.2},
+    "lock_19": {"site_id": "05474500", "name": "Mississippi River at Keokuk, IA", "river_mile": 364.2},
+    "lock_20": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "lock_21": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "lock_22": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "lock_24": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "lock_25": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "melvin_price": {"site_id": "05587450", "name": "Mississippi River at Grafton, IL", "river_mile": 218.0},
+    "chain_of_rocks": {"site_id": "07010000", "name": "Mississippi River at St. Louis, MO", "river_mile": 180.0},
+}
+
+# USGS Parameter codes
+USGS_PARAMS = {
+    "00065": "gage_height",      # Gage height (feet)
+    "00060": "discharge",         # Discharge (cubic feet per second)
+    "00010": "water_temp",        # Water temperature (Celsius)
+}
+
+# Flood stage levels for Upper Mississippi gauges (in feet)
+# Source: NOAA/NWS
+FLOOD_STAGES = {
+    "05331000": {"action": 10.0, "flood": 14.0, "moderate": 17.0, "major": 20.0},  # St. Paul
+    "05344500": {"action": 12.0, "flood": 16.0, "moderate": 18.0, "major": 21.0},  # Prescott
+    "05378500": {"action": 9.0, "flood": 13.0, "moderate": 15.0, "major": 18.0},   # Winona
+    "05389500": {"action": 14.0, "flood": 18.0, "moderate": 21.0, "major": 24.0},  # McGregor
+    "05420500": {"action": 16.0, "flood": 20.0, "moderate": 22.0, "major": 25.0},  # Clinton
+    "05474500": {"action": 12.0, "flood": 16.0, "moderate": 18.0, "major": 21.0},  # Keokuk
+    "05587450": {"action": 21.0, "flood": 25.0, "moderate": 28.0, "major": 31.0},  # Grafton
+    "07010000": {"action": 28.0, "flood": 30.0, "moderate": 35.0, "major": 40.0},  # St. Louis
+}
+
+# Per-lock NWS hydrograph gauge mapping. Each lock has its OWN forecast point
+# with its OWN flood-stage thresholds. Source: NCRFC forecast point list
+# (https://www.weather.gov/media/ncrfc/data/fcst_groups/fcstlist_fg.pdf) +
+# NWS National Water Prediction Service (https://api.water.noaa.gov/nwps/v1/).
+#
+# datum: "stage"     -> thresholds are gauge height in ft above local datum
+#        "elevation" -> thresholds are water surface elevation in ft above sea level
+LOCK_GAUGES = {
+    "lock_1":        {"nwsli": "STPM5", "usgs": "05331000", "name": "Mississippi River at St. Paul",                       "datum": "stage",     "stages": {"action": 10.0, "flood": 14.0, "moderate": 17.0, "major": 20.0}},
+    "lock_2":        {"nwsli": "HSTM5", "usgs": "05331580", "name": "Mississippi River at Hastings -- Below L&D 2",        "datum": "stage",     "stages": {"action": 13.0, "flood": 15.0, "moderate": 17.0, "major": 18.0}},
+    "lock_3":        {"nwsli": "RDWM5", "usgs": "05344490", "name": "Mississippi River at Red Wing -- Below L&D 3",        "datum": "stage",     "stages": {"action": 10.0, "flood": 14.0, "moderate": 15.0, "major": 17.0}},
+    "lock_4":        {"nwsli": "ALMW3", "usgs": None,        "name": "Mississippi River at Alma -- L&D 4",                  "datum": "stage",     "stages": {"action": 10.0, "flood": 16.0, "moderate": 17.0, "major": 18.0}},
+    "lock_5":        {"nwsli": "MSCM5", "usgs": None,        "name": "Mississippi River at Minnesota City -- L&D 5",       "datum": "elevation", "stages": {"action": 657.0, "flood": 660.0, "moderate": 662.0, "major": 665.0}},
+    "lock_5a":       {"nwsli": "WIDM5", "usgs": None,        "name": "Mississippi River at Winona -- L&D 5A",              "datum": "elevation", "stages": {"action": 650.0, "flood": 655.0, "moderate": 659.0, "major": 661.0}},
+    "lock_6":        {"nwsli": "TREW3", "usgs": None,        "name": "Mississippi River at Trempealeau -- L&D 6",          "datum": "elevation", "stages": {"action": 644.0, "flood": 647.0, "moderate": 649.0, "major": 651.0}},
+    "lock_7":        {"nwsli": "LCRM5", "usgs": None,        "name": "Mississippi River at La Crescent -- L&D 7",          "datum": "elevation", "stages": {"action": 638.0, "flood": 641.0, "moderate": 643.0, "major": 645.0}},
+    "lock_8":        {"nwsli": "GENW3", "usgs": None,        "name": "Mississippi River at Genoa -- L&D 8",                "datum": "elevation", "stages": {"action": 625.2, "flood": 631.0, "moderate": 634.0, "major": 636.0}},
+    "lock_9":        {"nwsli": "LYNW3", "usgs": "05388410",  "name": "Mississippi River at Lynxville -- Below L&D 9",      "datum": "elevation", "stages": {"action": 619.0, "flood": 625.0, "moderate": 628.0, "major": 631.0}},
+    "lock_10":       {"nwsli": "GTTI4", "usgs": None,        "name": "Mississippi River at Guttenberg -- L&D 10",          "datum": "stage",     "stages": {"action": 12.0, "flood": 15.0, "moderate": 18.0, "major": 21.0}},
+    "lock_11":       {"nwsli": "DBQI4", "usgs": None,        "name": "Mississippi River at Dubuque -- L&D 11",             "datum": "stage",     "stages": {"action": 15.0, "flood": 17.0, "moderate": 18.0, "major": 21.5}},
+    "lock_12":       {"nwsli": "BLVI4", "usgs": "05416100",  "name": "Mississippi River at Bellevue -- L&D 12",            "datum": "stage",     "stages": {"action": 16.0, "flood": 17.0, "moderate": 18.0, "major": 20.0}},
+    "lock_13":       {"nwsli": "FLTI2", "usgs": "05420400",  "name": "Mississippi River at Fulton -- L&D 13",              "datum": "stage",     "stages": {"action": 15.0, "flood": 16.0, "moderate": 18.0, "major": 20.0}},
+    "lock_14":       {"nwsli": "LECI4", "usgs": "05422400",  "name": "Mississippi River at LeClaire -- L&D 14",            "datum": "stage",     "stages": {"action": 10.0, "flood": 11.0, "moderate": 12.0, "major": 13.5}},
+    "lock_15":       {"nwsli": "RCKI2", "usgs": None,        "name": "Mississippi River at Rock Island -- L&D 15",         "datum": "stage",     "stages": {"action": 13.0, "flood": 15.0, "moderate": 16.0, "major": 18.0}},
+    "lock_16":       {"nwsli": "ILNI2", "usgs": None,        "name": "Mississippi River at Illinois City -- L&D 16",       "datum": "stage",     "stages": {"action": 14.0, "flood": 15.0, "moderate": 16.0, "major": 18.0}},
+    "lock_17":       {"nwsli": "NBOI2", "usgs": None,        "name": "Mississippi River at New Boston -- L&D 17",          "datum": "stage",     "stages": {"action": 14.0, "flood": 15.0, "moderate": 16.5, "major": 18.5}},
+    "lock_18":       {"nwsli": "GLDI2", "usgs": None,        "name": "Mississippi River at Gladstone -- L&D 18",           "datum": "stage",     "stages": {"action": 9.0, "flood": 10.0, "moderate": 12.0, "major": 14.0}},
+    "lock_19":       {"nwsli": "EOKI4", "usgs": "05474500",  "name": "Mississippi River at Keokuk -- L&D 19",              "datum": "stage",     "stages": {"action": 14.0, "flood": 16.0, "moderate": 17.5, "major": 19.0}},
+    "lock_20":       {"nwsli": "CANM7", "usgs": "05495150",  "name": "Mississippi River at Canton -- L&D 20",              "datum": "stage",     "stages": {"action": 13.0, "flood": 15.0, "moderate": 20.0, "major": 25.0}},
+    "lock_21":       {"nwsli": "QLDI2", "usgs": None,        "name": "Mississippi River at Quincy -- L&D 21",              "datum": "stage",     "stages": {"action": 16.0, "flood": 18.0, "moderate": 21.0, "major": 25.0}},
+    "lock_22":       {"nwsli": "SVRM7", "usgs": None,        "name": "Mississippi River at Saverton -- L&D 22",            "datum": "stage",     "stages": {"action": 14.0, "flood": 16.0, "moderate": 20.0, "major": 24.0}},
+    "lock_24":       {"nwsli": "CLKM7", "usgs": None,        "name": "Mississippi River at Clarksville -- L&D 24",         "datum": "stage",     "stages": {"action": 23.0, "flood": 25.0, "moderate": 31.0, "major": 33.0}},
+    "lock_25":       {"nwsli": "CAGM7", "usgs": "05513675",  "name": "Mississippi River at Cap au Gris (Winfield) -- L&D 25", "datum": "stage",  "stages": {"action": 24.0, "flood": 26.0, "moderate": 30.0, "major": 34.0}},
+    "melvin_price":  {"nwsli": "ALNI2", "usgs": "05587541",  "name": "Mississippi River at Alton -- Melvin Price L&D",      "datum": "stage",     "stages": {"action": 19.0, "flood": 21.0, "moderate": 29.0, "major": 34.0}},
+    "chain_of_rocks":{"nwsli": "EADM7", "usgs": "07010000",  "name": "Mississippi River at St. Louis (Eads Bridge)",        "datum": "stage",     "stages": {"action": 28.0, "flood": 30.0, "moderate": 35.0, "major": 40.0}},
+}
+
+# River mile reference points for estimation
+RIVER_MILE_POINTS = [
+    (44.9778, -93.2650, 847.6),   # L1 - Minneapolis
+    (44.7319, -92.8500, 815.2),   # L2 - Hastings
+    (44.5620, -92.5340, 796.9),   # L3 - Red Wing
+    (44.3240, -91.9150, 752.8),   # L4 - Alma
+    (44.0510, -91.6390, 738.1),   # L5 - Minnesota City
+    (43.9560, -91.5850, 728.5),   # L5A - Fountain City
+    (43.8500, -91.4390, 714.1),   # L6 - Trempealeau
+    (43.7600, -91.2890, 702.5),   # L7 - Dresbach
+    (43.5660, -91.2290, 679.2),   # L8 - Genoa
+    (43.1920, -91.0720, 647.9),   # L9 - Lynxville
+    (42.7860, -91.0990, 615.1),   # L10 - Guttenberg
+    (42.4900, -90.6650, 583.0),   # L11 - Dubuque
+    (42.2590, -90.4230, 556.7),   # L12 - Bellevue
+    (41.8690, -90.1590, 522.5),   # L13 - Fulton
+    (41.5980, -90.4430, 493.3),   # L14 - Le Claire
+    (41.5130, -90.5780, 482.9),   # L15 - Rock Island
+    (41.4240, -91.0430, 457.2),   # L16 - Muscatine
+    (41.2610, -91.0060, 437.1),   # L17 - New Boston
+    (40.9640, -91.0680, 410.5),   # L18 - Gladstone
+    (40.3960, -91.3750, 364.3),   # L19 - Keokuk
+    (40.1540, -91.5140, 343.2),   # L20 - Canton
+    (39.9290, -91.4090, 324.9),   # L21 - Quincy
+    (39.6340, -91.2340, 301.2),   # L22 - Saverton
+    (39.3770, -90.9110, 273.4),   # L24 - Clarksville
+    (39.0050, -90.8180, 241.4),   # L25 - Cap au Gris
+    (38.7080, -90.1510, 185.0),   # L27 - Chain of Rocks
+]
+
+# Upper Mississippi River geographic bounds
+# Used to filter out vessels on tributaries (Illinois River, etc.)
+UPPER_MISSISSIPPI_BOUNDS = {
+    "min_lat": 38.5,    # South of Chain of Rocks
+    "max_lat": 45.5,    # North of Minneapolis
+    "min_lon": -93.5,   # West boundary
+    "max_lon": -89.5,   # East boundary
+    "min_river_mile": 180.0,  # Below Chain of Rocks
+    "max_river_mile": 860.0,  # Above Minneapolis
+}
+
+# Illinois River exclusion zone
+# The Illinois River joins the Mississippi at RM 218 near Grafton, IL
+# Vessels in this zone with certain lat/lon patterns are on the Illinois River
+ILLINOIS_RIVER_EXCLUSION = {
+    # Illinois River runs NE from confluence at Grafton
+    # Approximate bounding box for Illinois River (not Mississippi)
+    "min_lat": 38.8,
+    "max_lat": 41.5,
+    "min_lon": -90.6,  # East of Mississippi main channel
+    "max_lon": -88.5,  # Well into Illinois
+    # If vessel is east of this longitude AND north of confluence, likely on Illinois River
+    "east_of_mississippi_lon": -90.3,
+    "confluence_lat": 38.87,  # Grafton, IL
+}
+
+ST_CROIX_RIVER_EXCLUSION = {
+    # St. Croix River traffic can be received by the AIS feed near Stillwater,
+    # Hudson, and Prescott. Those vessels are not in the Mississippi lock queue
+    # and should not affect RiverWatch lock timing, trip planning, or speed-to-beat.
+    #
+    # This intentionally starts just above the Mississippi/St. Croix confluence
+    # and only excludes vessels east of the Mississippi main-channel corridor.
+    "min_lat": 44.74,
+    "max_lat": 45.45,
+    "east_of_mississippi_lon": -92.84,
+    "west_limit_lon": -92.50,
+}
+
+def is_on_upper_mississippi(lat: float, lon: float, river_mile: float = None) -> bool:
+    """
+    True when a position is on the Upper Mississippi navigation channel.
+
+    Uses the USACE sailing line (services/river_geometry.py): the position must
+    snap to the Mississippi within a few miles AND be nearer the Mississippi
+    than any navigable tributary (St. Croix, Minnesota, Black, Illinois,
+    Missouri, ...). The old lat/lon boxes wrongly dropped real Mississippi
+    traffic between Lock 2 and Prescott and at Alton above Mel Price.
+    """
+    if lat is None or lon is None:
+        return False
+    from services import river_geometry
+    rm = river_geometry.river_mile(lat, lon)
+    if rm is None:
+        return False
+    bounds = UPPER_MISSISSIPPI_BOUNDS
+    return bounds["min_river_mile"] <= rm <= bounds["max_river_mile"]

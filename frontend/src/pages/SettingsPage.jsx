@@ -1649,12 +1649,16 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-slate-300">Show Demo Vessels</Label>
-                  <p className="text-xs text-slate-500">Display simulated towboats for testing (M/V DELTA QUEEN, M/V RIVER RUNNER)</p>
+                  <p className="text-xs text-slate-500">
+                    Simulated towboats for demos (M/V DELTA QUEEN, M/V RIVER RUNNER). Shown to everyone,
+                    and hidden automatically while real AIS traffic is flowing.
+                    {!(user?.is_admin || user?.is_super_admin) && " Admins only."}
+                  </p>
                 </div>
                 <Switch
                   checked={demoVesselsEnabled}
                   onCheckedChange={(checked) => toggleDemoVessels(checked)}
-                  disabled={demoToggleLoading}
+                  disabled={demoToggleLoading || !(user?.is_admin || user?.is_super_admin)}
                   data-testid="settings-demovessels"
                 />
               </div>

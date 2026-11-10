@@ -34,10 +34,11 @@ def test_filtered_mmsi_blocked():
     assert server.is_mmsi_blocked("367505810") is False
 
 
-def test_record_live_event_and_suppression():
+def test_record_live_event_and_suppression(monkeypatch):
     _reset_live_state()
     _clear_active()
     server.DEMO_VESSELS_MODE = "auto"
+    monkeypatch.setattr(server, "demo_vessels_active", True)   # an admin switched demos on
 
     assert server._should_suppress_demo_vessels() is False
     server._record_live_ais_event("367505810")
@@ -50,8 +51,16 @@ def test_record_live_event_and_suppression():
     assert server._should_suppress_demo_vessels() is False
 
 
-def test_demo_mode_on_off():
+def test_demo_vessels_hidden_unless_switched_on(monkeypatch):
     _reset_live_state()
+    server.DEMO_VESSELS_MODE = "auto"
+    monkeypatch.setattr(server, "demo_vessels_active", False)
+    assert server._should_suppress_demo_vessels() is True      # default: no fake boats
+
+
+def test_demo_mode_on_off(monkeypatch):
+    _reset_live_state()
+    monkeypatch.setattr(server, "demo_vessels_active", True)
     server.DEMO_VESSELS_MODE = "on"
     assert server._should_suppress_demo_vessels() is False
     server.DEMO_VESSELS_MODE = "off"

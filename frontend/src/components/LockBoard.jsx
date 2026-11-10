@@ -37,34 +37,63 @@ function StatusBadge({ lock }) {
   );
 }
 
+// A vessel at the lock. USACE posts a lockage only once it has ended, so a
+// vessel "at lock" may be waiting or already in the chamber; the time shown
+// is since it checked in (USACE arrival time). "Locking now" appears only if
+// USACE ever reports a start time without an end.
+function minutesSince(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : Math.max(0, Math.round((Date.now() - t) / 60000));
+}
+
 function Vessel({ v, locking }) {
   const arrow = v.direction === "upbound" ? "↑" : v.direction === "downbound" ? "↓" : "";
   const arrowCls = v.direction === "upbound" ? "text-green-400" : "text-red-400";
+  const barges = v.barges ? `${v.barges} ${v.barges === 1 ? "barge" : "barges"}` : "light boat";
+  let state;
+  if (locking) {
+    const inLock = minutesSince(v.started_at);
+    state = (
+      <>
+        <span className="text-cyan-400">Locking now</span>
+        {v.cuts_completed > 0 && ` · cut ${v.cuts_completed} of ${v.cuts_completed + 1} done`}
+        {v.started_at && ` · started ${fmtTime(v.started_at)}${inLock != null ? ` (${fmtDuration(inLock)} in)` : ""}`}
+      </>
+    );
+  } else {
+    state = (
+      <>
+        <span className="text-slate-300">At lock{v.waiting_minutes != null ? ` ${fmtDuration(v.waiting_minutes)}` : ""}</span>
+        {v.arrived_at && ` · arrived ${fmtTime(v.arrived_at)}`}
+      </>
+    );
+  }
   return (
-    <div className="flex justify-between gap-2 text-xs py-0.5">
-      <span className="truncate text-slate-200">
-        {locking ? <span className="text-cyan-400 mr-1">Locking</span> : <span className="text-slate-500 mr-1">{v.position}.</span>}
-        {v.vessel_name || "Unknown"} <span className={arrowCls}>{arrow}</span>
-      </span>
-      <span className="shrink-0 text-slate-400">
-        {v.barges ? `${v.barges} ${v.barges === 1 ? "barge" : "barges"}` : "light"}
-        {v.needs_double && <span className="text-amber-400"> · double</span>}
-        {locking
-          ? (v.started_at ? ` · since ${fmtTime(v.started_at)}` : "")
-          : (v.waiting_minutes != null ? ` · waiting ${fmtDuration(v.waiting_minutes)}` : "")}
-      </span>
+    <div className="text-xs py-1">
+      <div className="flex justify-between gap-2">
+        <span className="truncate text-slate-200">
+          {!locking && <span className="text-slate-500 mr-1">{v.position}.</span>}
+          {v.vessel_name || "Unknown"} <span className={arrowCls}>{arrow}</span>
+        </span>
+        <span className="shrink-0 text-slate-400">
+          {barges}{v.needs_double && <span className="text-amber-400"> · double lockage</span>}
+        </span>
+      </div>
+      <div className="text-[11px] text-slate-500 pl-3">{state}</div>
     </div>
   );
 }
 
-function LockCard({ lock, onLockClick }) {
+function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
   const t = lock.typical || {};
   const wait = lock.wait_estimate_minutes;
   const busy = wait >= 60;
   return (
     <div
-      className="rounded border border-slate-700 bg-slate-900/40 p-3 hover:border-slate-500 cursor-pointer"
-      onClick={() => onLockClick?.(lock.lock_id)}
+      className={`rounded border p-3 cursor-pointer ${selected ? "border-cyan-500/70 bg-cyan-500/5" : "border-slate-700 bg-slate-900/40 hover:border-slate-500"}`}
+      onClick={() => onSelectLock?.(lock.lock_id)}
+      aria-selected={selected}
       data-testid="lock-board-card"
     >
       <div className="flex items-start justify-between gap-2">
@@ -105,12 +134,18 @@ function LockCard({ lock, onLockClick }) {
           <span>No recorded lockage history yet</span>
         )}
         {lock.last_lockage_minutes_ago != null && <span>Last lockage {fmtDuration(lock.last_lockage_minutes_ago)} ago</span>}
+        <button
+          className="ml-auto text-cyan-400 hover:text-cyan-300"
+          onClick={(e) => { e.stopPropagation(); onLockDetails?.(lock.lock_id); }}
+        >
+          Details
+        </button>
       </div>
     </div>
   );
 }
 
-export default function LockBoard({ userVessel, onLockClick, compact = false }) {
+export default function LockBoard({ userVessel, selectedLockId, onSelectLock, onLockDetails, compact = false }) {
   const autoDirection = headingToDirection(userVessel?.heading || userVessel?.heading_direction);
   const position = Number.isFinite(Number(userVessel?.river_mile)) ? Number(userVessel.river_mile) : null;
 
@@ -190,13 +225,17 @@ export default function LockBoard({ userVessel, onLockClick, compact = false }) 
           ? `Next locks ${direction === "upbound" ? "upbound" : "downbound"} from RM ${position}`
           : "All Upper Mississippi locks"}
         {" · "}USACE lock queue data, refreshed every few minutes · waits are estimates
+        {" · "}"At lock" = checked in; USACE reports a lockage only when it ends
         {data?.generated_at && ` · ${fmtTime(data.generated_at)}`}
       </div>
 
       {error && <div className="text-xs text-red-400 py-2">{error}</div>}
 
       <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-        {locks.map((lock) => <LockCard key={lock.lock_id} lock={lock} onLockClick={onLockClick} />)}
+        {locks.map((lock) => (
+          <LockCard key={lock.lock_id} lock={lock} selected={lock.lock_id === selectedLockId}
+                    onSelectLock={onSelectLock} onLockDetails={onLockDetails} />
+        ))}
         {!loading && !error && locks.length === 0 && (
           <div className="text-xs text-slate-500 py-4 text-center">No locks in that direction from your position.</div>
         )}

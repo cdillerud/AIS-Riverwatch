@@ -1549,7 +1549,7 @@ def _has_live_ais_traffic() -> bool:
 
 def _should_suppress_demo_vessels() -> bool:
     """Resolve whether demo vessels should be hidden from /api/vessels right now."""
-    if DEMO_VESSELS_MODE == "off":
+    if DEMO_VESSELS_MODE == "off" or not demo_vessels_active:
         return True
     if DEMO_VESSELS_MODE == "on":
         return False
@@ -1703,7 +1703,10 @@ async def stale_vessel_sweep_task():
 
 
 # Demo vessel toggle state (in-memory, reset on server restart)
-demo_vessels_active = True
+# Off unless an admin switches them on (Settings), or the deployment is a
+# sales/demo instance (RIVERWATCH_DEMO_VESSELS_MODE=on). Fake boats must never
+# appear on a customer's live map by default.
+demo_vessels_active = os.environ.get("RIVERWATCH_DEMO_VESSELS_MODE", "").strip().lower() == "on"
 demo_vessels_paused = {}  # {mmsi: True} - paused vessels won't auto-move
 
 # Demo vessel display mode: "auto" (hide when live AIS active), "on", "off".
@@ -1877,6 +1880,9 @@ async def get_demo_vessels_status():
     """Get current demo vessel simulation status."""
     return {
         "enabled": demo_vessels_active,
+        "mode": DEMO_VESSELS_MODE,
+        # auto mode: hidden while real AIS traffic is flowing even if enabled
+        "hidden_by_live_traffic": demo_vessels_active and DEMO_VESSELS_MODE == "auto" and _has_live_ais_traffic(),
         "vessels": list(DEMO_VESSELS.keys()) if demo_vessels_active else [],
         "paused": list(demo_vessels_paused.keys())
     }
@@ -2010,12 +2016,11 @@ async def resume_all_demo_vessels():
 
 @api_router.post("/demo-vessels/toggle")
 async def toggle_demo_vessels(request: Request):
-    """Toggle demo vessel simulation on/off."""
+    """Toggle demo vessel simulation on/off. Admin only: it changes what
+    every viewer sees."""
     global demo_vessels_active
     
-    user = await get_current_user(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = await require_admin(request)
     
     body = await request.json()
     enabled = body.get("enabled", not demo_vessels_active)
@@ -3172,6 +3177,10 @@ def _rebuild_usace_indexes() -> None:
     usace_lock_queue_cache["last_updated"] = datetime.now(timezone.utc)
 
 
+def now_utc_floor() -> datetime:
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
 async def fetch_usace_lock(client, lock_no: str) -> int:
     """Fetch one lock's queue: refresh its active vessels and store completed lockages.
 
@@ -3204,6 +3213,16 @@ async def fetch_usace_lock(client, lock_no: str) -> int:
         return el.text.strip() if el is not None and el.text else None
 
     lock_id = usace_lock_id(lock_no)
+
+    # USACE reports each cut of a multi-cut (double) lockage as it finishes.
+    # A pending row whose vessel already has a completed cut with the same
+    # arrival time is therefore mid-lockage, not waiting.
+    done_cuts = {}
+    for row in rows:
+        if val(row, 'END_OF_LOCKAGE'):
+            key = (val(row, 'VESSEL_NO') or val(row, 'VESSEL_NAME'), val(row, 'ARRIVAL_DATE'))
+            done_cuts.setdefault(key, []).append(val(row, 'SOL_DATE'))
+
     active = []
     for row in rows:
         sol, eol = val(row, 'SOL_DATE'), val(row, 'END_OF_LOCKAGE')
@@ -3211,6 +3230,10 @@ async def fetch_usace_lock(client, lock_no: str) -> int:
             # Completed: history only. Applying its barge count to the vessel
             # now would be stale.
             continue
+        prior = done_cuts.get((val(row, 'VESSEL_NO') or val(row, 'VESSEL_NAME'), val(row, 'ARRIVAL_DATE')), [])
+        if prior and not sol:
+            sol = min((p for p in prior if p), key=lambda t: _usace_lockages.parse_time(t, val(row, 'TIMEZONE')) or now_utc_floor(),
+                      default=None)
         try:
             num_barges = int(val(row, 'NUM_BARGES')) if val(row, 'NUM_BARGES') else None
         except ValueError:
@@ -3226,6 +3249,7 @@ async def fetch_usace_lock(client, lock_no: str) -> int:
             'sol_date': sol,
             'end_of_lockage': None,
             'status': 'locking' if sol else 'waiting',
+            'cuts_completed': len(prior),
             'mmsi': val(row, 'MMSI'),
             'timezone': val(row, 'TIMEZONE'),
             'source': 'USACE_LPMS',
@@ -4618,7 +4642,8 @@ async def get_locks():
 
 @api_router.get("/locks/board")
 async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[str] = None,
-                         scope: str = "all", sort: str = "river", limit: Optional[int] = None):
+                         scope: str = "all", sort: str = "river", limit: Optional[int] = None,
+                         lock_id: Optional[str] = None):
     """Lock-first view: every lock's status, queue, estimated wait and typical
     lockage times, from USACE data only (works without any AIS feed).
 
@@ -4651,6 +4676,10 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
 
     locks = [{"lock_id": lid, **info} for lid, info in LOCKS.items()]
     ordered = _lock_board.locks_in_view(locks, from_rm, direction, scope)
+    if lock_id:  # one lock (e.g. the Lock Timing panel's target lock)
+        if lock_id not in LOCKS:
+            raise HTTPException(status_code=404, detail="Unknown lock")
+        ordered = [lk for lk in locks if lk["lock_id"] == lock_id]
 
     def when(text, tz):
         return _usace_lockages.parse_time(text, tz)
@@ -4677,7 +4706,8 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
                 "mmsi": v.get("mmsi"),
                 "direction": {"U": "upbound", "D": "downbound"}.get(v.get("direction") or "", v.get("direction")),
                 "barges": v.get("num_barges"),
-                "needs_double": _lock_board.needs_double(lid, v.get("num_barges")),
+                "needs_double": _lock_board.needs_double(lid, v.get("num_barges")) or bool(v.get("cuts_completed")),
+                "cuts_completed": v.get("cuts_completed") or 0,
                 "arrived_at": when(v.get("arrival_date"), tz),
             }
             if v.get("status") == "locking":

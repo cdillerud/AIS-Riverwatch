@@ -67,3 +67,12 @@ def test_position_updates_require_owning_the_boat(monkeypatch):
     assert r.status_code == 403
     r = client.post("/api/user-position", json={"mmsi": "338414076", "lat": 44.7, "lon": -92.8})
     assert r.status_code == 403
+
+
+def test_demo_toggle_is_admin_only(monkeypatch):
+    async def regular_user(request):
+        return {"user_id": "u1", "email": "x@example.com", "is_admin": False}
+    monkeypatch.setattr(server, "get_current_user", regular_user)
+    r = client.post("/api/demo-vessels/toggle", json={"enabled": True})
+    assert r.status_code == 403
+    assert server.demo_vessels_active is False

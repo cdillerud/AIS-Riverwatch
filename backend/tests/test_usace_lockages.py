@@ -181,3 +181,39 @@ def test_status_inferred_only_from_recent_usace_lockage(monkeypatch):
     assert data["lock_2"].status == "OPEN" and data["lock_2"].status_source == "recent_lockage"
     assert data["lock_3"].status == "UNKNOWN"          # no evidence -> never assumed open
     assert data["lock_11"].status == "CLOSED"          # official status untouched
+
+
+MID_DOUBLE = """<?xml version="1.0"?><ROWSET>
+ <ROW><VESSEL_NAME>WISCONSIN</VESSEL_NAME><VESSEL_NO>0568371</VESSEL_NO><DIRECTION>D</DIRECTION>
+  <NUM_BARGES>15</NUM_BARGES><ARRIVAL_DATE>11/10/26 10:49</ARRIVAL_DATE><TIMEZONE>CST</TIMEZONE><MMSI>367505680</MMSI></ROW>
+ <ROW><VESSEL_NAME>WISCONSIN</VESSEL_NAME><VESSEL_NO>0568371</VESSEL_NO><DIRECTION>D</DIRECTION>
+  <NUM_BARGES>9</NUM_BARGES><SOL_DATE>11/10/26 11:30</SOL_DATE><ARRIVAL_DATE>11/10/26 10:49</ARRIVAL_DATE>
+  <END_OF_LOCKAGE>11/10/26 12:34</END_OF_LOCKAGE><TIMEZONE>CST</TIMEZONE><MMSI>367505680</MMSI></ROW>
+ <ROW><VESSEL_NAME>TITLETOWN USA</VESSEL_NAME><VESSEL_NO>1111111</VESSEL_NO><DIRECTION>U</DIRECTION>
+  <NUM_BARGES>15</NUM_BARGES><ARRIVAL_DATE>11/10/26 12:36</ARRIVAL_DATE><TIMEZONE>CST</TIMEZONE><MMSI>366000001</MMSI></ROW>
+</ROWSET>"""
+
+
+def test_pending_row_after_a_completed_cut_is_locking(monkeypatch):
+    import asyncio
+    import server
+
+    async def no_store(rows, lock_no):
+        return 0
+    monkeypatch.setattr(server, "_store_usace_lockages", no_store)
+
+    class Queue:
+        async def update_one(self, *a, **k):
+            return None
+
+    class FakeDB:
+        usace_queue = Queue()
+    monkeypatch.setattr(server, "db", FakeDB())
+
+    asyncio.run(server.fetch_usace_lock(_Client(MID_DOUBLE), "15"))
+    rows = {r["vessel_name"]: r for r in server.usace_lock_rows["15"]}
+    assert rows["WISCONSIN"]["status"] == "locking" and rows["WISCONSIN"]["cuts_completed"] == 1
+    assert rows["WISCONSIN"]["sol_date"] == "11/10/26 11:30"
+    assert rows["TITLETOWN USA"]["status"] == "waiting" and rows["TITLETOWN USA"]["cuts_completed"] == 0
+    server.usace_lock_rows.pop("15", None)
+    server._rebuild_usace_indexes()

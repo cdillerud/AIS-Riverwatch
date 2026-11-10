@@ -38,7 +38,7 @@ import { getVesselDisplayName, hasRiverMile, formatRiverMile, formatSpeedMph, is
 import { useAuth } from "@/context/AuthContext";
 
 import { API } from "@/lib/api";
-import LockageRow from "@/components/LockageRow";
+import LockageRow, { fmtDuration } from "@/components/LockageRow";
 import LockBoard from "@/components/LockBoard";
 
 // Map (vessel positions) or Locks (lock-first board from USACE data).
@@ -158,6 +158,14 @@ export default function Dashboard({
   // Alert dismissal - tracks which threat was dismissed
   const [dismissedThreatMmsi, setDismissedThreatMmsi] = useState(null);
 
+  // Selecting a lock on the map or the Locks board makes it the lock every
+  // panel (Lock Timing, Traffic Summary) describes.
+  const highlightLock = (lockId) => {
+    if (!lockId) return;
+    setAutoNextLock(false);
+    onSelectLock(lockId);
+  };
+
   // Fetch traffic summary for Traffic Watch users
   useEffect(() => {
     if (!isTrafficWatch || !selectedLock) return;
@@ -270,6 +278,25 @@ export default function Dashboard({
     return locks.find(l => l.id === activeTimingLockId) || selectedMapLockObj;
   }, [locks, activeTimingLockId, selectedMapLockObj]);
 
+  // Current queue and estimated wait at the target lock - the same USACE-based
+  // estimate the Locks board shows.
+  const [targetLockBoard, setTargetLockBoard] = useState(null);
+  useEffect(() => {
+    if (!activeTimingLockId) { setTargetLockBoard(null); return undefined; }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${API}/locks/board?lock_id=${encodeURIComponent(activeTimingLockId)}`, { credentials: "include" });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!cancelled) setTargetLockBoard(data.locks?.[0] || null);
+      } catch { /* keep the last value */ }
+    };
+    load();
+    const id = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [activeTimingLockId]);
+
   // Calculate distance to selected lock and travel time
   const lockTravelInfo = useMemo(() => {
     if (!hasRiverMile(userVessel) || !selectedLockObj?.river_mile) {
@@ -280,16 +307,18 @@ export default function Dashboard({
     const speedMph = (Number(userVessel.speed) || 0) * 1.15078; // knots to mph
     const travelMinutes = speedMph > 0 ? (distance / speedMph) * 60 : null;
     
-    // Estimate wait time based on lockage times data
-    const avgLockageTime = lockageTimes?.[activeTimingLockId]?.avg_minutes || 20; // default 20 min
-    
+    // Wait for a boat arriving now: lockage in progress + vessels already
+    // waiting (USACE queue). Unknown until the board data has loaded.
+    const wait = targetLockBoard?.lock_id === activeTimingLockId ? targetLockBoard.wait_estimate_minutes : null;
+
     return {
       distance: distance.toFixed(1),
       travelMinutes: travelMinutes?.toFixed(0),
-      estimatedWait: avgLockageTime,
-      totalMinutes: travelMinutes ? (parseFloat(travelMinutes) + avgLockageTime).toFixed(0) : null
+      estimatedWait: wait,
+      queueCount: targetLockBoard?.lock_id === activeTimingLockId ? targetLockBoard.queue_count : null,
+      totalMinutes: travelMinutes && wait != null ? (parseFloat(travelMinutes) + wait).toFixed(0) : null
     };
-  }, [userVessel, selectedLockObj, activeTimingLockId, lockageTimes]);
+  }, [userVessel, selectedLockObj, activeTimingLockId, targetLockBoard]);
 
   // Get vessels near the target lock (within 5 RM, heading towards it)
   const lockQueue = useMemo(() => {
@@ -642,9 +671,14 @@ export default function Dashboard({
               </div>
               
               {/* Connection Status - Minimal */}
-              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-sm ${isConnected ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+              <div
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-sm ${isConnected ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
+                title={isConnected
+                  ? "Live vessel positions are arriving from the AIS feed (Settings > AIS Connection)."
+                  : "The AIS feed (Settings > AIS Connection) is not connected, so vessel positions on the map are not updating. Lock queues, waits and history come from USACE and stay current."}
+              >
                 <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'} ${isConnected ? 'animate-pulse' : ''}`} />
-                <span className="text-xs font-mono uppercase">{isConnected ? 'Live' : 'Offline'}</span>
+                <span className="text-xs font-mono uppercase">{isConnected ? 'AIS live' : 'AIS offline'}</span>
               </div>
             </div>
             
@@ -1032,7 +1066,7 @@ export default function Dashboard({
                 <div className="relative h-[calc(100%-44px)]">
                   {mainView === "locks" && (
                     <div className="absolute inset-0 z-40 bg-[#020617]">
-                      <LockBoard userVessel={userVessel} onLockClick={setSelectedLockDetail} />
+                      <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail} />
                     </div>
                   )}
                   <RiverVisualization
@@ -1044,7 +1078,7 @@ export default function Dashboard({
                     maxSpeedMph={maxAllowedSpeedMph}
                     zoomRange={zoomLevel}
                     onVesselClick={handleVesselClick}
-                    onLockClick={setSelectedLockDetail}
+                    onLockClick={(id) => { highlightLock(id); setSelectedLockDetail(id); }}
                     onUserVesselEdit={handleUserVesselEdit}
                     showVesselNames={userSettings.show_vessel_names !== false}
                     focusedVessel={focusedVessel}
@@ -1231,6 +1265,30 @@ export default function Dashboard({
                       </div>
                     </div>
                     
+                    {/* USACE queue at the watched lock */}
+                    {targetLockBoard?.lock_id === activeTimingLockId && (
+                      <div className="pb-2 border-b border-slate-700 text-xs" data-testid="traffic-summary-lock-queue">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">At this lock (USACE)</span>
+                          <span className={`font-mono ${targetLockBoard.wait_estimate_minutes >= 60 ? 'text-amber-400' : targetLockBoard.wait_estimate_minutes > 0 ? 'text-white' : 'text-green-400'}`}>
+                            {targetLockBoard.wait_estimate_minutes > 0 ? `≈ ${fmtDuration(targetLockBoard.wait_estimate_minutes)} wait` : 'No queue'}
+                          </span>
+                        </div>
+                        {[...(targetLockBoard.locking || []), ...(targetLockBoard.waiting || [])].slice(0, 4).map((v, i) => (
+                          <div key={i} className="flex justify-between text-slate-300 mt-1">
+                            <span className="truncate">
+                              {v.vessel_name || 'Unknown'}{' '}
+                              <span className={v.direction === 'upbound' ? 'text-green-400' : 'text-red-400'}>{v.direction === 'upbound' ? '↑' : '↓'}</span>
+                            </span>
+                            <span className="text-slate-500 shrink-0">
+                              {v.barges ? `${v.barges} ${v.barges === 1 ? 'barge' : 'barges'}` : 'light'}
+                              {v.waiting_minutes != null ? ` · at lock ${fmtDuration(v.waiting_minutes)}` : ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Traffic Direction Summary */}
                     <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-700">
                       <div className="p-2 bg-green-500/10 rounded-lg text-center">
@@ -1374,7 +1432,12 @@ export default function Dashboard({
                         <div className="flex items-center gap-1.5">
                           <Clock className="w-3 h-3 text-slate-500" />
                           <span className="text-slate-400">Est. Wait:</span>
-                          <span className="text-amber-400 font-mono">~{lockTravelInfo.estimatedWait} min</span>
+                          <span className="text-amber-400 font-mono" title="Lockage in progress plus vessels already waiting (USACE lock queue)">
+                            {lockTravelInfo.estimatedWait == null ? '--'
+                              : lockTravelInfo.estimatedWait > 0
+                                ? `~${fmtDuration(lockTravelInfo.estimatedWait)}${lockTravelInfo.queueCount ? ` (${lockTravelInfo.queueCount} ahead)` : ''}`
+                                : 'none'}
+                          </span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Gauge className="w-3 h-3 text-slate-500" />
@@ -1775,7 +1838,7 @@ export default function Dashboard({
               <CardContent className="p-0 h-[calc(100vh-260px)] min-h-[350px] relative">
                 {mainView === "locks" && (
                   <div className="absolute inset-0 z-40 bg-[#020617] p-2">
-                    <LockBoard userVessel={userVessel} onLockClick={setSelectedLockDetail} compact />
+                    <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail} compact />
                   </div>
                 )}
                 <RiverVisualization
@@ -1788,7 +1851,7 @@ export default function Dashboard({
                   compact={true}
                   zoomRange={zoomLevel}
                   onVesselClick={handleVesselClick}
-                  onLockClick={setSelectedLockDetail}
+                  onLockClick={(id) => { highlightLock(id); setSelectedLockDetail(id); }}
                   onUserVesselEdit={handleUserVesselEdit}
                   showVesselNames={userSettings.show_vessel_names !== false}
                   focusedVessel={focusedVessel}

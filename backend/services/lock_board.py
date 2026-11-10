@@ -46,6 +46,9 @@ def estimate_wait(lock_id: str, locking: Iterable[dict], waiting: Iterable[dict]
     total = 0.0
     for v in locking:
         expected = expected_lockage_minutes(lock_id, v.get("barges"), typical)
+        if v.get("cuts_completed"):
+            # Mid double lockage (a cut is already through): at least one more cut.
+            expected = max(expected, float(typical.get("avg_double_lockage_minutes") or DEFAULT_DOUBLE))
         started = v.get("started_at")
         elapsed = (now - started).total_seconds() / 60 if started else 0.0
         total += max(0.0, expected - elapsed)

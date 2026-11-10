@@ -251,7 +251,7 @@ async def _fetch_nws_with_fallback(station: dict) -> dict:
     UI can label the reading appropriately.
     """
     lid = station["station_id"]
-    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, headers={"User-Agent": _DEFAULT_UA}) as client:
         primary = await _fetch_nwps(client, lid)
         if primary["value"] is not None:
             primary["fallback_used"] = False

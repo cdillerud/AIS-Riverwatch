@@ -23,7 +23,7 @@ async def fetch_usgs_water_data(site_id: str) -> dict:
         # USGS instantaneous values service
         url = f"https://waterservices.usgs.gov/nwis/iv/?format=json&sites={site_id}&siteStatus=active"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(headers={"User-Agent": "RiverWatch/1.0 (+https://github.com/cdillerud/AIS-Riverwatch)"}) as client:
             response = await client.get(url, timeout=15.0)
             
             if response.status_code != 200:

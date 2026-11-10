@@ -57,11 +57,17 @@ def completed_lockages(rows: Iterable, lock_id: str, lock_name: Optional[str] = 
         eol = parse_time(end, tz)
         if not (sol and eol):
             continue
-        key = (mmsi or vessel_no or name, arrival or sol, _row_value(row, "DIRECTION"))
+        # Lock operators log pleasure craft as "RECREATIONAL VESSEL" with the
+        # placeholder number 9999999 and no MMSI. Rows for different boats
+        # must not be merged as if they were cuts of one tow.
+        recreational = vessel_no == "9999999" or name.upper().startswith("RECREATIONAL")
+        key = (mmsi or vessel_no or name, arrival or sol, _row_value(row, "DIRECTION"),
+               sol if recreational else None)
         g = groups.setdefault(key, {
             "name": name, "mmsi": mmsi, "vessel_no": vessel_no,
             "direction": _DIRECTIONS.get(_row_value(row, "DIRECTION") or "", "unknown"),
             "arrival": arrival, "starts": [], "ends": [], "barges": 0, "cuts": 0,
+            "recreational": recreational,
         })
         g["starts"].append(sol)
         g["ends"].append(eol)
@@ -94,6 +100,7 @@ def completed_lockages(rows: Iterable, lock_id: str, lock_name: Optional[str] = 
             "total_time_minutes": round(wait + duration, 1),
             "barge_count": g["barges"],
             "is_tow": g["barges"] > 0,
+            "is_recreational": g["recreational"],
             "cuts": g["cuts"],
             "is_double_lockage": g["cuts"] > 1,
             "source": "usace_lpms",

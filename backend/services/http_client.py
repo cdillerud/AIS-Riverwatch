@@ -26,7 +26,8 @@ async def get_http_client() -> httpx.AsyncClient:
                     max_keepalive_connections=20,
                     keepalive_expiry=30.0
                 ),
-                follow_redirects=True
+                follow_redirects=True,
+                headers={"User-Agent": "RiverWatch/1.0 (+https://github.com/cdillerud/AIS-Riverwatch)"},
             )
             logger.info("HTTP client pool initialized")
     

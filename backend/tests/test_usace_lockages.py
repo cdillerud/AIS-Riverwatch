@@ -122,3 +122,54 @@ def test_lock_averages_use_real_records_and_split_cuts(monkeypatch):
     assert lock["avg_single_lockage_minutes"] == 16.0
     assert lock["avg_double_lockage_minutes"] == 120.0
     assert lock["double_count"] == 2 and lock["double_share"] == 0.67
+
+
+def test_recreational_boats_are_not_merged_as_cuts():
+    rows = [
+        {"VESSEL_NAME": "RECREATIONAL VESSEL", "VESSEL_NO": "9999999", "DIRECTION": "D", "NUM_BARGES": "0",
+         "ARRIVAL_DATE": "11/09/26 15:27", "SOL_DATE": "11/09/26 15:27", "END_OF_LOCKAGE": "11/09/26 15:43",
+         "TIMEZONE": "CST"},
+        {"VESSEL_NAME": "RECREATIONAL VESSEL", "VESSEL_NO": "9999999", "DIRECTION": "D", "NUM_BARGES": "0",
+         "ARRIVAL_DATE": "11/09/26 15:27", "SOL_DATE": "11/09/26 16:05", "END_OF_LOCKAGE": "11/09/26 16:20",
+         "TIMEZONE": "CST"},
+    ]
+    recs = completed_lockages(rows, "lock_2")
+    assert len(recs) == 2
+    assert all(r["cuts"] == 1 and r["is_recreational"] and not r["is_tow"] for r in recs)
+
+
+def test_padded_usace_lock_numbers_map_to_lock_ids():
+    import server
+    assert server.usace_lock_id("02") == "lock_2"
+    assert server.usace_lock_id("05A") == "lock_5a"
+    assert server.usace_lock_id("10") == "lock_10"
+    assert server.usace_lock_id("26") == "melvin_price"
+    assert server.usace_lock_id("27") == "chain_of_rocks"
+
+
+def test_status_inferred_only_from_recent_usace_lockage(monkeypatch):
+    import asyncio
+    from datetime import timedelta
+    import server
+
+    recent = datetime.now(timezone.utc) - timedelta(minutes=30)
+
+    class Agg:
+        async def to_list(self, n):
+            return [{"_id": "lock_2", "last": recent}]
+
+    class Coll:
+        def aggregate(self, pipeline):
+            assert pipeline[0]["$match"]["source"] == "usace_lpms"
+            return Agg()
+
+    class FakeDB:
+        lockage_history = Coll()
+
+    monkeypatch.setattr(server, "db", FakeDB())
+    data = {lid: server.LockStatus(lock_id=lid, status="UNKNOWN") for lid in ("lock_2", "lock_3")}
+    data["lock_11"] = server.LockStatus(lock_id="lock_11", status="CLOSED", status_source="district_page")
+    asyncio.run(server._infer_status_from_recent_lockages(data))
+    assert data["lock_2"].status == "OPEN" and data["lock_2"].status_source == "recent_lockage"
+    assert data["lock_3"].status == "UNKNOWN"          # no evidence -> never assumed open
+    assert data["lock_11"].status == "CLOSED"          # official status untouched

@@ -47,6 +47,10 @@ import secrets
 from services import river_geometry as _river_geo
 from services.google_auth import GoogleAuthError, google_client_id, verify_google_credential
 from services import aisstream as _aisstream
+# Identify RiverWatch on outbound requests. USACE sites answer 403 to the
+# default python-httpx User-Agent (lock status never loaded because of it).
+RIVERWATCH_UA = "RiverWatch/1.0 (+https://github.com/cdillerud/AIS-Riverwatch)"
+OUTBOUND_HEADERS = {"User-Agent": RIVERWATCH_UA}
 from services import usace_lockages as _usace_lockages
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
@@ -60,14 +64,6 @@ from services.navigation_service import (
 )
 
 # Import new service modules (refactored code)
-from services.usace_service import (
-    fetch_usace_lock_queue_data as _fetch_usace_lock_queue_data,
-    get_usace_vessel_info as _get_usace_vessel_info,
-    fetch_usace_lock_status as _fetch_usace_lock_status,
-    estimate_tow_info as _estimate_tow_info,
-    usace_lock_queue_data,
-    usace_lock_queue_by_name
-)
 from services.usgs_service import (
     get_water_conditions_for_lock as _get_water_conditions_for_lock,
     format_water_conditions_for_display as _format_water_conditions
@@ -2909,6 +2905,9 @@ class LockStatus(BaseModel):
     vessels_in_queue: List[dict] = []
     last_updated: Optional[str] = None
     closure_info: Optional[str] = None
+    # Where the status came from: "district_page" (official open/closed table)
+    # or "recent_lockage" (USACE reported a completed lockage recently).
+    status_source: Optional[str] = None
 
 # Store active vessels
 active_vessels: Dict[str, VesselPosition] = {}
@@ -3246,7 +3245,7 @@ _USACE_NAMED_LOCKS = {"26": "melvin_price", "27": "chain_of_rocks"}
 
 
 def usace_lock_id(lock_no) -> str:
-    lock_no = str(lock_no).strip()
+    lock_no = str(lock_no).strip().lstrip("0") or "0"   # USACE pads 1-9: "02" -> lock_2
     return _USACE_NAMED_LOCKS.get(lock_no) or f"lock_{lock_no.lower()}"
 
 
@@ -3377,6 +3376,32 @@ def match_lock_name(text: str) -> Optional[str]:
     return lock_id if lock_id in LOCKS else None
 
 
+RECENT_LOCKAGE_OPEN_HOURS = 4
+
+
+async def _infer_status_from_recent_lockages(lock_status_data: Dict[str, "LockStatus"]) -> None:
+    unknown = [lid for lid, st in lock_status_data.items() if st.status == "UNKNOWN"]
+    if not unknown:
+        return
+    since = datetime.now(timezone.utc) - timedelta(hours=RECENT_LOCKAGE_OPEN_HOURS)
+    try:
+        latest = await db.lockage_history.aggregate([
+            {"$match": {"lock_id": {"$in": unknown}, "source": "usace_lpms", "exit_time": {"$gte": since}}},
+            {"$group": {"_id": "$lock_id", "last": {"$max": "$exit_time"}}},
+        ]).to_list(None)
+    except Exception as e:
+        logger.warning(f"Could not infer lock status from lockages: {e}")
+        return
+    for row in latest:
+        st = lock_status_data.get(row["_id"])
+        if st is None:
+            continue
+        last = row["last"] if row["last"].tzinfo else row["last"].replace(tzinfo=timezone.utc)
+        st.status = "OPEN"
+        st.status_source = "recent_lockage"
+        st.closure_info = f"Lockage completed {int((datetime.now(timezone.utc) - last).total_seconds() // 60)} min ago (USACE)"
+
+
 async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
     """
     Fetch lock status data from USACE Corps Locks system.
@@ -3394,7 +3419,7 @@ async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
     
     try:
         # Fetch from St. Paul District (Locks 2-10)
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, headers=OUTBOUND_HEADERS) as client:
             # Try the MVR lock status page for basic open/closed status
             mvp_url = "https://www.mvp.usace.army.mil/Missions/Navigation/Locks-Dams/"
             
@@ -3436,9 +3461,16 @@ async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
                                 lock_status_data[lock_id].closure_info = status_cell
                             elif "OPEN" in upper:
                                 lock_status_data[lock_id].status = "OPEN"
+                            lock_status_data[lock_id].status_source = "district_page"
                             logger.debug(f"USACE status for {lock_id}: {status_cell}")
             except Exception as e:
                 logger.warning(f"Could not fetch MVR lock status: {e}")
+
+        # Locks the district status page doesn't cover (St. Paul 1-10, St. Louis
+        # 24-27) stay UNKNOWN unless USACE itself reported a completed lockage
+        # there recently - positive evidence the lock is operating. Never
+        # assume OPEN without evidence.
+        await _infer_status_from_recent_lockages(lock_status_data)
 
         # Update cache
         usace_cache["data"] = lock_status_data
@@ -3506,7 +3538,7 @@ async def fetch_lpms_lockage_data(lock_number: int = None) -> Dict[str, list]:
         # Upper Mississippi = "MISS", locks are numbered
         locks_to_fetch = [lock_number] if lock_number else list(range(1, 28))
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, headers=OUTBOUND_HEADERS) as client:
             for lock_num in locks_to_fetch:
                 if lock_num == 23:  # Lock 23 was never built
                     continue
@@ -4847,7 +4879,7 @@ async def fetch_nws_gauge_data(nwsli: str) -> dict:
 
     try:
         url = f"https://api.water.noaa.gov/nwps/v1/gauges/{nwsli}"
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, headers=OUTBOUND_HEADERS) as client:
             response = await client.get(url)
             if response.status_code != 200:
                 result["error"] = f"NWS HTTP {response.status_code}"
@@ -4944,7 +4976,7 @@ async def fetch_usgs_water_data(site_id: str) -> dict:
         # Fetch current conditions from USGS
         url = f"https://waterservices.usgs.gov/nwis/iv/?format=json&sites={site_id}&parameterCd=00065,00060,00010&siteStatus=active"
         
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, headers=OUTBOUND_HEADERS) as client:
             response = await client.get(url)
             
             if response.status_code == 200:
@@ -5011,7 +5043,7 @@ async def fetch_usgs_water_data(site_id: str) -> dict:
             nws_id = nws_locations[site_id]
             forecast_url = f"https://water.weather.gov/ahps2/hydrograph_to_xml.php?gage={nws_id}&output=xml"
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, headers=OUTBOUND_HEADERS) as client:
                 forecast_resp = await client.get(forecast_url)
                 
                 if forecast_resp.status_code == 200:
@@ -7437,7 +7469,7 @@ async def startup_event():
 async def usace_refresh_task():
     """Walk the Upper Mississippi locks forever, one USACE request at a time."""
     passes = 0
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, headers=OUTBOUND_HEADERS) as client:
         while True:
             total = 0
             for lock_no in UPPER_MISS_LOCKS:

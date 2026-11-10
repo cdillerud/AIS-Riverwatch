@@ -24,7 +24,8 @@ The River Watch backend is a FastAPI application that provides real-time vessel 
 │   ├── __init__.py
 │   ├── auth_service.py       # Password hashing, session management ✓
 │   ├── navigation_service.py # River mile calculations, ETA, heading ✓
-│   ├── usace_service.py      # USACE lock queue/status data ✓ NEW
+│   ├── usace_lockages.py     # USACE completed lockages -> lockage history
+│   ├── aisstream.py          # aisstream.io live AIS source
 │   └── usgs_service.py       # USGS water conditions ✓ NEW
 │
 ├── routes/             # API route handlers (modular, being migrated)
@@ -65,10 +66,18 @@ The application is in a **hybrid state** with active refactoring:
 - `vessel_static_cache` - In-memory cache for vessel names/dimensions
 - `NAV_STATUS` - Navigation status code mapping
 
-### usace_service.py
-- `fetch_usace_lock_queue_data()` - Fetch vessel queue from USACE XML API
-- `get_usace_vessel_info(mmsi, name)` - Look up vessel by MMSI or name
-- `estimate_tow_info(vessel)` - Estimate barge count and lockage time
+### usace_lockages.py
+- `completed_lockages(rows, lock_id)` - Turn the USACE lock queue feed's completed
+  rows (~30 days per lock) into lockage-history records; tow cuts become one
+  double/multi-cut lockage.
+
+The USACE lock queue feed itself is fetched by `usace_refresh_task` in server.py,
+one lock every ~13 s: the service allows 5 requests per minute and answers
+excess requests with a JSON "Rate limit exceeded" body.
+
+### aisstream.py
+- Optional second live AIS source (`AISSTREAM_API_KEY`), merged with the phone/relay
+  feed; `GET /api/admin/feeds/coverage` compares what each source sees.
 
 ### usgs_service.py
 - `get_water_conditions_for_lock(lock_id)` - Fetch water level, temp, current
@@ -148,7 +157,6 @@ app.include_router(my_feature_router, prefix="/api")
 4. 🔄 Migrate auth routes to `routes/auth.py`
 5. 🔄 Migrate user routes to `routes/user.py`
 6. ⏳ Extract AIS connection manager to `services/ais_service.py`
-7. ⏳ Extract USACE data fetching to `services/usace_service.py`
 8. ⏳ Extract WebSocket handlers to `websocket/handlers.py`
 
 ## Environment Variables

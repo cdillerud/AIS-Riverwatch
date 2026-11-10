@@ -3192,6 +3192,31 @@ def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional
     return None
 
 
+_LOCK_NAME_RE = re.compile(
+    r"\b(?:LOCK|L\s*&\s*D|L/D)\s*(?:AND\s+DAM\s*|&\s*DAM\s*)?(?:NO\.?\s*|#\s*)?(\d{1,2})\s*(A)?\b"
+)
+
+
+def match_lock_name(text: str) -> Optional[str]:
+    """
+    Map a USACE table label ("Lock and Dam 14", "L&D 5A", "Lock No. 1",
+    "Melvin Price Locks and Dam") to our lock id. Whole-number matching only:
+    the old substring test matched "1" inside "Lock 14".
+    """
+    if not text:
+        return None
+    t = text.upper()
+    if "MELVIN PRICE" in t or "MEL PRICE" in t:
+        return "melvin_price" if "melvin_price" in LOCKS else None
+    if "CHAIN OF ROCKS" in t or "CHAINS OF ROCKS" in t:
+        return "chain_of_rocks" if "chain_of_rocks" in LOCKS else None
+    m = _LOCK_NAME_RE.search(t)
+    if not m:
+        return None
+    lock_id = f"lock_{int(m.group(1))}{'a' if m.group(2) else ''}"
+    return lock_id if lock_id in LOCKS else None
+
+
 async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
     """
     Fetch lock status data from USACE Corps Locks system.
@@ -3213,71 +3238,48 @@ async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
             # Try the MVR lock status page for basic open/closed status
             mvp_url = "https://www.mvp.usace.army.mil/Missions/Navigation/Locks-Dams/"
             
-            # Map our lock IDs to river miles for matching
-            lock_rm_map = {lock_id: data["river_mile"] for lock_id, data in LOCKS.items()}
-            
-            # Initialize all locks with default status
+            # Default is UNKNOWN, never OPEN: if the status page can't be read we
+            # must not tell a boater a lock is open.
             for lock_id, lock_data in LOCKS.items():
                 lock_status_data[lock_id] = LockStatus(
                     lock_id=lock_id,
-                    status="OPEN",
-                    avg_wait_minutes=0,
+                    status="UNKNOWN",
+                    avg_wait_minutes=None,
                     upbound_queue=0,
                     downbound_queue=0,
                     vessels_in_queue=[],
                     last_updated=datetime.now(timezone.utc).isoformat()
                 )
-            
-            # Try to fetch queue data from Corps Locks
-            try:
-                queue_url = "https://ndc.ops.usace.army.mil/ords/f?p=108:3"
-                response = await client.get(queue_url, follow_redirects=True)
-                
-                if response.status_code == 200:
-                    # Parse the page for queue data
-                    # Note: This page requires JavaScript, so we may get limited data
-                    logger.info("Successfully fetched Corps Locks page")
-            except Exception as e:
-                logger.warning(f"Could not fetch Corps Locks queue data: {e}")
-            
-            # Try MVR lock status for closure info
+
+            # MVR lock status page (Rock Island District) for open/closed status
             try:
                 mvr_url = "https://www.mvr.usace.army.mil/missions/navigation/lock-status/"
                 response = await client.get(mvr_url, follow_redirects=True)
-                
+
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
-                    
-                    # Find the status table
-                    tables = soup.find_all('table')
-                    for table in tables:
-                        rows = table.find_all('tr')
-                        for row in rows:
+                    for table in soup.find_all('table'):
+                        for row in table.find_all('tr'):
                             cells = row.find_all(['td', 'th'])
-                            if len(cells) >= 3:
-                                # Try to extract lock name and status
-                                name_cell = cells[0].get_text(strip=True)
-                                
-                                # Check if this mentions any of our locks
-                                for lock_id in LOCKS.keys():
-                                    lock_num = lock_id.replace('lock_', '').upper()
-                                    if f"Lock" in name_cell and lock_num in name_cell.upper():
-                                        status_cell = cells[2].get_text(strip=True) if len(cells) > 2 else "OPEN"
-                                        
-                                        if "CLOSED" in status_cell.upper():
-                                            lock_status_data[lock_id].status = "CLOSED"
-                                            # Try to get closure reason
-                                            if len(cells) > 2:
-                                                lock_status_data[lock_id].closure_info = status_cell
-                                        elif "OPEN" in status_cell.upper():
-                                            lock_status_data[lock_id].status = "OPEN"
-                                        
-                                        logger.info(f"Found status for {lock_id}: {status_cell}")
-                                        break
-                                        
+                            if len(cells) < 3:
+                                continue
+                            lock_id = match_lock_name(cells[0].get_text(" ", strip=True))
+                            if not lock_id:
+                                continue
+                            status_cell = cells[2].get_text(" ", strip=True)
+                            upper = status_cell.upper()
+                            if "CLOSED" in upper:
+                                lock_status_data[lock_id].status = "CLOSED"
+                                lock_status_data[lock_id].closure_info = status_cell
+                            elif "RESTRICT" in upper:
+                                lock_status_data[lock_id].status = "RESTRICTED"
+                                lock_status_data[lock_id].closure_info = status_cell
+                            elif "OPEN" in upper:
+                                lock_status_data[lock_id].status = "OPEN"
+                            logger.debug(f"USACE status for {lock_id}: {status_cell}")
             except Exception as e:
                 logger.warning(f"Could not fetch MVR lock status: {e}")
-        
+
         # Update cache
         usace_cache["data"] = lock_status_data
         usace_cache["last_updated"] = datetime.now(timezone.utc)
@@ -3491,8 +3493,10 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     Returns averages for tows vs recreational vessels, plus wait times.
     Uses baseline data from USACE historical statistics plus any observed passages.
     """
-    # Lock-specific baseline data from USACE statistics and studies
-    # Sources: USACE LPMS, Iowa DOT studies, bridgecalculator.com live data
+    # Lock-specific BASELINE ESTIMATES (hand-entered planning figures informed by
+    # USACE LPMS summaries / Iowa DOT studies; not measurements). Every value
+    # derived from them is flagged is_baseline=True so the UI can label it as an
+    # estimate; observed passages replace them as they accumulate.
     # All Upper Mississippi locks are 110' x 600' except Lock 19 (1200') and Lock 26/27
     # 600' locks require double lockage for 15-barge tows (90-120 min)
     # Wait times based on traffic volume - busier locks at southern end
@@ -3583,7 +3587,8 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
         # Get lock-specific baseline
         baseline = lock_baselines.get(lock_num, lock_baselines.get(10))  # Default to Lock 10 if missing
         
-        lid = f"lock_{lock_num}"
+        # Locks 26/27 use named ids in LOCKS
+        lid = {26: "melvin_price", 27: "chain_of_rocks"}.get(lock_num, f"lock_{lock_num}")
         
         for direction in ["upbound", "downbound"]:
             key = f"{lid}_{direction}"
@@ -3960,7 +3965,12 @@ def calculate_required_speed(user_rm: float, user_heading: str, target_lock_rm: 
     
     # Required speed in MPH to arrive with enough buffer before competitor
     # Buffer time ensures user can complete lockage before tow arrives
-    target_time_minutes = max(competitor_eta_minutes - buffer_minutes, 1)
+    # If the tow arrives within the buffer there is no achievable speed: return
+    # None (callers treat that as "can't arrive first") instead of dividing by
+    # a 1-minute floor, which produced speeds of hundreds of mph.
+    target_time_minutes = competitor_eta_minutes - buffer_minutes
+    if target_time_minutes <= 0:
+        return None
     required_mph = (distance_rm / target_time_minutes) * 60
     
     return round(required_mph, 1)
@@ -4580,10 +4590,19 @@ async def get_lock_lockage_times(lock_id: str):
         return {"error": "Invalid lock ID"}
     
     lock_info = LOCKS[lock_id]
-    lock_num = int(lock_id.replace("lock_", ""))
-    
-    # Fetch LPMS data for this lock
-    lockage_data = await fetch_lpms_lockage_data(lock_num)
+    # Recent lockages come from passages River Watch itself observed (AIS
+    # lock-passage tracking) and manual records. The USACE LPMS pages are
+    # JavaScript-rendered and can't be scraped, so they are not called here
+    # (the old call also crashed for lock_5a / melvin_price / chain_of_rocks).
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    recent = await db.lockage_history.find(
+        {"lock_id": lock_id, "recorded_at": {"$gte": cutoff}}, {"_id": 0}
+    ).sort("recorded_at", -1).to_list(50)
+    for rec in recent:
+        for k in ("arrival_time", "entry_time", "exit_time", "recorded_at"):
+            if isinstance(rec.get(k), datetime):
+                rec[k] = rec[k].isoformat()
+    lockage_data = {lock_id: recent}
     
     # Get averages
     averages = await get_lockage_averages(lock_id)
@@ -5714,7 +5733,8 @@ async def get_vessels():
     return vessels
 
 @api_router.get("/session/{session_mmsi}/race-analysis/{lock_id}")
-async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minutes: int = 20):
+async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minutes: int = 20,
+                                    max_speed_mph: float = 25.0):
     """
     Get race analysis for a specific session (MMSI) and lock.
     
@@ -5851,7 +5871,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
                     can_beat = False
                 else:
                     required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, comp_eta, buffer_minutes)
-                    if required_speed and required_speed > 25:
+                    if required_speed is None or required_speed > max_speed_mph:
                         can_beat = False
                 break
         
@@ -5861,8 +5881,9 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             "user_current_speed_mph": round(user_speed_mph, 1),
             "threatening_vessel": threat,
             "required_speed_mph": required_speed,
-            "can_beat_at_25mph": can_beat,
-            "max_speed_mph": 25,
+            "can_beat_at_25mph": can_beat,          # legacy key: evaluated at max_speed_mph
+            "can_beat_at_max_speed": can_beat,
+            "max_speed_mph": max_speed_mph,
             "buffer_minutes": buffer_minutes,
             "timing_paused": user_stopped_for_timing,
             "timing_paused_reason": "stopped" if user_stopped_for_timing else None
@@ -5880,7 +5901,8 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
 
 # Legacy race analysis endpoint - requires mmsi query param
 @api_router.get("/race-analysis/{lock_id}")
-async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minutes: int = 20):
+async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minutes: int = 20,
+                                   max_speed_mph: float = 25.0):
     """
     LEGACY: Get race analysis for a lock.
     
@@ -5889,7 +5911,7 @@ async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minute
     if not mmsi:
         raise HTTPException(status_code=400, detail="mmsi query parameter required. Use GET /session/{mmsi}/race-analysis/{lock_id}")
     
-    return await get_session_race_analysis(mmsi, lock_id, buffer_minutes)
+    return await get_session_race_analysis(mmsi, lock_id, buffer_minutes, max_speed_mph)
 
 
 # =============================================================================
@@ -5901,6 +5923,7 @@ async def get_session_trip_plan(
     destination_rm: Optional[float] = None,
     buffer_minutes: int = 20,
     max_locks: int = 5,
+    max_speed_mph: float = 25.0,
 ):
     """
     Compute a multi-lock trip plan for a session's vessel.
@@ -5928,7 +5951,7 @@ async def get_session_trip_plan(
 
     max_locks = max(1, min(int(max_locks or 5), 15))
     MAX_THREAT_DISTANCE = 100.0
-    USER_MAX_MPH = 25.0
+    USER_MAX_MPH = max(1.0, min(float(max_speed_mph or 25.0), 80.0))
 
     # Find the user vessel
     if session_mmsi not in active_vessels:

@@ -79,7 +79,7 @@ def estimate_lock_wait_minutes(
             v_dir = (info.get("direction") or "").lower()
             if v_lock and lock_id.replace("lock_", "").lower() == v_lock.replace("lock_", "").replace("l", "").lower():
                 # Same direction OR unknown direction (count conservatively)
-                if direction.lower() in v_dir or "up" in v_dir == "upstream" in direction.lower():
+                if direction.lower() in v_dir or ("up" in v_dir) == ("upstream" in direction.lower()):
                     queue_ahead += 1
                 elif not v_dir:
                     queue_ahead += 1

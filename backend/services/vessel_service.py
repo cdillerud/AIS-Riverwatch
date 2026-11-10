@@ -185,7 +185,9 @@ def calculate_required_speed(
         return None
     
     # Required speed to arrive with buffer before competitor
-    target_time_minutes = max(competitor_eta_minutes - buffer_minutes, 1)
+    target_time_minutes = competitor_eta_minutes - buffer_minutes
+    if target_time_minutes <= 0:
+        return None  # tow arrives within the buffer: no achievable speed
     required_mph = (distance_rm / target_time_minutes) * 60
     
     return round(required_mph, 1)

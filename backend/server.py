@@ -54,6 +54,7 @@ RIVERWATCH_UA = "RiverWatch/1.0 (Upper Mississippi lock planning)"
 OUTBOUND_HEADERS = {"User-Agent": RIVERWATCH_UA}
 from services import usace_lockages as _usace_lockages
 from services import lock_board as _lock_board
+from services import transits as _transits
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -2561,7 +2562,7 @@ class AISConnectionManager:
         if gps_data and config_mmsi:
             # Update vessel from GPS data - stored by MMSI
             rm = estimate_river_mile(gps_data['lat'], gps_data['lon'])
-            heading = determine_heading(gps_data['speed'], gps_data['course'], gps_data['lat'], gps_data['lon'])
+            heading = heading_with_track(config_mmsi, rm, gps_data['speed'], gps_data['course'], gps_data['lat'], gps_data['lon'])
             
             # Get name from cache or settings
             vessel_name = boat_name
@@ -2674,7 +2675,8 @@ class AISConnectionManager:
             
             # Calculate river mile and heading
             rm = estimate_river_mile(lat, lon)
-            heading = determine_heading(
+            heading = heading_with_track(
+                mmsi_parsed, rm,
                 vessel_data['speed'],
                 vessel_data['course'] if vessel_data.get('course_valid', True) else None,
                 lat, lon,
@@ -4178,6 +4180,38 @@ def river_mile_to_coords(rm: float) -> tuple:
     return _river_mile_to_coords(rm)
 
 
+# Recent river miles per vessel: [(time, rm), ...] within TRACK_WINDOW.
+_rm_track: Dict[str, list] = {}
+TRACK_WINDOW = timedelta(minutes=15)
+TRACK_MIN_MOVE_MI = 0.2
+
+
+def heading_with_track(mmsi: Optional[str], rm: Optional[float], speed, course,
+                       lat: float = None, lon: float = None, now: Optional[datetime] = None) -> str:
+    """Direction of travel, preferring the vessel's own track over one compass reading.
+
+    A single course is fragile at river bends (at RM 823 the channel briefly
+    runs east-northeast, so a southerly course reads as upbound) and noisy at
+    low speed. When the vessel's river mile has moved at least
+    TRACK_MIN_MOVE_MI within TRACK_WINDOW, the sign of that movement decides;
+    otherwise fall back to course against the local river bearing."""
+    base = determine_heading(speed, course, lat, lon)
+    if not mmsi or rm is None or base == "stationary":
+        if mmsi and base == "stationary":
+            _rm_track.pop(str(mmsi), None)
+        return base
+    now = now or datetime.now(timezone.utc)
+    hist = _rm_track.setdefault(str(mmsi), [])
+    hist.append((now, float(rm)))
+    while hist and now - hist[0][0] > TRACK_WINDOW:
+        hist.pop(0)
+    del hist[:-30]
+    delta = hist[-1][1] - hist[0][1]
+    if abs(delta) >= TRACK_MIN_MOVE_MI:
+        return "northbound" if delta > 0 else "southbound"
+    return base
+
+
 def determine_heading(speed: float, course: float, lat: float = None, lon: float = None) -> str:
     """
     'northbound' = upbound (toward higher river mile), 'southbound' = downbound.
@@ -4656,6 +4690,66 @@ async def get_locks():
         for k, v in LOCKS.items()
     ]
 
+# Lock-to-lock transit times learned from USACE history (services/transits.py),
+# refreshed hourly. Backtest: median arrival error 0.72 h (downbound 0.55 h).
+_TRANSIT_ORDER = _transits.lock_order(LOCKS)
+_transit_cache = {"stats": None, "at": None}
+
+
+async def get_transit_stats() -> dict:
+    now = datetime.now(timezone.utc)
+    if _transit_cache["stats"] is not None and _transit_cache["at"] and now - _transit_cache["at"] < timedelta(hours=1):
+        return _transit_cache["stats"]
+    try:
+        rows = await db.lockage_history.find(
+            {"source": "usace_lpms", "in_progress": {"$ne": True}},
+            {"_id": 0, "mmsi": 1, "usace_vessel_no": 1, "lock_id": 1, "direction": 1, "barge_count": 1,
+             "arrival_time": 1, "exit_time": 1, "is_recreational": 1},
+        ).to_list(None)
+        _transit_cache["stats"] = _transits.transit_stats(_transits.transit_samples(rows, _TRANSIT_ORDER))
+        _transit_cache["at"] = now
+    except Exception as e:
+        logger.warning(f"Could not learn transit times: {e}")
+        _transit_cache["stats"] = _transit_cache["stats"] or {}
+    return _transit_cache["stats"]
+
+
+async def approaching_by_lock(now: datetime) -> Dict[str, list]:
+    """Vessels predicted to reach each lock next, from their last USACE lockage."""
+    stats = await get_transit_stats()
+    if not stats:
+        return {}
+    try:
+        recent = await db.lockage_history.find(
+            {"source": "usace_lpms", "exit_time": {"$gte": now - timedelta(hours=36)}},
+            {"_id": 0},
+        ).to_list(None)
+    except Exception as e:
+        logger.warning(f"Could not read recent lockages: {e}")
+        return {}
+    for r in recent:
+        for k in ("exit_time", "arrival_time", "entry_time"):
+            if isinstance(r.get(k), datetime) and r[k].tzinfo is None:
+                r[k] = r[k].replace(tzinfo=timezone.utc)
+    out = {}
+    for lid in _TRANSIT_ORDER:
+        present = set()
+        for lock_no, infos in usace_lock_rows.items():
+            if usace_lock_id(lock_no) == lid:
+                for v in infos:
+                    present.update(x for x in (v.get("mmsi"), v.get("vessel_no")) if x)
+        arrivals = _transits.predicted_arrivals(lid, _TRANSIT_ORDER, stats, recent, present, now)
+        lock_rm = LOCKS[lid]["river_mile"]
+        for a in arrivals:
+            from_rm = LOCKS.get(a["from_lock"], {}).get("river_mile")
+            a["est_river_mile"] = round(from_rm + (lock_rm - from_rm) * a["progress"], 1) if from_rm is not None else None
+            a["from_lock_name"] = LOCKS.get(a["from_lock"], {}).get("name")
+            for k in ("left_at", "eta", "eta_earliest", "eta_latest"):
+                a[k] = a[k].isoformat()
+        out[lid] = arrivals
+    return out
+
+
 @api_router.get("/locks/board")
 async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[str] = None,
                          scope: str = "all", sort: str = "river", limit: Optional[int] = None,
@@ -4691,6 +4785,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
         queue_by_lock[usace_lock_id(lock_no)] = infos
 
     locks = [{"lock_id": lid, **info} for lid, info in LOCKS.items()]
+    approaching = await approaching_by_lock(now)
     ordered = _lock_board.locks_in_view(locks, from_rm, direction, scope)
     if lock_id:  # one lock (e.g. the Lock Timing panel's target lock)
         if lock_id not in LOCKS:
@@ -4765,6 +4860,8 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             "locking": [out(e) for e in locking],
             "waiting": [out(e, i + 1) for i, e in enumerate(waiting)],
             "last_lockage_minutes_ago": round((now - last).total_seconds() / 60) if last else None,
+            # Predicted from each vessel's last USACE lockage + learned transit times
+            "approaching": approaching.get(lid, [])[:6],
             "typical": typical,
             "queue_data_at": usace_lock_fetched_at.get(next((n for n in usace_lock_rows if usace_lock_id(n) == lid), ""), None),
         })
@@ -6697,7 +6794,7 @@ async def update_session_position(session_mmsi: str, data: dict, user: dict = De
     
     # Calculate river mile and heading
     rm = estimate_river_mile(lat, lon)
-    heading = determine_heading(speed, course, lat, lon)
+    heading = heading_with_track(session_mmsi, rm, speed, course, lat, lon)
     
     # Create or update vessel for THIS SESSION ONLY
     vessel = VesselPosition(

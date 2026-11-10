@@ -20,6 +20,12 @@ function headingToDirection(heading) {
   return null;
 }
 
+function lockLabel(lockId) {
+  if (lockId === "melvin_price") return "Mel Price";
+  if (lockId === "chain_of_rocks") return "L27";
+  return (lockId || "").replace("lock_", "L").toUpperCase();
+}
+
 function fmtTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -129,6 +135,33 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
           {lock.waiting.slice(0, 5).map((v, i) => <Vessel key={`w${i}`} v={v} />)}
           {lock.waiting.length > 5 && (
             <div className="text-[11px] text-slate-500">+{lock.waiting.length - 5} more waiting</div>
+          )}
+        </div>
+      )}
+
+      {lock.approaching?.length > 0 && (
+        <div className="mt-2 border-t border-slate-800 pt-1.5" data-testid="lock-approaching">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
+               title="Predicted from each vessel's last USACE lockage and typical transit times between these locks (typically within ~45 min)">
+            Approaching · predicted
+          </div>
+          {lock.approaching.slice(0, 4).map((a, i) => {
+            const up = a.direction === "upbound";
+            return (
+              <div key={i} className="flex justify-between gap-2 text-xs py-0.5 text-slate-300">
+                <span className="truncate">
+                  {a.vessel_name || "Unknown"} <span className={up ? "text-green-400" : "text-red-400"}>{up ? "↑" : "↓"}</span>
+                  <span className="text-slate-500"> {a.barges ? `${a.barges}b` : "light"} · from {lockLabel(a.from_lock)}</span>
+                </span>
+                <span className={`shrink-0 font-mono ${a.overdue ? "text-slate-500" : "text-slate-300"}`}
+                      title={`Expected ${fmtTime(a.eta_earliest)}–${fmtTime(a.eta_latest)}`}>
+                  {a.overdue ? `due ${fmtTime(a.eta)}` : `≈ ${fmtTime(a.eta)}`}
+                </span>
+              </div>
+            );
+          })}
+          {lock.approaching.length > 4 && (
+            <div className="text-[11px] text-slate-500">+{lock.approaching.length - 4} more</div>
           )}
         </div>
       )}

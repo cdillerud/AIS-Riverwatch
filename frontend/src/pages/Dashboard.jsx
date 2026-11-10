@@ -39,6 +39,28 @@ import { useAuth } from "@/context/AuthContext";
 
 import { API } from "@/lib/api";
 import LockageRow from "@/components/LockageRow";
+import LockBoard from "@/components/LockBoard";
+
+// Map (vessel positions) or Locks (lock-first board from USACE data).
+const VIEW_KEY = "riverwatch_main_view";
+function readView() {
+  try { return localStorage.getItem(VIEW_KEY) === "locks" ? "locks" : "map"; } catch { return "map"; }
+}
+function ViewToggle({ value, onChange }) {
+  const btn = (v, label) => (
+    <button
+      onClick={() => onChange(v)}
+      className={`px-2.5 py-1 text-xs rounded ${value === v ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}
+      data-testid={`view-toggle-${v}`}
+    >{label}</button>
+  );
+  return (
+    <div className="flex items-center gap-0.5 bg-slate-900/60 border border-slate-700 rounded p-0.5" role="tablist">
+      {btn("map", "Map")}
+      {btn("locks", "Locks")}
+    </div>
+  );
+}
 
 export default function Dashboard({ 
   isConnected, 
@@ -65,6 +87,11 @@ export default function Dashboard({
 }) {
   const { user, logout } = useAuth();
   const isTrafficWatch = accountType === "traffic_watch";
+  const [mainView, setMainViewState] = useState(readView);
+  const setMainView = (v) => {
+    setMainViewState(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* per-device preference only */ }
+  };
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [desktopPanel, setDesktopPanel] = useState("timing"); // "map" | "timing" | "vessels" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -942,10 +969,10 @@ export default function Dashboard({
                 <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
                   <div className="flex items-center gap-3">
                     <Navigation className="w-4 h-4 text-cyan-400" />
-                    <span className="text-sm font-medium text-white">River Map</span>
+                    <ViewToggle value={mainView} onChange={setMainView} />
                   </div>
                   
-                  <div className="flex items-center gap-3">
+                  <div className={`flex items-center gap-3 ${mainView === "locks" ? "hidden" : ""}`}>
                     {/* Auto Next Lock Toggle - Only show for Vessel Owners */}
                     {!isTrafficWatch && (
                       <Button
@@ -1003,6 +1030,11 @@ export default function Dashboard({
                 
                 {/* Map Content with Floating Overlays */}
                 <div className="relative h-[calc(100%-44px)]">
+                  {mainView === "locks" && (
+                    <div className="absolute inset-0 z-40 bg-[#020617]">
+                      <LockBoard userVessel={userVessel} onLockClick={setSelectedLockDetail} />
+                    </div>
+                  )}
                   <RiverVisualization
                     vessels={vessels}
                     userMmsi={userMmsi}
@@ -1705,7 +1737,7 @@ export default function Dashboard({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-cyan-400" />
-                    <span className="text-sm font-medium text-white">River Map</span>
+                    <ViewToggle value={mainView} onChange={setMainView} />
                   </div>
                   <div className="flex items-center gap-2">
                     {/* Auto Next Lock - Mobile */}
@@ -1740,7 +1772,12 @@ export default function Dashboard({
                   </div>
                 </div>
               </div>
-              <CardContent className="p-0 h-[calc(100vh-260px)] min-h-[350px]">
+              <CardContent className="p-0 h-[calc(100vh-260px)] min-h-[350px] relative">
+                {mainView === "locks" && (
+                  <div className="absolute inset-0 z-40 bg-[#020617] p-2">
+                    <LockBoard userVessel={userVessel} onLockClick={setSelectedLockDetail} compact />
+                  </div>
+                )}
                 <RiverVisualization
                   vessels={vessels}
                   userMmsi={userMmsi}

@@ -53,6 +53,7 @@ from services import aisstream as _aisstream
 RIVERWATCH_UA = "RiverWatch/1.0 (Upper Mississippi lock planning)"
 OUTBOUND_HEADERS = {"User-Agent": RIVERWATCH_UA}
 from services import usace_lockages as _usace_lockages
+from services import lock_board as _lock_board
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -3226,12 +3227,43 @@ async def fetch_usace_lock(client, lock_no: str) -> int:
             'end_of_lockage': None,
             'status': 'locking' if sol else 'waiting',
             'mmsi': val(row, 'MMSI'),
+            'timezone': val(row, 'TIMEZONE'),
             'source': 'USACE_LPMS',
         })
     usace_lock_rows[lock_no] = active
     usace_lock_fetched_at[lock_no] = datetime.now(timezone.utc)
     _rebuild_usace_indexes()
+    try:  # survive restarts: the worker needs ~6 min to revisit every lock
+        await db.usace_queue.update_one(
+            {"lock_no": lock_no},
+            {"$set": {"rows": active, "fetched_at": usace_lock_fetched_at[lock_no]}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.debug(f"Could not persist USACE queue for lock {lock_no}: {e}")
     return len(active)
+
+
+async def load_usace_queue_snapshot(max_age_minutes: int = 30) -> int:
+    """Reload each lock's last queue at startup so the lock board isn't empty
+    until the worker's first pass completes. Skips stale snapshots."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+    loaded = 0
+    try:
+        async for doc in db.usace_queue.find({}, {"_id": 0}):
+            fetched = doc.get("fetched_at")
+            if fetched is not None and fetched.tzinfo is None:
+                fetched = fetched.replace(tzinfo=timezone.utc)
+            if not fetched or fetched < cutoff or doc.get("lock_no") in usace_lock_rows:
+                continue
+            usace_lock_rows[doc["lock_no"]] = doc.get("rows") or []
+            usace_lock_fetched_at[doc["lock_no"]] = fetched
+            loaded += 1
+        if loaded:
+            _rebuild_usace_indexes()
+    except Exception as e:
+        logger.warning(f"Could not load USACE queue snapshot: {e}")
+    return loaded
 
 
 async def fetch_usace_lock_queue_data():
@@ -4583,6 +4615,126 @@ async def get_locks():
         LockInfo(id=k, name=v["name"], river_mile=v["river_mile"], lat=v["lat"], lon=v["lon"], phone=v.get("phone"))
         for k, v in LOCKS.items()
     ]
+
+@api_router.get("/locks/board")
+async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[str] = None,
+                         scope: str = "all", sort: str = "river", limit: Optional[int] = None):
+    """Lock-first view: every lock's status, queue, estimated wait and typical
+    lockage times, from USACE data only (works without any AIS feed).
+
+    from_rm + direction (upbound|downbound) + scope=ahead: only the locks in
+    front of the boat, nearest first. sort=delay: longest estimated wait first.
+    """
+    if direction not in (None, "upbound", "downbound"):
+        raise HTTPException(status_code=400, detail="direction must be upbound or downbound")
+    now = datetime.now(timezone.utc)
+    status_data = await fetch_usace_lock_status()
+    averages = await get_lockage_averages()
+
+    # Latest completed lockage per lock
+    last_by_lock = {}
+    try:
+        rows = await db.lockage_history.aggregate([
+            {"$match": {"recorded_at": {"$gte": now - timedelta(days=2)}}},
+            {"$group": {"_id": "$lock_id", "last": {"$max": "$exit_time"}}},
+        ]).to_list(None)
+        for r in rows:
+            if r.get("last"):
+                last_by_lock[r["_id"]] = r["last"] if r["last"].tzinfo else r["last"].replace(tzinfo=timezone.utc)
+    except Exception as e:
+        logger.warning(f"Lock board: could not read last lockages: {e}")
+
+    # Active queue rows from the USACE worker, by lock id
+    queue_by_lock = {}
+    for lock_no, infos in usace_lock_rows.items():
+        queue_by_lock[usace_lock_id(lock_no)] = infos
+
+    locks = [{"lock_id": lid, **info} for lid, info in LOCKS.items()]
+    ordered = _lock_board.locks_in_view(locks, from_rm, direction, scope)
+
+    def when(text, tz):
+        return _usace_lockages.parse_time(text, tz)
+
+    board = []
+    for lk in ordered:
+        lid = lk["lock_id"]
+        avg = averages.get(lid, {})
+        typical = {
+            "avg_single_lockage_minutes": avg.get("avg_single_lockage_minutes"),
+            "avg_double_lockage_minutes": avg.get("avg_double_lockage_minutes"),
+            "avg_recreational_lockage_minutes": avg.get("avg_recreational_lockage_minutes"),
+            "avg_tow_wait_minutes": avg.get("avg_tow_wait_minutes"),
+            "avg_recreational_wait_minutes": avg.get("avg_recreational_wait_minutes"),
+            "double_share": avg.get("double_share"),
+            "sample_count": avg.get("sample_count", 0),
+            "is_baseline": avg.get("is_baseline", True),
+        }
+        locking, waiting = [], []
+        for v in queue_by_lock.get(lid, []):
+            tz = v.get("timezone")
+            entry = {
+                "vessel_name": v.get("vessel_name"),
+                "mmsi": v.get("mmsi"),
+                "direction": {"U": "upbound", "D": "downbound"}.get(v.get("direction") or "", v.get("direction")),
+                "barges": v.get("num_barges"),
+                "needs_double": _lock_board.needs_double(lid, v.get("num_barges")),
+                "arrived_at": when(v.get("arrival_date"), tz),
+            }
+            if v.get("status") == "locking":
+                entry["started_at"] = when(v.get("sol_date"), tz)
+                locking.append(entry)
+            else:
+                waiting.append(entry)
+        waiting.sort(key=lambda e: e["arrived_at"] or now)
+        wait_now = _lock_board.estimate_wait(lid, locking, waiting, typical, now)
+
+        st = status_data.get(lid)
+        last = last_by_lock.get(lid)
+
+        def out(e, position=None):
+            o = dict(e)
+            for k in ("arrived_at", "started_at"):
+                if o.get(k):
+                    o[k] = o[k].isoformat()
+            if e.get("arrived_at"):
+                o["waiting_minutes"] = round((now - e["arrived_at"]).total_seconds() / 60)
+            if position is not None:
+                o["position"] = position
+            return o
+
+        board.append({
+            "lock_id": lid,
+            "name": lk.get("name"),
+            "river_mile": lk.get("river_mile"),
+            "phone": lk.get("phone"),
+            "distance_mi": round(abs(lk["river_mile"] - from_rm), 1) if from_rm is not None else None,
+            "status": st.status if st else "UNKNOWN",
+            "status_source": st.status_source if st else None,
+            "closure_info": st.closure_info if st else None,
+            "wait_estimate_minutes": wait_now,
+            "queue_count": len(locking) + len(waiting),
+            "locking": [out(e) for e in locking],
+            "waiting": [out(e, i + 1) for i, e in enumerate(waiting)],
+            "last_lockage_minutes_ago": round((now - last).total_seconds() / 60) if last else None,
+            "typical": typical,
+            "queue_data_at": usace_lock_fetched_at.get(next((n for n in usace_lock_rows if usace_lock_id(n) == lid), ""), None),
+        })
+    for row in board:
+        if isinstance(row["queue_data_at"], datetime):
+            row["queue_data_at"] = row["queue_data_at"].isoformat()
+
+    if sort == "delay":
+        board.sort(key=lambda r: -(r["wait_estimate_minutes"] or 0))
+    if limit:
+        board = board[:max(1, min(int(limit), 40))]
+    return {
+        "generated_at": now.isoformat(),
+        "from_rm": from_rm,
+        "direction": direction,
+        "scope": scope,
+        "locks": board,
+    }
+
 
 @api_router.get("/locks/status")
 async def get_all_lock_status():
@@ -7439,6 +7591,10 @@ async def startup_event():
             ais_manager._apply_static_to_active,
         ))
     
+    restored = await load_usace_queue_snapshot()
+    if restored:
+        logger.info(f"Restored USACE queues for {restored} locks from the last run")
+
     # USACE lock queues + lockage history: refreshed continuously in the
     # background, one lock at a time (USACE allows 5 requests per minute).
     asyncio.create_task(usace_refresh_task())

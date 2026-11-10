@@ -79,6 +79,14 @@ def test_rate_limit_reply_is_not_an_empty_lock(monkeypatch):
     async def no_store(rows, lock_no):
         return 0
     monkeypatch.setattr(server, "_store_usace_lockages", no_store)
+
+    class Queue:
+        async def update_one(self, *a, **k):
+            return None
+
+    class FakeDB:
+        usace_queue = Queue()
+    monkeypatch.setattr(server, "db", FakeDB())
     limited = _Client('{"error": "Rate limit exceeded. Maximum 5 requests per minute allowed."}\n')
     with pytest.raises(server.UsaceRateLimited):
         asyncio.run(server.fetch_usace_lock(limited, "15"))

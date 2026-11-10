@@ -56,6 +56,7 @@ from services import usace_lockages as _usace_lockages
 from services import lock_board as _lock_board
 from services import transits as _transits
 from services import calibration as _calibration
+from services.db_indexes import ensure_indexes as _ensure_indexes
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -124,6 +125,10 @@ db = client[os.environ['DB_NAME']]
 repos = RepositoryFactory(db)
 
 # Helper function to persist vessel sighting with USACE data
+HISTORY_INTERVAL = timedelta(minutes=10)
+_last_history_write: Dict[tuple, datetime] = {}
+
+
 async def persist_vessel_sighting(vessel_data: dict):
     """
     Persist vessel sighting to database for historical analysis.
@@ -133,6 +138,9 @@ async def persist_vessel_sighting(vessel_data: dict):
         return
     
     mmsi = vessel_data['mmsi']
+    # Simulated demo boats never go into real vessel history / statistics
+    if _is_demo_vessel(vessel_data, str(mmsi)):
+        return
     
     # Build the sighting record
     sighting = {
@@ -169,8 +177,16 @@ async def persist_vessel_sighting(vessel_data: dict):
         upsert=True
     )
     
-    # Also append to historical sightings if USACE data present (for analysis)
+    # Also append to historical sightings if USACE data present (for analysis),
+    # at most once per vessel per lock every HISTORY_INTERVAL - position updates
+    # can arrive every few seconds.
+    history_key = (str(mmsi), vessel_data.get('usace_lock'))
+    now_ts = datetime.now(timezone.utc)
+    last_ts = _last_history_write.get(history_key)
+    if last_ts is not None and now_ts - last_ts < HISTORY_INTERVAL:
+        return
     if vessel_data.get('usace_source') and vessel_data.get('barge_count') is not None:
+        _last_history_write[history_key] = now_ts
         historical_record = {
             **sighting,
             "recorded_at": datetime.now(timezone.utc)
@@ -7862,6 +7878,8 @@ async def startup_event():
     # Load blocked MMSIs
     await load_blocked_mmsi()
     
+    await _ensure_indexes(db)
+
     # Load persisted vessel names (shared across all users)
     await load_vessel_names_from_db()
 

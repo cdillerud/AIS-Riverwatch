@@ -846,8 +846,9 @@ const RiverVisualizationComponent = ({
               <div
                 key={`pred-${p.mmsi || p.vessel_name}-${i}`}
                 className="absolute z-10 flex items-center gap-1 pointer-events-auto cursor-default"
-                style={{ top: `${getRiverPosition(p.est_river_mile)}%`, left: 'calc(50% + 14px)', transform: 'translateY(-50%)' }}
-                title={`Estimated position from USACE lockages: left ${p.from_lock_name || p.from_lock}, expected at ${p.to_lock_name} around ${eta}${p.overdue ? ' (overdue)' : ''}`}
+                style={{ top: `${getRiverPosition(p.est_river_mile)}%`, left: 'calc(50% + 14px)', transform: 'translateY(-50%)',
+                         opacity: p.probability != null ? 0.45 + 0.55 * p.probability : 1 }}
+                title={`Estimated position from USACE lockages: left ${p.from_lock_name || p.from_lock}, expected at ${p.to_lock_name} around ${eta}${p.overdue ? ' (overdue)' : ''}${p.probability != null && p.probability < 0.8 ? ` - ${Math.round(p.probability * 100)}% of tows here continue to that lock` : ''}`}
                 data-testid="predicted-vessel"
               >
                 <div className="w-2.5 h-2.5 rotate-45 border border-dashed border-slate-400 bg-transparent" />

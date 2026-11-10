@@ -84,3 +84,36 @@ def test_two_hop_prediction_adds_time_at_the_lock_between():
     assert later[0]["segment_from"] == "lock_13" and later[0]["segment_to"] == "lock_14"
     one_hop_only = T.predicted_arrivals("lock_14", ORDER, stats, recent, set(), now=left)   # default
     assert one_hop_only == []
+
+
+def test_continuation_probability_learned_and_applied():
+    rows = []
+    for i in range(20):                       # 20 tows leave Lock 13 downbound...
+        day = T0 + timedelta(days=i)
+        a = _lockage(f"C{i}", "lock_13", "downbound", day, day + timedelta(hours=1))
+        rows.append(a)
+        if i % 2 == 0:                        # ...but only half reach Lock 14
+            arr = a["exit_time"] + timedelta(hours=4)
+            rows.append(_lockage(f"C{i}", "lock_14", "downbound", arr, arr + timedelta(hours=1)))
+    stats = T.transit_stats(T.transit_samples(rows, ORDER))
+    stats.update(T.continuation_stats(rows, ORDER, data_end=T0 + timedelta(days=40)))
+    assert stats[("cont", "lock_13", "lock_14", "downbound")]["p"] == 0.5
+    left = T0 + timedelta(days=30)
+    recent = [_lockage("NEW", "lock_13", "downbound", left - timedelta(hours=1), left)]
+    arr = T.predicted_arrivals("lock_14", ORDER, stats, recent, set(), now=left + timedelta(hours=1))
+    assert arr[0]["probability"] == 0.5
+    # A reach almost nobody continues on is not predicted at all
+    stats[("cont", "lock_13", "lock_14", "downbound")]["p"] = 0.1
+    assert T.predicted_arrivals("lock_14", ORDER, stats, recent, set(), now=left + timedelta(hours=1)) == []
+
+
+def test_unlikely_arrivals_count_partially_in_the_queue():
+    from services import lock_board
+    typical = {"avg_single_lockage_minutes": 30.0, "avg_double_lockage_minutes": 120.0}
+    now = T0
+    sure = [{"barges": 15, "eta": now + timedelta(minutes=10), "probability": 1.0}]
+    maybe = [{"barges": 15, "eta": now + timedelta(minutes=10), "probability": 0.5}]
+    arrive = now + timedelta(minutes=20)
+    q_sure = lock_board.queue_minutes_at("lock_14", [], [], sure, typical, arrive, now)["queue_minutes"]
+    q_maybe = lock_board.queue_minutes_at("lock_14", [], [], maybe, typical, arrive, now)["queue_minutes"]
+    assert q_sure == 110 and q_maybe == 50

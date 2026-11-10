@@ -4709,6 +4709,7 @@ async def get_transit_stats() -> dict:
         ).to_list(None)
         stats = _transits.transit_stats(_transits.transit_samples(rows, _TRANSIT_ORDER))
         stats.update(_transits.dwell_stats(rows))
+        stats.update(_transits.continuation_stats(rows, _TRANSIT_ORDER))
         _transit_cache["stats"] = stats
         _transit_cache["at"] = now
     except Exception as e:

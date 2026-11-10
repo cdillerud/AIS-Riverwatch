@@ -145,11 +145,14 @@ def queue_features(lock_id: str, locking: List[dict], waiting: List[dict], typic
     """Features for tow_wait(). Without a direction the waiting tows are split
     evenly between same and opposite; without the arriving tow's size, the
     lock's share of double lockages is used."""
+    # Predicted vessels (with a probability) count fractionally
+    weight = [float(w.get("probability", 1.0)) for w in waiting]
+    total = sum(weight)
     if direction in ("upbound", "downbound"):
-        n_same = float(sum(1 for w in waiting if w.get("direction") == direction))
-        n_opp = float(len(waiting)) - n_same
+        n_same = sum(wt for w, wt in zip(waiting, weight) if w.get("direction") == direction)
+        n_opp = total - n_same
     else:
-        n_same = n_opp = len(waiting) / 2.0
+        n_same = n_opp = total / 2.0
     if own_double is None:
         own_double = float(typical.get("double_share") or 0.0)
     return {
@@ -157,7 +160,7 @@ def queue_features(lock_id: str, locking: List[dict], waiting: List[dict], typic
         "v0": float(raw_minutes),
         "n_same": n_same,
         "n_opp": n_opp,
-        "dbl": float(sum(1 for w in waiting if needs_double(lock_id, w.get("barges")))),
+        "dbl": float(sum(wt for w, wt in zip(waiting, weight) if needs_double(lock_id, w.get("barges")))),
         "lk_rem": float(locking_remaining),
         "own_double": float(own_double),
         "empty": 1.0 if not locking and not waiting else 0.0,
@@ -206,7 +209,9 @@ def queue_minutes_at(lock_id: str, locking: List[dict], waiting: List[dict], app
     ]
     queue.sort(key=lambda q: q[0])
     for at, v in queue:
-        free_at = max(free_at, at) + timedelta(minutes=expected_lockage_minutes(lock_id, v.get("barges"), typical))
+        # Predicted vessels count by the chance they really continue to this lock
+        p = float(v.get("probability", 1.0))
+        free_at = max(free_at, at) + timedelta(minutes=p * expected_lockage_minutes(lock_id, v.get("barges"), typical))
         ahead.append(v)
     raw = max(0.0, (free_at - arrive_at).total_seconds() / 60)
     return {"queue_minutes": round(raw), "ahead": ahead}
@@ -236,7 +241,8 @@ def predict_waits_at(lock_id: str, locking: List[dict], waiting: List[dict], app
     return {"tow": round(max(0.0, tow)), "recreational": round(max(0.0, rec)),
             "queue_minutes": q, "ahead_count": len(sim["ahead"]),
             "ahead": [{"vessel_name": v.get("vessel_name"), "barges": v.get("barges"),
-                       "direction": v.get("direction"), "predicted": "eta" in v} for v in sim["ahead"]]}
+                       "direction": v.get("direction"), "predicted": "eta" in v,
+                       "probability": v.get("probability", 1.0)} for v in sim["ahead"]]}
 
 
 def locks_in_view(locks: List[dict], from_rm: Optional[float], direction: Optional[str],

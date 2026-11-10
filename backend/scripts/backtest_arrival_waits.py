@@ -55,6 +55,8 @@ def main():
     train_rows = [r for r in rows if r["exit_time"] < split]
     stats = transits.transit_stats(transits.transit_samples(train_rows, order))
     stats.update(transits.dwell_stats(train_rows))
+    if os.environ.get("CONTINUATION", "1") == "1":
+        stats.update(transits.continuation_stats(train_rows, order))
     max_hops = int(os.environ.get("MAX_HOPS", "1"))
     by_lock = defaultdict(list)
     for r in rows:

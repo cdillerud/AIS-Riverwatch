@@ -57,3 +57,13 @@ def test_ingest_rejects_oversized_batches(monkeypatch):
     monkeypatch.delenv("AIS_INGEST_TOKEN", raising=False)
     r = client.post("/api/ais/ingest", json={"lines": ["x"] * 2001})
     assert r.status_code == 413
+
+
+def test_position_updates_require_owning_the_boat(monkeypatch):
+    async def stranger(request):
+        return {"user_id": "u1", "email": "x@example.com", "vessels": [{"mmsi": "111111111"}]}
+    monkeypatch.setattr(server, "get_current_user", stranger)
+    r = client.post("/api/session/338414076/position", json={"lat": 44.7, "lon": -92.8})
+    assert r.status_code == 403
+    r = client.post("/api/user-position", json={"mmsi": "338414076", "lat": 44.7, "lon": -92.8})
+    assert r.status_code == 403

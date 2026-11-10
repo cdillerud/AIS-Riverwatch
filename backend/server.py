@@ -6243,8 +6243,14 @@ async def get_vessels_for_session(session_mmsi: str):
     return vessels
 
 
-@api_router.post("/session/{session_mmsi}/position", dependencies=[Depends(require_user)])
-async def update_session_position(session_mmsi: str, data: dict):
+def _user_owns_mmsi(user: dict, mmsi: str) -> bool:
+    if user.get("is_admin") or user.get("is_super_admin"):
+        return True
+    return any(str(v.get("mmsi")) == str(mmsi) for v in (user.get("vessels") or []) if isinstance(v, dict))
+
+
+@api_router.post("/session/{session_mmsi}/position")
+async def update_session_position(session_mmsi: str, data: dict, user: dict = Depends(require_user)):
     """
     Update position for a specific session (MMSI).
     
@@ -6261,7 +6267,10 @@ async def update_session_position(session_mmsi: str, data: dict):
         raise HTTPException(status_code=400, detail="Valid session MMSI required")
     
     session_mmsi = str(session_mmsi).strip()
-    
+    # Only the boat's owner (or an admin) may move it on everyone's map.
+    if not _user_owns_mmsi(user, session_mmsi):
+        raise HTTPException(status_code=403, detail="Add this MMSI to your account before sharing its position")
+
     lat = data.get("lat")
     lon = data.get("lon")
     speed = data.get("speed", 0)  # knots
@@ -6312,6 +6321,8 @@ async def update_session_position(session_mmsi: str, data: dict):
     v_dict = prepare_vessel_for_output(vessel, session_mmsi)
     v_dict['source'] = source
     asyncio.create_task(persist_vessel_sighting(v_dict))
+    # Push to everyone watching, not just the phone that sent it.
+    await ais_manager._broadcast_vessel_update(v_dict)
     
     # Also persist position to user's account if they have this vessel
     asyncio.create_task(persist_vessel_position_to_user(session_mmsi, {
@@ -6328,8 +6339,8 @@ async def update_session_position(session_mmsi: str, data: dict):
 
 
 # Legacy endpoint - redirects to session-based endpoint
-@api_router.post("/user-position", dependencies=[Depends(require_user)])
-async def update_user_position_legacy(data: dict):
+@api_router.post("/user-position")
+async def update_user_position_legacy(data: dict, user: dict = Depends(require_user)):
     """
     LEGACY: Update user's vessel position.
     
@@ -6340,7 +6351,7 @@ async def update_user_position_legacy(data: dict):
     if not mmsi:
         raise HTTPException(status_code=400, detail="mmsi required in request body. Use POST /session/{mmsi}/position instead.")
     
-    return await update_session_position(mmsi, data)
+    return await update_session_position(mmsi, data, user)
 
 
 @api_router.get("/settings", dependencies=[Depends(require_user)])

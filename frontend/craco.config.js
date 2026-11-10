@@ -58,6 +58,15 @@ const webpackConfig = {
 };
 
 webpackConfig.devServer = (devServerConfig) => {
+  // DEV_ALLOWED_HOSTS: extra hostnames the dev server accepts (comma-separated,
+  // a leading "." matches subdomains), e.g. ".trycloudflare.com" to open the
+  // dev app on a phone through an HTTPS tunnel. Keeps the host check on.
+  const extraHosts = (process.env.DEV_ALLOWED_HOSTS || "")
+    .split(",").map((h) => h.trim()).filter(Boolean);
+  if (extraHosts.length) {
+    const current = Array.isArray(devServerConfig.allowedHosts) ? devServerConfig.allowedHosts : [];
+    devServerConfig.allowedHosts = [...current, "localhost", "127.0.0.1", ...extraHosts];
+  }
   // Add health check endpoints if enabled
   if (config.enableHealthCheck && setupHealthEndpoints && healthPluginInstance) {
     const originalSetupMiddlewares = devServerConfig.setupMiddlewares;

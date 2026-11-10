@@ -1,4 +1,10 @@
-version: '3.8'
+# River Watch - production stack: nginx (TLS) serves the static frontend and
+# proxies /api + /ws to the backend on the same origin, so no CORS is needed.
+#
+#   cp backend/.env.example .env      # set AIS_INGEST_TOKEN etc.
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Certificates go in ./nginx/ssl (see nginx/nginx.conf).
 
 services:
   mongodb:
@@ -18,7 +24,12 @@ services:
     environment:
       - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=riverwatch
-      - CORS_ORIGINS=*
+      # Same-origin behind nginx: only list origins if a separate frontend host is used.
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      # Relays must send this in X-Ingest-Token. Strongly recommended in production.
+      - AIS_INGEST_TOKEN=${AIS_INGEST_TOKEN:-}
+      # Hosted server: never dial private/LAN addresses on users' behalf.
+      - AIS_ALLOW_PRIVATE_TARGETS=${AIS_ALLOW_PRIVATE_TARGETS:-false}
     depends_on:
       - mongodb
     restart: unless-stopped
@@ -30,7 +41,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
-        - REACT_APP_BACKEND_URL=${BACKEND_URL:-http://localhost}
+        # Empty = same origin (recommended behind nginx).
+        - REACT_APP_BACKEND_URL=${BACKEND_URL:-}
     container_name: riverwatch-frontend
     depends_on:
       - backend

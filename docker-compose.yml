@@ -1,11 +1,19 @@
-version: '3.8'
+# River Watch - local / single-host development stack.
+#
+#   cp backend/.env.example backend/.env   # optional; values below are dev defaults
+#   docker compose up -d --build
+#   open http://localhost:3000
+#
+# The backend uses host networking so it can reach a Boat Beacon phone on your
+# LAN (Linux only; on macOS/Windows use the push relay in scripts/ instead).
+# For production use docker-compose.prod.yml (nginx + TLS, same-origin API).
 
 services:
   mongodb:
     image: mongo:7
     container_name: riverwatch-mongo
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"   # never expose the database beyond this host
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
@@ -19,7 +27,9 @@ services:
     environment:
       - MONGO_URL=mongodb://localhost:27017
       - DB_NAME=riverwatch
-      - CORS_ORIGINS=*
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - COOKIE_SECURE=false          # plain HTTP in local dev
+      - AIS_INGEST_TOKEN=${AIS_INGEST_TOKEN:-}
     depends_on:
       - mongodb
     restart: unless-stopped
@@ -29,7 +39,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - REACT_APP_BACKEND_URL=http://136.116.165.255:8001
+        - REACT_APP_BACKEND_URL=${BACKEND_URL:-http://localhost:8001}
     container_name: riverwatch-frontend
     ports:
       - "3000:3000"

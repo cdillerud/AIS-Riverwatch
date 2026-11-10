@@ -24,6 +24,12 @@ RELAY_BASE_URL = os.environ.get("AIS_RELAY_URL", "http://ais-relay:8088").rstrip
 RELAY_TIMEOUT = float(os.environ.get("AIS_RELAY_TIMEOUT", "8.0"))
 
 
+def _relay_headers() -> dict:
+    """Forward the relay's shared secret when one is configured."""
+    token = os.environ.get("AIS_RELAY_TOKEN", "").strip()
+    return {"X-Relay-Token": token} if token else {}
+
+
 class ScanStartRequest(BaseModel):
     subnet: Optional[str] = Field(None, description="Optional CIDR override (e.g. 192.168.1.0/24)")
     ports: Optional[list] = Field(None, description="Optional explicit port list")
@@ -37,7 +43,7 @@ class ScanSelectRequest(BaseModel):
 async def _relay_get(path: str) -> dict:
     async with httpx.AsyncClient(timeout=RELAY_TIMEOUT) as client:
         try:
-            r = await client.get(f"{RELAY_BASE_URL}{path}")
+            r = await client.get(f"{RELAY_BASE_URL}{path}", headers=_relay_headers())
         except httpx.HTTPError as e:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -55,7 +61,7 @@ async def _relay_get(path: str) -> dict:
 async def _relay_post(path: str, json: dict) -> dict:
     async with httpx.AsyncClient(timeout=RELAY_TIMEOUT) as client:
         try:
-            r = await client.post(f"{RELAY_BASE_URL}{path}", json=json)
+            r = await client.post(f"{RELAY_BASE_URL}{path}", json=json, headers=_relay_headers())
         except httpx.HTTPError as e:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,

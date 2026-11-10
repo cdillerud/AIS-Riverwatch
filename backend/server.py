@@ -232,6 +232,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Session cookie policy. "lax" blocks cross-site use of the session (CSRF);
+# set COOKIE_SAMESITE=none only if the frontend is on a different site and you
+# also list it explicitly in CORS_ORIGINS. COOKIE_SECURE=false for plain-HTTP
+# local development.
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").lower()
+if COOKIE_SAMESITE not in ("lax", "strict", "none"):
+    COOKIE_SAMESITE = "lax"
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false" or COOKIE_SAMESITE == "none"
+
 
 # =============================================================================
 # USER AUTHENTICATION MODELS
@@ -388,8 +397,8 @@ async def register_user(data: UserRegistration, response: Response):
         key="session_token",
         value=session_token,
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         path="/",
         max_age=7*24*60*60
     )
@@ -438,8 +447,8 @@ async def login_user(data: UserLogin, response: Response):
         key="session_token",
         value=session_token,
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         path="/",
         max_age=7*24*60*60
     )
@@ -533,8 +542,8 @@ async def google_auth_session(request: Request, response: Response):
         key="session_token",
         value=session_token,
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         path="/",
         max_age=7*24*60*60
     )
@@ -1331,8 +1340,8 @@ async def admin_impersonate_user(request: Request, response: Response, user_id: 
         key="session_token",
         value=session_token,
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         path="/",
         max_age=2*60*60  # 2 hours
     )
@@ -6966,17 +6975,24 @@ except ImportError as e:
 # AIS scanner proxy routes (forwards to ais-relay:8088)
 try:
     from routes.ais_scan import router as ais_scan_router
-    app.include_router(ais_scan_router, prefix="/api")
+    # LAN scans and upstream selection: signed-in users only.
+    app.include_router(ais_scan_router, prefix="/api", dependencies=[Depends(require_user)])
     logger.info("AIS Scanner proxy routes loaded at /api/ais-scan/*")
 except ImportError as e:
     logger.error(f"Failed to load ais-scan routes: {e}")
 
-# CORS: When credentials are used, specific origins must be listed (not '*')
+# CORS: When credentials are used, specific origins must be listed (not '*').
+# A wildcard together with credentials would let ANY website make signed-in
+# requests and read the responses, so '*' disables credentialed CORS.
 cors_origins = get_cors_origins()
+_cors_credentials = "*" not in cors_origins
+if not _cors_credentials:
+    logger.warning("CORS_ORIGINS='*': credentialed cross-origin requests are disabled. "
+                   "List explicit origins to allow a separate frontend origin.")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=_cors_credentials,
     allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],

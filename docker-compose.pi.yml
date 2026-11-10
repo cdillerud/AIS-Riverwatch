@@ -33,13 +33,18 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
-      - ./backend/.env.pi
+      - path: ./backend/.env.pi   # optional overrides (see backend/.env.example)
+        required: false
     environment:
       # Override Mongo URL to point at the in-stack container
       MONGO_URL: mongodb://mongodb:27017
       DB_NAME: riverwatch
-      # CORS: allow LAN access from any device on the boat WiFi
-      CORS_ALLOWED_ORIGINS: "*"
+      # The kiosk UI is served by nginx on the same origin, so no CORS is needed.
+      # Plain HTTP on the boat LAN:
+      COOKIE_SECURE: "false"
+      AIS_RELAY_URL: http://ais-relay:8088
+      AIS_RELAY_TOKEN: ${AIS_RELAY_TOKEN:-}
+      AIS_INGEST_TOKEN: ${AIS_INGEST_TOKEN:-}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -49,9 +54,11 @@ services:
 
   ais-relay:
     build:
-      context: ./ais-relay
+      context: ./ais_push_relay
       dockerfile: Dockerfile
     restart: unless-stopped
+    environment:
+      AIS_RELAY_TOKEN: ${AIS_RELAY_TOKEN:-}
     ports:
       # Optional: expose TCP push port directly on LAN for hardware AIS receivers
       - "6000:6000"

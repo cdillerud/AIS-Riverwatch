@@ -9,6 +9,11 @@ import { fmtDuration } from "@/components/LockageRow";
 
 const POLL_MS = 60000;
 
+export const WAIT_TOOLTIP =
+  "Estimated wait for a boat arriving now, from the USACE queue. Calibrated against 30 days of " +
+  "USACE lockages: typically within ~50 min for tows and ~10 min for pleasure boats, which lock " +
+  "staff usually fit in around tows. Long queues are the least predictable.";
+
 function headingToDirection(heading) {
   if (heading === "northbound" || heading === "upbound" || heading === "upstream") return "upbound";
   if (heading === "southbound" || heading === "downbound" || heading === "downstream") return "downbound";
@@ -105,9 +110,15 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
         </div>
         <div className="text-right shrink-0">
           <StatusBadge lock={lock} />
-          <div className={`text-sm font-mono mt-1 ${busy ? "text-amber-400" : wait > 0 ? "text-white" : "text-green-400"}`}
-               title="Estimate: lockage in progress plus the vessels already waiting">
-            {wait > 0 ? `≈ ${fmtDuration(wait)} wait` : "No queue"}
+          <div className="mt-1 text-right" title={WAIT_TOOLTIP}>
+            {lock.queue_count > 0 ? (
+              <div className={`text-sm font-mono ${busy ? "text-amber-400" : "text-white"}`}>Tow ≈ {fmtDuration(wait)}</div>
+            ) : (
+              <div className="text-sm font-mono text-green-400">No queue</div>
+            )}
+            <div className="text-[11px] text-slate-400 font-mono">
+              {lock.queue_count > 0 ? "" : `tow ≈ ${fmtDuration(wait)} · `}pleasure ≈ {fmtDuration(lock.wait_estimate_recreational_minutes)}
+            </div>
           </div>
         </div>
       </div>
@@ -126,8 +137,14 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
         {t.sample_count > 0 && !t.is_baseline ? (
           <>
             <span>Single <span className="text-slate-300 font-mono">{fmtDuration(t.avg_single_lockage_minutes)}</span></span>
-            <span>Double <span className="text-slate-300 font-mono">{fmtDuration(t.avg_double_lockage_minutes)}</span></span>
-            {t.double_share != null && <span>{Math.round(t.double_share * 100)}% doubles</span>}
+            {t.avg_double_lockage_minutes != null ? (
+              <>
+                <span>Double <span className="text-slate-300 font-mono">{fmtDuration(t.avg_double_lockage_minutes)}</span></span>
+                {t.double_share != null && <span>{Math.round(t.double_share * 100)}% doubles</span>}
+              </>
+            ) : (
+              <span>No double lockages</span>
+            )}
             <span>Tow wait avg <span className="text-slate-300 font-mono">{fmtDuration(t.avg_tow_wait_minutes)}</span></span>
           </>
         ) : (

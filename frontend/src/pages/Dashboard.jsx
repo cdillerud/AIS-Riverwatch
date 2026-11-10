@@ -39,7 +39,7 @@ import { useAuth } from "@/context/AuthContext";
 
 import { API } from "@/lib/api";
 import LockageRow, { fmtDuration } from "@/components/LockageRow";
-import LockBoard from "@/components/LockBoard";
+import LockBoard, { WAIT_TOOLTIP } from "@/components/LockBoard";
 
 // Map (vessel positions) or Locks (lock-first board from USACE data).
 const VIEW_KEY = "riverwatch_main_view";
@@ -329,15 +329,20 @@ export default function Dashboard({
     const speedMph = (Number(userVessel.speed) || 0) * 1.15078; // knots to mph
     const travelMinutes = speedMph > 0 ? (distance / speedMph) * 60 : null;
     
-    // Wait for a boat arriving now: lockage in progress + vessels already
-    // waiting (USACE queue). Unknown until the board data has loaded.
-    const wait = targetLockBoard?.lock_id === activeTimingLockId ? targetLockBoard.wait_estimate_minutes : null;
+    // Calibrated wait for a boat arriving now (USACE queue). A towboat's own
+    // vessel gets the tow estimate; everyone else the pleasure-boat one.
+    const board = targetLockBoard?.lock_id === activeTimingLockId ? targetLockBoard : null;
+    const userIsTow = !!(userVessel?.is_tow || Number(userVessel?.barge_count) > 0);
+    const wait = board ? (userIsTow ? board.wait_estimate_minutes : board.wait_estimate_recreational_minutes) : null;
 
     return {
       distance: distance.toFixed(1),
       travelMinutes: travelMinutes?.toFixed(0),
       estimatedWait: wait,
-      queueCount: targetLockBoard?.lock_id === activeTimingLockId ? targetLockBoard.queue_count : null,
+      queueCount: board ? board.queue_count : null,
+      waitKind: userIsTow ? 'tow' : 'pleasure',
+      towWait: board ? board.wait_estimate_minutes : null,
+      pleasureWait: board ? board.wait_estimate_recreational_minutes : null,
       totalMinutes: travelMinutes && wait != null ? (parseFloat(travelMinutes) + wait).toFixed(0) : null
     };
   }, [userVessel, selectedLockObj, activeTimingLockId, targetLockBoard]);
@@ -1298,8 +1303,9 @@ export default function Dashboard({
                       <div className="pb-2 border-b border-slate-700 text-xs" data-testid="traffic-summary-lock-queue">
                         <div className="flex justify-between items-center">
                           <span className="text-slate-400">At this lock (USACE)</span>
-                          <span className={`font-mono ${targetLockBoard.wait_estimate_minutes >= 60 ? 'text-amber-400' : targetLockBoard.wait_estimate_minutes > 0 ? 'text-white' : 'text-green-400'}`}>
-                            {targetLockBoard.wait_estimate_minutes > 0 ? `≈ ${fmtDuration(targetLockBoard.wait_estimate_minutes)} wait` : 'No queue'}
+                          <span className={`font-mono text-right ${targetLockBoard.queue_count === 0 ? 'text-green-400' : targetLockBoard.wait_estimate_minutes >= 60 ? 'text-amber-400' : 'text-white'}`}
+                                title={WAIT_TOOLTIP}>
+                            {targetLockBoard.queue_count === 0 ? 'No queue · ' : ''}tow ≈ {fmtDuration(targetLockBoard.wait_estimate_minutes)} · pleasure ≈ {fmtDuration(targetLockBoard.wait_estimate_recreational_minutes)}
                           </span>
                         </div>
                         {[...(targetLockBoard.locking || []), ...(targetLockBoard.waiting || [])].slice(0, 4).map((v, i) => (
@@ -1470,11 +1476,10 @@ export default function Dashboard({
                         <div className="flex items-center gap-1.5">
                           <Clock className="w-3 h-3 text-slate-500" />
                           <span className="text-slate-400">Est. Wait:</span>
-                          <span className="text-amber-400 font-mono" title="Lockage in progress plus vessels already waiting (USACE lock queue)">
+                          <span className="text-amber-400 font-mono"
+                                title={`${WAIT_TOOLTIP}${lockTravelInfo.towWait != null ? ` Tow ≈ ${fmtDuration(lockTravelInfo.towWait)}, pleasure boat ≈ ${fmtDuration(lockTravelInfo.pleasureWait)}.` : ''}`}>
                             {lockTravelInfo.estimatedWait == null ? '--'
-                              : lockTravelInfo.estimatedWait > 0
-                                ? `~${fmtDuration(lockTravelInfo.estimatedWait)}${lockTravelInfo.queueCount ? ` (${lockTravelInfo.queueCount} ahead)` : ''}`
-                                : 'none'}
+                              : `~${fmtDuration(lockTravelInfo.estimatedWait)} ${lockTravelInfo.waitKind}${lockTravelInfo.queueCount ? ` (${lockTravelInfo.queueCount} ahead)` : ''}`}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">

@@ -2,6 +2,7 @@
 // Shared by the vessel detail views and a lock's recent-lockages list.
 
 export function fmtDuration(minutes) {
+  if (minutes === null || minutes === undefined || minutes === "") return "—";  // no data, not zero
   const m = Number(minutes);
   if (!Number.isFinite(m) || m < 0) return "—";
   if (m < 60) return `${Math.round(m)}m`;

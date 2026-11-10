@@ -70,7 +70,9 @@ def test_board_endpoint_from_usace_queue(monkeypatch):
     locks = r.json()["locks"]
     assert locks[0]["lock_id"] == "lock_14" and locks[0]["status"] == "OPEN"
     assert locks[0]["waiting"][0]["vessel_name"] == "WISCONSIN" and locks[0]["waiting"][0]["needs_double"]
-    assert locks[0]["wait_estimate_minutes"] == 122
+    assert locks[0]["queue_minutes"] == 122                       # raw: one double lockage ahead
+    assert locks[0]["wait_estimate_minutes"] == round(26.5 + 1.264 * 122)   # calibrated tow wait
+    assert locks[0]["wait_estimate_recreational_minutes"] == round(5.8 + 0.088 * 122)
     assert len(locks) == 3 and all(lk["river_mile"] < 520 for lk in locks)
     assert client.get("/api/locks/board", params={"direction": "sideways"}).status_code == 400
 
@@ -115,3 +117,13 @@ def test_traffic_summary_counts_only_the_watched_lock(monkeypatch):
     assert data["total_vessels"] == 3                # 1, 3 (once), 9
     assert data["southbound"] == 2 and data["northbound"] == 1
     assert data["feed_vessels"] == 3 and data["at_lock_usace"] == 2
+
+
+def test_calibrated_waits():
+    empty = lock_board.predict_waits("lock_14", [], [], TYPICAL, None, NOW)
+    assert empty == {"tow": 10, "recreational": 6, "queue_minutes": 0}
+    waiting = [{"barges": 15, "direction": "downbound"}, {"barges": 15, "direction": "upbound"}]
+    both = lock_board.predict_waits("lock_14", [], waiting, TYPICAL, None, NOW)
+    down = lock_board.predict_waits("lock_14", [], waiting, TYPICAL, "downbound", NOW)
+    assert both["tow"] == down["tow"] == round(26.5 + 1.264 * 244)
+    assert down["recreational"] < both["recreational"]           # only the same-direction queue counts

@@ -4731,7 +4731,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             else:
                 waiting.append(entry)
         waiting.sort(key=lambda e: e["arrived_at"] or now)
-        wait_now = _lock_board.estimate_wait(lid, locking, waiting, typical, now)
+        waits = _lock_board.predict_waits(lid, locking, waiting, typical, direction, now)
 
         st = status_data.get(lid)
         last = last_by_lock.get(lid)
@@ -4756,7 +4756,10 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             "status": st.status if st else "UNKNOWN",
             "status_source": st.status_source if st else None,
             "closure_info": st.closure_info if st else None,
-            "wait_estimate_minutes": wait_now,
+            # Calibrated against USACE history (scripts/backtest_waits.py)
+            "wait_estimate_minutes": waits["tow"],
+            "wait_estimate_recreational_minutes": waits["recreational"],
+            "queue_minutes": waits["queue_minutes"],
             "queue_count": len(locking) + len(waiting),
             "locking": [out(e) for e in locking],
             "waiting": [out(e, i + 1) for i, e in enumerate(waiting)],
@@ -4777,6 +4780,10 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
         "from_rm": from_rm,
         "direction": direction,
         "scope": scope,
+        "wait_model": {
+            "fitted_on": _lock_board.CALIBRATION["fitted_on"],
+            "typical_error_minutes": _lock_board.CALIBRATION["test_mae_minutes"],
+        },
         "locks": board,
     }
 

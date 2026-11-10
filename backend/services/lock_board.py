@@ -57,6 +57,43 @@ def estimate_wait(lock_id: str, locking: Iterable[dict], waiting: Iterable[dict]
     return round(total, 0)
 
 
+# Calibration fitted by scripts/backtest_waits.py on USACE lockage history
+# (4,055 lockages Oct 11-31 2026, 26 locks) and scored on the following 10 days
+# (1,825 lockages): tows MAE 48 min / 82% within 60 min; recreational MAE
+# 8 min / 96% within 30 min; overall bias -5 min. The raw queue sum
+# (estimate_wait) underestimated tows by ~37 min and overestimated pleasure
+# craft by ~28 min: lock staff slot recreational boats in around tows.
+# Re-run the backtest as history grows and update these numbers.
+CALIBRATION = {
+    "tow": {"intercept": 26.5, "slope": 1.264, "empty_lock": 10.0},
+    "recreational": {"intercept": 5.8, "slope": 0.088},
+    "fitted_on": "2026-10-11..2026-10-31, 4055 USACE lockages",
+    "test_mae_minutes": {"tow": 48.3, "recreational": 8.0},
+}
+
+
+def predict_waits(lock_id: str, locking: List[dict], waiting: List[dict], typical: dict,
+                  direction: Optional[str] = None, now: Optional[datetime] = None) -> dict:
+    """Calibrated wait for a tow and for a recreational boat arriving now.
+
+    `direction` (upbound/downbound) narrows the recreational estimate to the
+    queue going the same way; without it the whole queue is used."""
+    now = now or datetime.now(timezone.utc)
+    queue_minutes = estimate_wait(lock_id, locking, waiting, typical, now)
+    if not locking and not waiting:
+        tow = CALIBRATION["tow"]["empty_lock"]
+    else:
+        tow = CALIBRATION["tow"]["intercept"] + CALIBRATION["tow"]["slope"] * queue_minutes
+    same_dir = [w for w in waiting if not direction or w.get("direction") == direction]
+    rec_queue = estimate_wait(lock_id, locking, same_dir, typical, now)
+    rec = CALIBRATION["recreational"]["intercept"] + CALIBRATION["recreational"]["slope"] * rec_queue
+    return {
+        "tow": round(max(0.0, tow)),
+        "recreational": round(max(0.0, rec)),
+        "queue_minutes": queue_minutes,
+    }
+
+
 def locks_in_view(locks: List[dict], from_rm: Optional[float], direction: Optional[str],
                   scope: str = "all") -> List[dict]:
     """Order locks for the board.

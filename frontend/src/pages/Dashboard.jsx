@@ -1252,7 +1252,7 @@ export default function Dashboard({
                       <span className="text-sm font-medium text-white">Traffic Summary</span>
                     </div>
                     <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/50 text-[10px]">
-                      {trafficSummary?.total_vessels || vessels.length} vessels
+                      {trafficSummary ? `${trafficSummary.total_vessels} near lock` : '…'}
                     </Badge>
                   </div>
                   <div className="p-3 space-y-3">
@@ -1326,18 +1326,26 @@ export default function Dashboard({
                           <ArrowUpRight className="w-4 h-4" />
                           <span className="text-lg font-bold">{trafficSummary?.northbound || 0}</span>
                         </div>
-                        <div className="text-[10px] text-slate-400">Upbound</div>
+                        <div className="text-[10px] text-slate-400">Upbound · near lock</div>
                       </div>
                       <div className="p-2 bg-red-500/10 rounded-lg text-center">
                         <div className="flex items-center justify-center gap-1 text-red-400 mb-1">
                           <ArrowDownRight className="w-4 h-4" />
                           <span className="text-lg font-bold">{trafficSummary?.southbound || 0}</span>
                         </div>
-                        <div className="text-[10px] text-slate-400">Downbound</div>
+                        <div className="text-[10px] text-slate-400">Downbound · near lock</div>
                       </div>
                     </div>
                     
                     {/* Vessels Near Lock */}
+                    {trafficSummary && (
+                      <div className="text-[10px] text-slate-500 -mt-1" data-testid="traffic-summary-count-note">
+                        {trafficSummary.stationary > 0 && <span className="text-slate-400">{trafficSummary.stationary} stopped or moored · </span>}
+                        Within {trafficSummary.radius_mi ?? 20} river miles of the lock or in its USACE queue
+                        {trafficSummary.feed_vessels != null && ` · ${trafficSummary.feed_vessels} on the AIS feed river-wide`}
+                      </div>
+                    )}
+
                     {trafficSummary?.vessels_near_lock?.length > 0 && (
                       <div className="pb-2 border-b border-slate-700">
                         <div className="flex items-center gap-1.5 mb-2">

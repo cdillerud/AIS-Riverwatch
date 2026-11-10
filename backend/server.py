@@ -987,6 +987,9 @@ async def get_vessel_watch_list(request: Request):
     
     return {"vessel_watch_list": user.get("vessel_watch_list", [])}
 
+TRAFFIC_SUMMARY_RADIUS_MI = 20
+
+
 @api_router.get("/traffic-summary/{lock_id}")
 async def get_traffic_summary(lock_id: str):
     """Get traffic summary for a lock - useful for Traffic Watch users."""
@@ -996,11 +999,11 @@ async def get_traffic_summary(lock_id: str):
     lock = LOCKS[lock_id]
     lock_rm = lock["river_mile"]
     
-    # Count vessels by direction within range
-    northbound_count = 0
-    southbound_count = 0
-    stationary_count = 0
+    # Counts describe the watched lock only: AIS vessels within
+    # TRAFFIC_SUMMARY_RADIUS_MI river miles plus vessels USACE reports at the
+    # lock, each counted once (by MMSI, or name when USACE has no MMSI).
     vessels_near_lock = []
+    counted = {}  # identity -> "northbound" | "southbound" | "stationary"
     
     for mmsi, vessel in active_vessels.items():
         if hasattr(vessel, 'river_mile'):
@@ -1017,16 +1020,9 @@ async def get_traffic_summary(lock_id: str):
             
         distance = abs(vessel_rm - lock_rm)
         
-        # Count by direction
-        if heading == 'northbound':
-            northbound_count += 1
-        elif heading == 'southbound':
-            southbound_count += 1
-        else:
-            stationary_count += 1
-        
-        # Track vessels near the lock (within 20 miles)
-        if distance <= 20:
+        # Track vessels near the lock
+        if distance <= TRAFFIC_SUMMARY_RADIUS_MI:
+            counted[str(mmsi)] = heading if heading in ("northbound", "southbound") else "stationary"
             v_dict = prepare_vessel_for_output(vessel, mmsi)
             v_dict['distance_to_lock'] = round(distance, 1)
             
@@ -1062,6 +1058,19 @@ async def get_traffic_summary(lock_id: str):
             return (1, v.get('distance_to_lock', 999))  # Priority 1 = not heading to lock, sort by distance
     
     vessels_near_lock.sort(key=sort_key)
+
+    # Vessels USACE reports at this lock (waiting or locking), even with no AIS position
+    at_lock = 0
+    for lock_no, infos in usace_lock_rows.items():
+        if usace_lock_id(lock_no) != lock_id:
+            continue
+        for v in infos:
+            at_lock += 1
+            ident = str(v.get("mmsi") or v.get("vessel_name") or "")
+            if not ident or ident in counted:
+                continue
+            counted[ident] = {"U": "northbound", "D": "southbound"}.get(v.get("direction") or "", "stationary")
+    directions = list(counted.values())
     
     # Get recent lockage data
     recent_lockages = []
@@ -1078,10 +1087,14 @@ async def get_traffic_summary(lock_id: str):
         "lock_id": lock_id,
         "lock_name": lock["name"],
         "lock_rm": lock_rm,
-        "total_vessels": len(active_vessels),
-        "northbound": northbound_count,
-        "southbound": southbound_count,
-        "stationary": stationary_count,
+        # All counts are for this lock: within TRAFFIC_SUMMARY_RADIUS_MI or in its USACE queue.
+        "total_vessels": len(counted),
+        "northbound": directions.count("northbound"),
+        "southbound": directions.count("southbound"),
+        "stationary": directions.count("stationary"),
+        "at_lock_usace": at_lock,
+        "radius_mi": TRAFFIC_SUMMARY_RADIUS_MI,
+        "feed_vessels": len(active_vessels),
         "vessels_near_lock": vessels_near_lock[:10],  # Top 10 nearest
         "recent_lockages": recent_lockages
     }

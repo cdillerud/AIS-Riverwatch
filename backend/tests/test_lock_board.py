@@ -73,3 +73,45 @@ def test_board_endpoint_from_usace_queue(monkeypatch):
     assert locks[0]["wait_estimate_minutes"] == 122
     assert len(locks) == 3 and all(lk["river_mile"] < 520 for lk in locks)
     assert client.get("/api/locks/board", params={"direction": "sideways"}).status_code == 400
+
+
+def test_traffic_summary_counts_only_the_watched_lock(monkeypatch):
+    import server
+
+    now = datetime.now(timezone.utc)
+
+    def boat(mmsi, rm, heading):
+        return server.VesselPosition(mmsi=mmsi, name=mmsi, lat=0.0, lon=0.0, speed=5.0, course=0.0,
+                                     river_mile=rm, heading=heading, timestamp=now)
+
+    class Cursor:
+        def sort(self, *a):
+            return self
+
+        def limit(self, n):
+            return self
+
+        async def to_list(self, length):
+            return []
+
+    class Coll:
+        def find(self, *a, **k):
+            return Cursor()
+
+    class FakeDB:
+        lockage_history = Coll()
+
+    monkeypatch.setattr(server, "db", FakeDB())
+    monkeypatch.setattr(server, "active_vessels", {
+        "1": boat("1", 500.0, "southbound"),    # 7 mi above Lock 14 (RM 493): counted
+        "2": boat("2", 840.0, "southbound"),    # Twin Cities: not counted
+        "3": boat("3", 490.0, "northbound"),    # near, and also in the USACE queue
+    })
+    monkeypatch.setitem(server.usace_lock_rows, "14", [
+        {"vessel_name": "THREE", "mmsi": "3", "direction": "U", "status": "waiting"},
+        {"vessel_name": "QUEUE ONLY", "mmsi": "9", "direction": "D", "status": "waiting"},
+    ])
+    data = TestClient(server.app).get("/api/traffic-summary/lock_14").json()
+    assert data["total_vessels"] == 3                # 1, 3 (once), 9
+    assert data["southbound"] == 2 and data["northbound"] == 1
+    assert data["feed_vessels"] == 3 and data["at_lock_usace"] == 2

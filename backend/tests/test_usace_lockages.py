@@ -88,3 +88,37 @@ def test_rate_limit_reply_is_not_an_empty_lock(monkeypatch):
     assert server.usace_lock_queue_cache["data"]["367505680"]["num_barges"] == 15
     server.usace_lock_rows.pop("15", None)
     server._rebuild_usace_indexes()
+
+
+def test_lock_averages_use_real_records_and_split_cuts(monkeypatch):
+    import asyncio
+    import server
+
+    records = [
+        {"lock_id": "lock_14", "direction": "downbound", "lockage_duration_minutes": 140.0,
+         "wait_time_minutes": 82.0, "is_tow": True, "cuts": 2},
+        {"lock_id": "lock_14", "direction": "upbound", "lockage_duration_minutes": 100.0,
+         "wait_time_minutes": 40.0, "is_tow": True, "cuts": 2},
+        {"lock_id": "lock_14", "direction": "upbound", "lockage_duration_minutes": 16.0,
+         "wait_time_minutes": 38.0, "is_tow": True, "cuts": 1},
+    ]
+
+    class Cursor:
+        async def to_list(self, n):
+            return list(records)
+
+    class Coll:
+        def find(self, *a, **k):
+            return Cursor()
+
+    class FakeDB:
+        lockage_history = Coll()
+
+    monkeypatch.setattr(server, "db", FakeDB())
+    lock = asyncio.run(server.get_lockage_averages("lock_14"))["lock_14"]
+    # Top-level figures are real (they were None, so callers used fixed guesses).
+    assert lock["avg_tow_lockage_minutes"] == round((140 + 100 + 16) / 3, 1)
+    assert lock["sample_count"] == 3 and lock["is_baseline"] is False
+    assert lock["avg_single_lockage_minutes"] == 16.0
+    assert lock["avg_double_lockage_minutes"] == 120.0
+    assert lock["double_count"] == 2 and lock["double_share"] == 0.67

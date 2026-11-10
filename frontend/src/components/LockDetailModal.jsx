@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { API } from "@/lib/api";
+import LockageRow, { fmtDuration } from "@/components/LockageRow";
 
 // Lock status: "OPEN" | "CLOSED" | "RESTRICTED" | "UNKNOWN". Anything other than
 // an explicit OPEN is never shown as open/green.
@@ -528,13 +529,42 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                       </div>
                     </div>
                     
+                    {(lockDetails.single_count > 0 || lockDetails.double_count > 0) && (
+                      <div className="grid grid-cols-2 gap-3 mt-3" data-testid="lockage-cuts-averages">
+                        <div className="bg-slate-900/50 rounded p-3 text-xs">
+                          <p className="text-slate-500">Single lockage</p>
+                          <p className="text-lg font-mono text-white">{fmtDuration(lockDetails.avg_single_lockage_minutes)}</p>
+                          <p className="text-slate-500">{lockDetails.single_count} recorded</p>
+                        </div>
+                        <div className="bg-slate-900/50 rounded p-3 text-xs">
+                          <p className="text-slate-500">Double lockage (2+ cuts)</p>
+                          <p className="text-lg font-mono text-amber-400">{fmtDuration(lockDetails.avg_double_lockage_minutes)}</p>
+                          <p className="text-slate-500">
+                            {lockDetails.double_count} recorded
+                            {lockDetails.double_share != null && ` · ${Math.round(lockDetails.double_share * 100)}% of lockages`}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {lockDetails.sample_count > 0 && !lockDetails.is_baseline_data && (
                       <p className="text-[10px] text-slate-500 mt-2 text-center">
-                        Based on {lockDetails.sample_count} recorded lockages
+                        Based on {lockDetails.sample_count} recorded lockages in the last 7 days
                       </p>
                     )}
                   </CardContent>
                 </Card>
+
+                {lockDetails.recent_lockages?.length > 0 && (
+                  <Card className="bg-slate-800/30 border-slate-700" data-testid="lock-recent-lockages">
+                    <CardContent className="p-3">
+                      <h4 className="font-semibold text-white mb-2 text-sm">Recent Lockages</h4>
+                      {lockDetails.recent_lockages.map((l, i) => (
+                        <LockageRow key={i} lockage={l} title={l.vessel_name} />
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Contact Info */}
                 <div className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">

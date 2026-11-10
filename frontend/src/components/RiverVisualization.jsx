@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getVesselDisplayName, getVesselShortName, hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, getLastSeenMs } from "@/utils/vesselDisplay";
 import { API } from "@/lib/api";
+import LockageRow from "@/components/LockageRow";
 
 // Default River Mile range for Upper Mississippi (Lock 1 to Chain of Rocks)
 const FULL_MIN_RM = 180;  // Chain of Rocks (RM 185) with buffer
@@ -318,15 +319,7 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
           {lockageHistory.length > 0 ? (
             <div className="space-y-1">
               {lockageHistory.slice(0, 4).map((l, i) => (
-                <div key={i} className="flex justify-between items-center text-xs py-0.5 border-b border-slate-800 last:border-0">
-                  <span className="text-white">{l.lock_name || l.lock_id}</span>
-                  <span className="text-slate-400">
-                    <span className={l.direction === 'upbound' ? 'text-green-400' : 'text-red-400'}>
-                      {l.direction === 'upbound' ? '↑' : '↓'}
-                    </span>
-                    {l.wait_time_minutes ? ` ${l.wait_time_minutes}m wait` : ''}
-                  </span>
-                </div>
+                <LockageRow key={i} lockage={l} />
               ))}
             </div>
           ) : !loading ? (

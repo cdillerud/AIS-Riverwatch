@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { API } from "@/lib/api";
 import useLocks from "@/hooks/useLocks";
 import { hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, getLastSeenMs } from "@/utils/vesselDisplay";
+import LockageRow from "@/components/LockageRow";
 
 // "At Lock" detection uses the shared lock list (GET /api/locks).
 const getVesselLockStatus = (vessel, locks) => {
@@ -294,12 +295,9 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
             <div className="text-slate-400 mb-1 flex items-center gap-1">
               <History className="w-3 h-3" /> Recent Lockages ({lockageHistory.length})
             </div>
-            <div className="space-y-1 max-h-24 overflow-y-auto">
-              {lockageHistory.slice(0, 3).map((l, i) => (
-                <div key={i} className="flex justify-between text-slate-300">
-                  <span>{l.lock_name || l.lock_id}</span>
-                  <span className="text-slate-500">{l.direction} • {l.wait_time_minutes || '?'}min wait</span>
-                </div>
+            <div className="max-h-40 overflow-y-auto">
+              {lockageHistory.slice(0, 5).map((l, i) => (
+                <LockageRow key={i} lockage={l} />
               ))}
             </div>
           </div>

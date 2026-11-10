@@ -1072,7 +1072,7 @@ async def get_traffic_summary(lock_id: str):
             {"lock_id": lock_id},
             {"_id": 0}
         ).sort("recorded_at", -1).limit(5)
-        recent_lockages = await cursor.to_list(length=5)
+        recent_lockages = [lockage_for_output(r) for r in await cursor.to_list(length=5)]
     except Exception as e:
         logger.error(f"Failed to fetch lockage history: {e}")
     
@@ -3202,7 +3202,7 @@ async def fetch_usace_lock(client, lock_no: str) -> int:
         el = row.find(tag)
         return el.text.strip() if el is not None and el.text else None
 
-    lock_id = f"lock_{lock_no}" if lock_no.isdigit() else f"lock_{lock_no.lower()}"
+    lock_id = usace_lock_id(lock_no)
     active = []
     for row in rows:
         sol, eol = val(row, 'SOL_DATE'), val(row, 'END_OF_LOCKAGE')
@@ -3241,9 +3241,34 @@ async def fetch_usace_lock_queue_data():
     return usace_lock_queue_cache.get("data") or {}
 
 
+# USACE lock numbers -> RiverWatch lock ids (26/27 have names in LOCKS).
+_USACE_NAMED_LOCKS = {"26": "melvin_price", "27": "chain_of_rocks"}
+
+
+def usace_lock_id(lock_no) -> str:
+    lock_no = str(lock_no).strip()
+    return _USACE_NAMED_LOCKS.get(lock_no) or f"lock_{lock_no.lower()}"
+
+
+def lockage_for_output(record: dict) -> dict:
+    """A lockage_history document ready for the API: lock name, UTC timestamps,
+    and single/double cut info even for records written before `cuts` existed."""
+    out = dict(record)
+    out.pop("_id", None)
+    out.setdefault("lock_name", (LOCKS.get(out.get("lock_id")) or {}).get("name"))
+    cuts = out.get("cuts") or (2 if out.get("is_double_lockage") else 1)
+    out["cuts"] = cuts
+    out["is_double_lockage"] = cuts > 1
+    for key, value in list(out.items()):
+        if isinstance(value, datetime):
+            # Mongo returns naive UTC; say so, or browsers read it as local time.
+            out[key] = (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
+    return out
+
+
 async def _store_usace_lockages(rows, lock_no: str) -> int:
     """Upsert completed lockages from one lock's queue feed into lockage_history."""
-    lock_id = f"lock_{lock_no}" if str(lock_no).isdigit() else f"lock_{str(lock_no).lower()}"
+    lock_id = usace_lock_id(lock_no)
     lock_name = (LOCKS.get(lock_id) or {}).get("name")
     stored = 0
     for record in _usace_lockages.completed_lockages(rows, lock_id, lock_name):
@@ -3677,7 +3702,10 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     if lock_id:
         query["lock_id"] = lock_id
     
-    records = await db.lockage_history.find(query, {"_id": 0}).to_list(1000)
+    records = await db.lockage_history.find(
+        query, {"_id": 0, "lock_id": 1, "direction": 1, "lockage_duration_minutes": 1,
+                "wait_time_minutes": 1, "is_tow": 1, "cuts": 1, "is_double_lockage": 1}
+    ).to_list(None)
     
     # Group by lock and direction, calculate averages
     averages = {}
@@ -3691,14 +3719,17 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
             
         key = f"{lid}_{direction}"
         if key not in lock_data:
-            lock_data[key] = {"tow_times": [], "rec_times": [], "all_times": [], 
-                             "tow_waits": [], "rec_waits": [], "all_waits": []}
+            lock_data[key] = {"tow_times": [], "rec_times": [], "all_times": [],
+                             "tow_waits": [], "rec_waits": [], "all_waits": [],
+                             "single_times": [], "double_times": []}
         
         duration = record.get("lockage_duration_minutes")
         wait = record.get("wait_time_minutes")
         
         if duration and duration > 0:
             lock_data[key]["all_times"].append(duration)
+            cuts = record.get("cuts") or (2 if record.get("is_double_lockage") else 1)
+            lock_data[key]["double_times" if cuts > 1 else "single_times"].append(duration)
             if record.get("is_tow"):
                 lock_data[key]["tow_times"].append(duration)
             else:
@@ -3783,7 +3814,16 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
         avg_rec = sum(all_rec_times) / len(all_rec_times) if all_rec_times else baseline["rec_lockage"]
         avg_tow_wait = sum(all_tow_waits) / len(all_tow_waits) if all_tow_waits else baseline["tow_wait"]
         avg_rec_wait = sum(all_rec_waits) / len(all_rec_waits) if all_rec_waits else baseline["rec_wait"]
-        
+        singles = [t for d in ("upbound", "downbound") for t in lock_data.get(f"{lid}_{d}", {}).get("single_times", [])]
+        doubles = [t for d in ("upbound", "downbound") for t in lock_data.get(f"{lid}_{d}", {}).get("double_times", [])]
+        averages[lid]["cuts"] = {
+            # Observed only (no baseline): None until there is data.
+            "avg_single_lockage_minutes": round(sum(singles) / len(singles), 1) if singles else None,
+            "avg_double_lockage_minutes": round(sum(doubles) / len(doubles), 1) if doubles else None,
+            "single_count": len(singles),
+            "double_count": len(doubles),
+            "double_share": round(len(doubles) / (len(singles) + len(doubles)), 2) if (singles or doubles) else None,
+        }
         averages[lid]["combined"] = {
             "avg_tow_lockage_minutes": round(avg_tow, 1),
             "avg_recreational_lockage_minutes": round(avg_rec, 1),
@@ -3793,6 +3833,14 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
             "rec_sample_count": len(all_rec_times),
             "is_baseline": len(all_tow_times) == 0 and len(all_rec_times) == 0
         }
+        # Callers read the combined figures at the lock's top level
+        # (avg_tow_lockage_minutes, sample_count, ...); they used to get None
+        # and fall back to fixed guesses.
+        all_times = all_tow_times + all_rec_times
+        averages[lid].update(averages[lid]["combined"])
+        averages[lid].update(averages[lid]["cuts"])
+        averages[lid]["sample_count"] = len(all_times)
+        averages[lid]["avg_lockage_minutes"] = round(sum(all_times) / len(all_times), 1) if all_times else None
         
         # For backwards compatibility, also set top-level values
         averages[lid]["avg_tow_lockage_minutes"] = round(avg_tow, 1)
@@ -4625,7 +4673,7 @@ async def get_lock_details(lock_id: str):
             {"lock_id": lock_id},
             {"_id": 0}
         ).sort("recorded_at", -1).limit(10).to_list(10)
-        recent_lockages = recent
+        recent_lockages = [lockage_for_output(r) for r in recent]
     except Exception as e:
         logger.warning(f"Failed to fetch lockage history for {lock_id}: {e}")
     
@@ -4678,6 +4726,11 @@ async def get_lock_details(lock_id: str):
         "avg_recreational_lockage_minutes": lock_averages.get('avg_recreational_lockage_minutes'),
         "avg_tow_wait_minutes": lock_averages.get('avg_tow_wait_minutes'),
         "avg_recreational_wait_minutes": lock_averages.get('avg_recreational_wait_minutes'),
+        "avg_single_lockage_minutes": lock_averages.get('avg_single_lockage_minutes'),
+        "avg_double_lockage_minutes": lock_averages.get('avg_double_lockage_minutes'),
+        "single_count": lock_averages.get('single_count'),
+        "double_count": lock_averages.get('double_count'),
+        "double_share": lock_averages.get('double_share'),
         "is_baseline_data": is_baseline,
         "sample_count": sample_count,
         
@@ -4708,6 +4761,11 @@ async def get_all_lockage_times():
             "avg_recreational_wait_minutes": lock_averages.get("avg_recreational_wait_minutes"),
             "sample_count": lock_averages.get("sample_count", 0),
             "is_baseline": lock_averages.get("combined", {}).get("is_baseline", True),
+            "avg_single_lockage_minutes": lock_averages.get("avg_single_lockage_minutes"),
+            "avg_double_lockage_minutes": lock_averages.get("avg_double_lockage_minutes"),
+            "single_count": lock_averages.get("single_count"),
+            "double_count": lock_averages.get("double_count"),
+            "double_share": lock_averages.get("double_share"),
             "upbound": lock_averages.get("upbound", {}),
             "downbound": lock_averages.get("downbound", {})
         })
@@ -4722,19 +4780,13 @@ async def get_lock_lockage_times(lock_id: str):
         return {"error": "Invalid lock ID"}
     
     lock_info = LOCKS[lock_id]
-    # Recent lockages come from passages River Watch itself observed (AIS
-    # lock-passage tracking) and manual records. The USACE LPMS pages are
-    # JavaScript-rendered and can't be scraped, so they are not called here
-    # (the old call also crashed for lock_5a / melvin_price / chain_of_rocks).
+    # Recent lockages: USACE-reported (lock queue feed) plus passages River
+    # Watch observed itself via AIS lock-passage tracking.
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     recent = await db.lockage_history.find(
         {"lock_id": lock_id, "recorded_at": {"$gte": cutoff}}, {"_id": 0}
     ).sort("recorded_at", -1).to_list(50)
-    for rec in recent:
-        for k in ("arrival_time", "entry_time", "exit_time", "recorded_at"):
-            if isinstance(rec.get(k), datetime):
-                rec[k] = rec[k].isoformat()
-    lockage_data = {lock_id: recent}
+    lockage_data = {lock_id: [lockage_for_output(r) for r in recent]}
     
     # Get averages
     averages = await get_lockage_averages(lock_id)
@@ -5361,12 +5413,7 @@ async def get_vessel_history(mmsi: str, days: int = 30):
     lockages = await db.lockage_history.find(
         {"mmsi": mmsi, "recorded_at": {"$gte": cutoff}}, {"_id": 0}
     ).sort("recorded_at", -1).to_list(100)
-    for lk in lockages:
-        lk.setdefault("lock_name", (LOCKS.get(lk.get("lock_id")) or {}).get("name"))
-        for key, value in list(lk.items()):
-            if isinstance(value, datetime):
-                # Mongo returns naive UTC; say so, or browsers read it as local time.
-                lk[key] = (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
+    lockages = [lockage_for_output(lk) for lk in lockages]
 
     return {
         "mmsi": mmsi,

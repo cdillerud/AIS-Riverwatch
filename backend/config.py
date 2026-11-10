@@ -63,7 +63,7 @@ LOCKS = {
 UPPER_MISS_LOCKS = [
     "1", "2", "3", "4", "5", "5A", "6", "7", "8", "9", "10",
     "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
-    "21", "22", "24", "25", "27"  # Note: no 23, 26
+    "21", "22", "24", "25", "26", "27"  # no 23 (never built); 26 = Mel Price, 27 = Chain of Rocks
 ]
 
 # USGS Gauge stations near locks for water conditions data

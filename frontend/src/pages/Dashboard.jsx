@@ -38,6 +38,7 @@ import { getVesselDisplayName, hasRiverMile, formatRiverMile, formatSpeedMph, is
 import { useAuth } from "@/context/AuthContext";
 
 import { API } from "@/lib/api";
+import LockageRow from "@/components/LockageRow";
 
 export default function Dashboard({ 
   isConnected, 
@@ -1266,19 +1267,9 @@ export default function Dashboard({
                             Recent Lockages
                           </span>
                         </div>
-                        <div className="space-y-1">
+                        <div>
                           {trafficSummary.recent_lockages.slice(0, 3).map((lockage, idx) => (
-                            <div 
-                              key={idx}
-                              className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/30"
-                            >
-                              <span className="text-slate-300 truncate max-w-[120px]">
-                                {lockage.vessel_name}
-                              </span>
-                              <span className="text-slate-500">
-                                {lockage.direction === 'downbound' ? '↓' : '↑'}
-                              </span>
-                            </div>
+                            <LockageRow key={idx} lockage={lockage} title={lockage.vessel_name} />
                           ))}
                         </div>
                       </div>

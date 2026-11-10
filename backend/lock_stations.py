@@ -338,3 +338,60 @@ LOCK_STATIONS: Dict[str, Dict] = {
         "selection_reason": "St. Louis (USGS 07010000) is the closest NWS-defined real-time gauge; thresholds match EADM7.",
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Every lock has an NWS forecast point AT the lock (config.LOCK_GAUGES), all
+# live with published flood stages (verified 2026-11-10 against
+# api.water.noaa.gov/nwps/v1/gauges/{id}). Several official stations above
+# were 25-125 river miles away (Locks 20-25 and Mel Price used Grafton, IL;
+# 11-16 used Clinton, IA), so a lock showed another reach's water level and
+# flood status. The at-lock NWS gauge is now the official station; its flood
+# stages come from the same NWS record at fetch time (same units and datum as
+# the reading). The previous station stays as a reference for water
+# temperature and discharge - its thresholds are never applied to the lock.
+# ---------------------------------------------------------------------------
+def _use_at_lock_nws_gauges() -> None:
+    from config import LOCK_GAUGES, LOCKS
+
+    for lock_id, gauge in LOCK_GAUGES.items():
+        entry = LOCK_STATIONS.get(lock_id)
+        nwsli = gauge.get("nwsli")
+        if not entry or not nwsli:
+            continue
+        official = entry["official_station"]
+        if official.get("source") == "NWS" and official.get("station_id") == nwsli:
+            continue  # already the at-lock gauge (e.g. Lock 2 / HSTM5)
+        previous = dict(official)
+        previous.update({
+            "thresholds": None,
+            "threshold_source": None,
+            "note": (
+                f"Former official station, kept as a reference (water temperature / flow). "
+                f"{previous.get('station_name')} is {abs((LOCKS[lock_id]['river_mile'] or 0) - (previous.get('river_mile') or 0)):.0f} "
+                f"river miles from this lock; its stage is on a different datum and is not compared with the lock's thresholds."
+            ),
+        })
+        entry["reference_stations"] = [previous] + [
+            r for r in (entry.get("reference_stations") or []) if r.get("station_id") != previous.get("station_id")
+        ]
+        entry["official_station"] = {
+            "station_id": nwsli,
+            "station_name": gauge.get("name") or f"NWS {nwsli}",
+            "source": "NWS",
+            "river_mile": LOCKS[lock_id]["river_mile"],
+            "measurement_type": "river_stage",
+            "units": "ft",
+            "datum": "NWS gauge datum (stage or pool elevation as published for this gauge)",
+            "data_url": f"https://api.water.noaa.gov/nwps/v1/gauges/{nwsli}",
+            "source_url": f"https://water.noaa.gov/gauges/{nwsli}",
+            "thresholds": None,          # taken from the live NWS record (same gauge)
+            "threshold_source": None,
+        }
+        entry["selection_reason"] = (
+            f"NWS forecast point at this lock ({nwsli}); flood stages from its NWS record. "
+            f"Previous station retained as a reference."
+        )
+
+
+_use_at_lock_nws_gauges()

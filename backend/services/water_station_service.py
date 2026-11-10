@@ -144,6 +144,30 @@ async def _fetch_nwps(client: httpx.AsyncClient, lid: str) -> dict:
             return out
         out["observed_at"] = valid_time
         out["flood_category_api"] = flood_cat
+        out["units"] = primary_unit
+        # Flood stages published by NWS for this gauge, in the gauge's own
+        # units/datum (some report stage, some pool elevation), so they are
+        # always comparable with this reading.
+        cats = ((data.get("flood") or {}).get("categories") or {})
+
+        def _stage(name):
+            v = (cats.get(name) or {}).get("stage")
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                return None
+            return v if v > -999 else None
+
+        minor = _stage("minor")
+        if minor is not None:
+            moderate = _stage("moderate")
+            major = _stage("major")
+            out["thresholds_api"] = {
+                "action": _stage("action") or minor,
+                "flood": minor,
+                "moderate": moderate if moderate is not None else float("inf"),
+                "major": major if major is not None else float("inf"),
+            }
         out["raw"]["river_stage_ft"] = out["value"] if primary_unit == "ft" else None
         out["raw"]["nwps_primary"] = out["value"]
         out["raw"]["nwps_primary_unit"] = primary_unit
@@ -332,7 +356,14 @@ def _categorize(value: Optional[float], thresholds: Optional[Dict[str, float]]) 
 
 def _build_record(station: dict, fetched: dict, lock_rm: float, role: str) -> Dict:
     """Compose the full structured record requested by the audit spec."""
-    cat = _categorize(fetched.get("value"), station.get("thresholds"))
+    # Station-defined thresholds win; otherwise use the flood stages NWS
+    # publishes for this same gauge (never another station's).
+    thresholds = station.get("thresholds")
+    threshold_source = station.get("threshold_source")
+    if not thresholds and role == "official" and fetched.get("thresholds_api"):
+        thresholds = fetched["thresholds_api"]
+        threshold_source = f"NWS NWPS flood categories for {station['station_id']}"
+    cat = _categorize(fetched.get("value"), thresholds)
     # Prefer the fetcher-reported data_url (NWPS / USACE) over the static one
     # in the station definition so the UI/debug view shows the URL that
     # actually produced the reading.
@@ -348,11 +379,11 @@ def _build_record(station: dict, fetched: dict, lock_rm: float, role: str) -> Di
         ),
         "measurement_type": station.get("measurement_type"),
         "value": fetched.get("value"),
-        "units": station.get("units", "ft"),
+        "units": fetched.get("units") or station.get("units", "ft"),
         "datum": station.get("datum"),
         "observed_at": fetched.get("observed_at"),
-        "thresholds": station.get("thresholds"),
-        "threshold_source": station.get("threshold_source"),
+        "thresholds": {k: (None if v == float("inf") else v) for k, v in thresholds.items()} if thresholds else None,
+        "threshold_source": threshold_source,
         "status": cat["status"],
         "status_explanation": cat["status_explanation"],
         "raw": fetched.get("raw", {}),

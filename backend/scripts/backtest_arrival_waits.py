@@ -52,7 +52,10 @@ def main():
     start = min(r["arrival_time"] for r in rows)
     end = max(r["arrival_time"] for r in rows)
     split = start + (end - start) * 2 / 3
-    stats = transits.transit_stats(transits.transit_samples([r for r in rows if r["exit_time"] < split], order))
+    train_rows = [r for r in rows if r["exit_time"] < split]
+    stats = transits.transit_stats(transits.transit_samples(train_rows, order))
+    stats.update(transits.dwell_stats(train_rows))
+    max_hops = int(os.environ.get("MAX_HOPS", "1"))
     by_lock = defaultdict(list)
     for r in rows:
         by_lock[r["lock_id"]].append(r)
@@ -73,7 +76,7 @@ def main():
                 key = target.get("mmsi") or target.get("usace_vessel_no")
                 known = [r for r in rows if r["exit_time"] <= p]
                 present = {r.get("mmsi") or r.get("usace_vessel_no") for r in lock_rows if r["arrival_time"] <= p < r["exit_time"]}
-                appr = [a for a in transits.predicted_arrivals(lid, order, stats, [r for r in known if r["exit_time"] >= p - timedelta(hours=36)], present, p)
+                appr = [a for a in transits.predicted_arrivals(lid, order, stats, [r for r in known if r["exit_time"] >= p - timedelta(hours=36)], present, p, max_hops=max_hops)
                         if (a.get("mmsi") or a.get("vessel_name")) not in (key, target.get("vessel_name"))]
                 locking, waiting = state_at_time(lock_rows, p, target)
                 ty = typical[lid]

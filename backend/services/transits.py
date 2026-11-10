@@ -89,16 +89,46 @@ def transit_stats(samples: Dict[tuple, List[float]]) -> Dict[tuple, dict]:
     return out
 
 
-def predicted_arrivals(lock_id: str, order: List[str], stats: Dict[Tuple[str, str, str], dict],
-                       recent: Iterable[dict], present: Iterable[str], now: datetime,
-                       lookback_hours: float = 36.0) -> List[dict]:
-    """Vessels expected at `lock_id`: their latest USACE lockage was at the
-    previous lock in their direction of travel, recently enough that they
-    should still be on the way, and they aren't at `lock_id` yet.
+def dwell_stats(records: Iterable[dict]) -> Dict[tuple, dict]:
+    """Time a tow typically spends at a lock (arrival -> exit: wait + lockage),
+    keyed ("dwell", lock_id, direction)."""
+    by = {}
+    for r in records:
+        if r.get("is_recreational") or r.get("in_progress") or not (r.get("arrival_time") and r.get("exit_time")):
+            continue
+        h = (r["exit_time"] - r["arrival_time"]).total_seconds() / 3600
+        if 0 <= h < MAX_TRANSIT_HOURS:
+            by.setdefault(("dwell", r["lock_id"], r.get("direction")), []).append(h)
+    out = {}
+    for key, hours in by.items():
+        if len(hours) >= MIN_SAMPLES:
+            h = sorted(hours)
+            out[key] = {"median_h": statistics.median(h), "p25_h": h[len(h) // 4], "p75_h": h[(3 * len(h)) // 4], "n": len(h)}
+    return out
 
-    `recent` = completed lockages (any lock) in the last `lookback_hours`.
-    `present` = vessel keys already in `lock_id`'s queue or locked through it.
-    """
+
+def _leg(stats, a, b, d, barges):
+    return stats.get((a, b, d, size_class(barges))) or stats.get((a, b, d))
+
+
+def predicted_arrivals(lock_id: str, order: List[str], stats: Dict[tuple, dict],
+                       recent: Iterable[dict], present: Iterable[str], now: datetime,
+                       lookback_hours: float = 36.0, max_hops: int = 1) -> List[dict]:
+    """Vessels expected at `lock_id`, from their latest USACE lockage.
+
+    One hop: last lockage at the previous lock in their direction.
+    Two hops: last lockage one lock further back; ETA adds the typical time at
+    the lock in between (wait + lockage, ("dwell", lock, direction) in
+    `stats`) and the second leg. Vessels already at `lock_id` (`present`),
+    long overdue, or older than `lookback_hours` are skipped.
+
+    `segment_from`/`segment_to`/`segment_progress` place an estimated
+    position along the leg the vessel is on now.
+
+    Default is one hop. Backtested 2026-11-10 (scripts/backtest_arrival_waits.py,
+    MAX_HOPS=2): two hops made tow wait predictions much worse (MAE ~92 vs
+    ~67 min, biased high) - many tows end their trip or tie off between
+    locks, so counting them two locks out adds arrivals that never come."""
     present = set(present)
     latest: Dict[str, dict] = {}
     for r in recent:
@@ -112,35 +142,56 @@ def predicted_arrivals(lock_id: str, order: List[str], stats: Dict[Tuple[str, st
         d = r.get("direction")
         if d not in ("upbound", "downbound") or key in present:
             continue
-        if next_lock(order, r["lock_id"], d) != lock_id:
+        a = r["lock_id"]
+        b = next_lock(order, a, d)
+        if b is None:
             continue
-        s = stats.get((r["lock_id"], lock_id, d, size_class(r.get("barge_count")))) or stats.get((r["lock_id"], lock_id, d))
-        if not s:
+        hops = 1 if b == lock_id else (2 if max_hops >= 2 and next_lock(order, b, d) == lock_id else 0)
+        if not hops:
+            continue
+        barges = r.get("barge_count")
+        legs = [_leg(stats, a, b, d, barges)]
+        if hops == 2:
+            legs += [stats.get(("dwell", b, d)), _leg(stats, b, lock_id, d, barges)]
+        if not all(legs):
             continue
         exit_time = r["exit_time"] if r["exit_time"].tzinfo else r["exit_time"].replace(tzinfo=timezone.utc)
-        eta = exit_time + timedelta(hours=s["median_h"])
-        latest_eta = exit_time + timedelta(hours=s["p75_h"])
-        # Well past the slow end of normal: probably tied off at a fleeting
-        # area or turned around - don't keep predicting it.
-        if now > latest_eta + timedelta(hours=max(2.0, s["p75_h"] - s["median_h"])):
-            continue
         if now - exit_time > timedelta(hours=lookback_hours):
             continue
+        median_h = sum(x["median_h"] for x in legs)
+        p25_h = sum(x["p25_h"] for x in legs)
+        p75_h = sum(x["p75_h"] for x in legs)
+        eta = exit_time + timedelta(hours=median_h)
+        latest_eta = exit_time + timedelta(hours=p75_h)
+        # Well past the slow end of normal: probably tied off at a fleeting
+        # area or turned around - don't keep predicting it.
+        if now > latest_eta + timedelta(hours=max(2.0, p75_h - median_h)):
+            continue
+        elapsed = (now - exit_time).total_seconds() / 3600
+        if hops == 1 or elapsed < legs[0]["median_h"]:
+            seg = (a, b, elapsed / legs[0]["median_h"])
+        elif elapsed < legs[0]["median_h"] + legs[1]["median_h"]:
+            seg = (b, b, 0.0)                               # at the lock in between
+        else:
+            seg = (b, lock_id, (elapsed - legs[0]["median_h"] - legs[1]["median_h"]) / legs[2]["median_h"])
         out.append({
             "vessel_name": r.get("vessel_name"),
             "mmsi": r.get("mmsi"),
             "direction": d,
-            "barges": r.get("barge_count"),
-            "from_lock": r["lock_id"],
+            "barges": barges,
+            "from_lock": a,
+            "via_lock": b if hops == 2 else None,
+            "hops": hops,
             "left_at": exit_time,
             "eta": eta,
-            "eta_earliest": exit_time + timedelta(hours=s["p25_h"]),
+            "eta_earliest": exit_time + timedelta(hours=p25_h),
             "eta_latest": latest_eta,
             "overdue": now > eta,
-            "transit_samples": s["n"],
-            # Share of the typical transit already elapsed (0..1): used to place an
-            # estimated position between the two locks.
-            "progress": max(0.0, min(0.97, (now - exit_time).total_seconds() / 3600 / s["median_h"])),
+            "transit_samples": legs[0]["n"],
+            "progress": max(0.0, min(0.97, elapsed / median_h)),
+            "segment_from": seg[0],
+            "segment_to": seg[1],
+            "segment_progress": max(0.0, min(0.97, seg[2])),
         })
-    out.sort(key=lambda a: a["eta"])
+    out.sort(key=lambda x: x["eta"])
     return out

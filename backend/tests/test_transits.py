@@ -59,3 +59,28 @@ def test_predicted_arrival_window_and_progress():
     # Heading the other way: not approaching Lock 14 from 13
     up = [_lockage("UP", "lock_13", "upbound", left - timedelta(hours=1), left)]
     assert T.predicted_arrivals("lock_14", ORDER, stats, up, set(), now) == []
+
+
+def test_two_hop_prediction_adds_time_at_the_lock_between():
+    rows = []
+    for i, h in enumerate([4.0, 4.5, 5.0, 4.2, 4.8]):
+        day = T0 + timedelta(days=i)
+        a = _lockage(f"V{i}", "lock_12", "downbound", day, day + timedelta(hours=1))
+        b_arr = a["exit_time"] + timedelta(hours=3)
+        b = _lockage(f"V{i}", "lock_13", "downbound", b_arr, b_arr + timedelta(hours=1))      # 1 h at Lock 13
+        c_arr = b["exit_time"] + timedelta(hours=h)
+        c = _lockage(f"V{i}", "lock_14", "downbound", c_arr, c_arr + timedelta(hours=1))
+        rows += [a, b, c]
+    stats = T.transit_stats(T.transit_samples(rows, ORDER))
+    stats.update(T.dwell_stats(rows))
+    assert stats[("dwell", "lock_13", "downbound")]["median_h"] == 1.0
+    left = T0 + timedelta(days=10)
+    recent = [_lockage("FAR", "lock_12", "downbound", left - timedelta(hours=1), left)]
+    arr = T.predicted_arrivals("lock_14", ORDER, stats, recent, set(), now=left + timedelta(hours=1), max_hops=2)
+    assert len(arr) == 1 and arr[0]["hops"] == 2 and arr[0]["via_lock"] == "lock_13"
+    assert arr[0]["eta"] == left + timedelta(hours=3 + 1 + 4.5)            # leg + time at L13 + leg
+    assert arr[0]["segment_from"] == "lock_12" and arr[0]["segment_to"] == "lock_13"
+    later = T.predicted_arrivals("lock_14", ORDER, stats, recent, set(), now=left + timedelta(hours=5), max_hops=2)
+    assert later[0]["segment_from"] == "lock_13" and later[0]["segment_to"] == "lock_14"
+    one_hop_only = T.predicted_arrivals("lock_14", ORDER, stats, recent, set(), now=left)   # default
+    assert one_hop_only == []

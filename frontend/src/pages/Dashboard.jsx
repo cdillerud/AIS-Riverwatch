@@ -328,7 +328,15 @@ export default function Dashboard({
             if (a.est_river_mile != null) predicted.push({ ...a, to_lock: lk.lock_id, to_lock_name: lk.name });
           }
         }
-        if (!cancelled) { setLockQueues(byLock); setPredictedVessels(predicted); }
+        // A vessel predicted two locks out is also predicted one lock out:
+        // draw it once, for its next lock (earliest ETA).
+        const nearest = new Map();
+        for (const p of predicted) {
+          const key = p.mmsi || p.vessel_name;
+          const prev = nearest.get(key);
+          if (!prev || new Date(p.eta) < new Date(prev.eta)) nearest.set(key, p);
+        }
+        if (!cancelled) { setLockQueues(byLock); setPredictedVessels([...nearest.values()]); }
       } catch { /* keep the last queues */ }
     };
     load();

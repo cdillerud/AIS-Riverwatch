@@ -151,7 +151,7 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
               <div key={i} className="flex justify-between gap-2 text-xs py-0.5 text-slate-300">
                 <span className="truncate">
                   {a.vessel_name || "Unknown"} <span className={up ? "text-green-400" : "text-red-400"}>{up ? "↑" : "↓"}</span>
-                  <span className="text-slate-500"> {a.barges ? `${a.barges}b` : "light"} · from {lockLabel(a.from_lock)}</span>
+                  <span className="text-slate-500"> {a.barges ? `${a.barges}b` : "light"} · from {lockLabel(a.from_lock)}{a.via_lock ? ` via ${lockLabel(a.via_lock)}` : ""}</span>
                 </span>
                 <span className={`shrink-0 font-mono ${a.overdue ? "text-slate-500" : "text-slate-300"}`}
                       title={`Expected ${fmtTime(a.eta_earliest)}–${fmtTime(a.eta_latest)}`}>

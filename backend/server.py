@@ -4707,7 +4707,9 @@ async def get_transit_stats() -> dict:
             {"_id": 0, "mmsi": 1, "usace_vessel_no": 1, "lock_id": 1, "direction": 1, "barge_count": 1,
              "arrival_time": 1, "exit_time": 1, "is_recreational": 1},
         ).to_list(None)
-        _transit_cache["stats"] = _transits.transit_stats(_transits.transit_samples(rows, _TRANSIT_ORDER))
+        stats = _transits.transit_stats(_transits.transit_samples(rows, _TRANSIT_ORDER))
+        stats.update(_transits.dwell_stats(rows))
+        _transit_cache["stats"] = stats
         _transit_cache["at"] = now
     except Exception as e:
         logger.warning(f"Could not learn transit times: {e}")
@@ -4742,8 +4744,11 @@ async def approaching_by_lock(now: datetime) -> Dict[str, list]:
         arrivals = _transits.predicted_arrivals(lid, _TRANSIT_ORDER, stats, recent, present, now)
         lock_rm = LOCKS[lid]["river_mile"]
         for a in arrivals:
-            from_rm = LOCKS.get(a["from_lock"], {}).get("river_mile")
-            a["est_river_mile"] = round(from_rm + (lock_rm - from_rm) * a["progress"], 1) if from_rm is not None else None
+            seg_from = LOCKS.get(a["segment_from"], {}).get("river_mile")
+            seg_to = LOCKS.get(a["segment_to"], {}).get("river_mile")
+            a["est_river_mile"] = (round(seg_from + (seg_to - seg_from) * a["segment_progress"], 1)
+                                   if seg_from is not None and seg_to is not None else None)
+            a["via_lock_name"] = LOCKS.get(a["via_lock"], {}).get("name") if a.get("via_lock") else None
             a["from_lock_name"] = LOCKS.get(a["from_lock"], {}).get("name")
             for k in ("left_at", "eta", "eta_earliest", "eta_latest"):
                 a[k] = a[k].isoformat()

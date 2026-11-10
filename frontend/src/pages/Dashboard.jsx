@@ -401,14 +401,22 @@ export default function Dashboard({
     };
   }, [userVessel, selectedLockObj, activeTimingLockId, targetLockBoard]);
 
-  // Get vessels near the target lock (within 5 RM, heading towards it)
-  const lockQueue = useMemo(() => {
-    if (!selectedLockObj?.river_mile) return [];
+  // Get vessels near the target lock (within 10 RM, heading towards it).
+  // A STOPPED vessel at the lock counts as queued only if USACE agrees: with a
+  // current USACE queue for this lock, a parked boat that isn't waiting or
+  // locking (e.g. a harbor tug moored at Lock 2) is listed as moored instead.
+  const { lockQueue, mooredAtLock } = useMemo(() => {
+    if (!selectedLockObj?.river_mile) return { lockQueue: [], mooredAtLock: [] };
     
     const lockRM = selectedLockObj.river_mile;
     const queueRange = 10; // vessels within 10 miles of lock
+    const board = targetLockBoard?.lock_id === selectedLockObj.id && !targetLockBoard.queue_stale ? targetLockBoard : null;
+    const norm = (x) => String(x || "").trim().toUpperCase();
+    const inUsace = board ? new Set([...(board.locking || []), ...(board.waiting || [])]
+      .flatMap(e => [e.mmsi && String(e.mmsi), norm(e.vessel_name)]).filter(Boolean)) : null;
+    const moored = [];
     
-    return vessels
+    const queue = vessels
       .filter(v => {
         // ONLY exclude by MMSI match, not is_user_vessel flag
         if (userMmsi && v.mmsi === userMmsi) return false;
@@ -423,7 +431,13 @@ export default function Dashboard({
         if (v.river_mile > lockRM && v.heading === 'southbound') return true;
         if (v.river_mile < lockRM && v.heading === 'northbound') return true;
         // Include stationary vessels very close to lock
-        if (distToLock < 2) return true;
+        if (distToLock < 2) {
+          if (inUsace && !inUsace.has(String(v.mmsi)) && !inUsace.has(norm(v.name))) {
+            moored.push(v);
+            return false;
+          }
+          return true;
+        }
         
         return false;
       })
@@ -434,7 +448,8 @@ export default function Dashboard({
         return distA - distB;
       })
       .slice(0, 5); // Max 5 vessels in queue view
-  }, [vessels, selectedLockObj, userMmsi]);
+    return { lockQueue: queue, mooredAtLock: moored };
+  }, [vessels, selectedLockObj, userMmsi, targetLockBoard]);
 
   // Get last lockage info from lockageTimes
   const lastLockage = useMemo(() => {
@@ -1600,6 +1615,12 @@ export default function Dashboard({
                     </div>
                   )}
                   
+                  {mooredAtLock.length > 0 && (
+                    <div className="text-[10px] text-slate-500 pb-1" data-testid="moored-at-lock"
+                         title="Stopped at the lock but not in the USACE queue - likely tied up, not waiting to lock">
+                      Moored near lock, not waiting (USACE): {mooredAtLock.slice(0, 3).map(v => getVesselDisplayName(v, userSettings.show_vessel_names !== false)).join(", ")}
+                    </div>
+                  )}
                   {/* Feature #2: Lock Queue Preview */}
                   {lockQueue.length > 0 && (
                     <div className="pb-2 border-b border-slate-700">
@@ -1673,7 +1694,9 @@ export default function Dashboard({
               )}
 
               {/* Nearby Vessels Card - Expands to fill remaining space */}
-              <Card className="glass-panel hud-border flex-1 flex flex-col min-h-0" data-testid="vessels-sidebar">
+              {/* Never squeezed below a usable height: the sidebar column scrolls
+                  to reveal it, and its list scrolls inside (was cut to the header). */}
+              <Card className="glass-panel hud-border flex-1 flex-shrink-0 flex flex-col min-h-[340px]" data-testid="vessels-sidebar">
                 <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between flex-shrink-0">
                   <div className="flex items-center gap-2">
                     <Ship className="w-4 h-4 text-cyan-400" />
@@ -1699,7 +1722,7 @@ export default function Dashboard({
                       
                       return (
                         <>
-                          {displayVessels.slice(0, 12).map(vessel => {
+                          {displayVessels.slice(0, 60).map(vessel => {
                             // ONLY match by MMSI, not is_user_vessel flag
                             const isUser = userMmsi && vessel.mmsi === userMmsi;
                             // Highlight search matches
@@ -1760,9 +1783,9 @@ export default function Dashboard({
                               </div>
                             );
                           })}
-                          {displayVessels.length > 12 && (
+                          {displayVessels.length > 60 && (
                             <div className="text-center py-2 text-xs text-slate-500">
-                              +{displayVessels.length - 12} more vessels
+                              +{displayVessels.length - 60} more vessels
                             </div>
                           )}
                         </>

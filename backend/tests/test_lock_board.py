@@ -71,8 +71,12 @@ def test_board_endpoint_from_usace_queue(monkeypatch):
     assert locks[0]["lock_id"] == "lock_14" and locks[0]["status"] == "OPEN"
     assert locks[0]["waiting"][0]["vessel_name"] == "WISCONSIN" and locks[0]["waiting"][0]["needs_double"]
     assert locks[0]["queue_minutes"] == 122                       # raw: one double lockage ahead
-    assert locks[0]["wait_estimate_minutes"] == round(26.5 + 1.264 * 122)   # calibrated tow wait
-    assert locks[0]["wait_estimate_recreational_minutes"] == round(5.8 + 0.088 * 122)
+    waiting = [{"barges": 15, "direction": "downbound"}]
+    feats = lock_board.queue_features("lock_14", [], waiting, {**TYPICAL, "sample_count": 66, "is_baseline": False},
+                                      "downbound", 122, 0)
+    assert locks[0]["wait_estimate_minutes"] == round(lock_board.tow_wait(feats))    # calibrated tow wait
+    rec = lock_board.CALIBRATION["recreational"]
+    assert locks[0]["wait_estimate_recreational_minutes"] == round(rec["intercept"] + rec["slope"] * 122)
     assert len(locks) == 3 and all(lk["river_mile"] < 520 for lk in locks)
     assert client.get("/api/locks/board", params={"direction": "sideways"}).status_code == 400
 
@@ -121,12 +125,21 @@ def test_traffic_summary_counts_only_the_watched_lock(monkeypatch):
 
 def test_calibrated_waits():
     empty = lock_board.predict_waits("lock_14", [], [], TYPICAL, None, NOW)
-    assert empty == {"tow": 10, "recreational": 6, "queue_minutes": 0}
-    waiting = [{"barges": 15, "direction": "downbound"}, {"barges": 15, "direction": "upbound"}]
-    both = lock_board.predict_waits("lock_14", [], waiting, TYPICAL, None, NOW)
-    down = lock_board.predict_waits("lock_14", [], waiting, TYPICAL, "downbound", NOW)
-    assert both["tow"] == down["tow"] == round(26.5 + 1.264 * 244)
-    assert down["recreational"] < both["recreational"]           # only the same-direction queue counts
+    assert empty["queue_minutes"] == 0 and 0 <= empty["tow"] <= 30 and empty["recreational"] <= 10
+    waiting = [{"barges": 15, "direction": "downbound"}, {"barges": 15, "direction": "downbound"}]
+    same = lock_board.predict_waits("lock_14", [], waiting, TYPICAL, "downbound", NOW)
+    opposite = lock_board.predict_waits("lock_14", [], waiting, TYPICAL, "upbound", NOW)
+    unknown = lock_board.predict_waits("lock_14", [], waiting, TYPICAL, None, NOW)
+    assert same["tow"] > empty["tow"]
+    assert opposite["tow"] > same["tow"]                 # locks alternate: the other direction costs more
+    assert same["tow"] <= unknown["tow"] <= opposite["tow"]
+    assert same["recreational"] > opposite["recreational"]  # pleasure craft: only the same-direction queue
+
+
+def test_v1_models_still_predict():
+    v1 = {"tow": {"intercept": 26.5, "slope": 1.264, "empty_lock": 10.0}}
+    assert lock_board.tow_wait({"v0": 100.0, "empty": 0.0}, v1) == 26.5 + 126.4
+    assert lock_board.tow_wait({"v0": 0.0, "empty": 1.0}, v1) == 10.0
 
 
 def test_wait_at_arrival_counts_tows_that_get_there_first():
@@ -143,6 +156,15 @@ def test_wait_at_arrival_counts_tows_that_get_there_first():
     assert sim["queue_minutes"] == 90            # SOON locks 0:30-2:30; we arrive at 1:00
     empty = lock_board.queue_minutes_at("lock_14", [], [], [], typical, arrive, NOW)
     assert empty == {"queue_minutes": 0, "ahead": []}
-    w = lock_board.predict_waits_at("lock_14", [], [], approaching, typical, arrive, NOW)
-    assert w["ahead_count"] == 1 and w["ahead"][0]["predicted"] is True
-    assert w["tow"] == round(26.5 + 1.264 * 90)
+    # Within 90 min the queue as it stands is used (backtest: better close in)
+    near = lock_board.predict_waits_at("lock_14", [], [], approaching, typical, arrive, NOW)
+    assert near["ahead_count"] == 1 and near["ahead"][0]["predicted"] is True
+    assert near["tow"] == lock_board.predict_waits("lock_14", [], [], typical, None, NOW)["tow"]
+    # Further out the lock is simulated forward with the vessels expected ahead
+    far_arrive = NOW + timedelta(minutes=120)
+    far = lock_board.predict_waits_at("lock_14", [], [], approaching, typical, far_arrive, NOW)
+    q = lock_board.queue_minutes_at("lock_14", [], [], approaching, typical, far_arrive, NOW)["queue_minutes"]
+    feats = lock_board.queue_features("lock_14", [], [approaching[0]], typical, None, q, 0.0)
+    assert far["tow"] == round(lock_board.tow_wait(feats)) and q == 30
+    later = lock_board.predict_waits_at("lock_14", [], [], approaching, typical, NOW + timedelta(minutes=600), NOW)
+    assert later["ahead_count"] == 2

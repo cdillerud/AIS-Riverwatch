@@ -291,13 +291,17 @@ export default function Dashboard({
     const minutes = (Math.abs(Number(userVessel.river_mile) - lock.river_mile) / mph) * 60;
     return minutes <= 24 * 60 ? Math.round(minutes / 5) * 5 : null;
   }, [userVessel, locks, activeTimingLockId]);
+  const userDirection = userVessel?.heading === "northbound" ? "upbound"
+    : userVessel?.heading === "southbound" ? "downbound" : null;
   useEffect(() => {
     if (!activeTimingLockId) { setTargetLockBoard(null); return undefined; }
     let cancelled = false;
     const load = async () => {
       try {
         const arrive = arriveInMinutes != null ? `&arrive_in=${arriveInMinutes}` : "";
-        const r = await fetch(`${API}/locks/board?lock_id=${encodeURIComponent(activeTimingLockId)}${arrive}`, { credentials: "include" });
+        // The wait model splits the queue into same / opposite direction.
+        const dir = userDirection ? `&direction=${userDirection}` : "";
+        const r = await fetch(`${API}/locks/board?lock_id=${encodeURIComponent(activeTimingLockId)}${arrive}${dir}`, { credentials: "include" });
         if (!r.ok) return;
         const data = await r.json();
         if (!cancelled) setTargetLockBoard(data.locks?.[0] || null);
@@ -306,7 +310,7 @@ export default function Dashboard({
     load();
     const id = setInterval(load, 60000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [activeTimingLockId, arriveInMinutes]);
+  }, [activeTimingLockId, arriveInMinutes, userDirection]);
 
   // USACE queues at every lock, drawn on the map beside each lock.
   const [lockQueues, setLockQueues] = useState({});

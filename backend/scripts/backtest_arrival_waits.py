@@ -80,10 +80,11 @@ def main():
                         if (a.get("mmsi") or a.get("vessel_name")) not in (key, target.get("vessel_name"))]
                 locking, waiting = state_at_time(lock_rows, p, target)
                 ty = typical[lid]
-                at_arrival = lock_board.predict_waits_at(lid, locking, waiting, appr, ty, t, p)["tow"]
-                now_only = lock_board.predict_waits(lid, locking, waiting, ty, None, p)["tow"]
+                d = target.get("direction")   # a boater's own direction is known
+                at_arrival = lock_board.predict_waits_at(lid, locking, waiting, appr, ty, t, p, direction=d)["tow"]
+                now_only = lock_board.predict_waits(lid, locking, waiting, ty, d, p)["tow"]
                 o_lock, o_wait = state_at_time(lock_rows, t, target)
-                oracle = lock_board.predict_waits(lid, o_lock, o_wait, ty, None, t)["tow"]
+                oracle = lock_board.predict_waits(lid, o_lock, o_wait, ty, d, t)["tow"]
                 actual = target["wait_time_minutes"]
                 res["simulated forward (shipped)"].append((at_arrival, actual))
                 res["queue at prediction time"].append((now_only, actual))

@@ -1027,7 +1027,7 @@ export default function Dashboard({
         {/* Desktop Split-View Layout */}
         <div className="hidden md:block">
           {/* Desktop Split-View Layout - Map always visible with sidebar */}
-          <div className="grid grid-cols-12 gap-4" style={{ height: 'calc(100vh - 220px)', minHeight: '500px' }}>
+          <div className="grid grid-cols-12 grid-rows-[minmax(0,1fr)] gap-4" style={{ height: 'calc(100vh - 220px)', minHeight: '500px' }}>
             {/* Main Map Area - Takes 8 columns */}
             <div className="col-span-8">
               <Card className="glass-panel hud-border h-full" data-testid="river-map-card">
@@ -1247,7 +1247,9 @@ export default function Dashboard({
             </div>
             
             {/* Sidebar - Takes 4 columns, matches map height */}
-            <div className="col-span-4 flex flex-col gap-4 h-full">
+            {/* Sidebar scrolls within the dashboard height instead of spilling
+                over the page (it covered the "Not for navigation" notice). */}
+            <div className="col-span-4 flex flex-col gap-4 h-full min-h-0 overflow-y-auto pr-1">
               {/* Traffic Summary Card - For Traffic Watch users */}
               {isTrafficWatch ? (
                 <Card className="glass-panel hud-border flex-shrink-0" data-testid="traffic-summary-sidebar">

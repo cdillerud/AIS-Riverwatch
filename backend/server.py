@@ -2321,9 +2321,13 @@ class AISConnectionManager:
             # Notify all subscribers
             await self._broadcast_status("connected", f"Connected to {ip}:{port}")
             
-            # Start the read loop if not already running
-            if self._read_task is None or self._read_task.done():
-                self._read_task = asyncio.create_task(self._read_loop())
+            # One read loop per connection. Stop the previous connection's loop
+            # so it can't mistake our own close for a remote hang-up and
+            # schedule a reconnect that would tear down this new connection.
+            old_task = self._read_task
+            if old_task and not old_task.done() and old_task is not asyncio.current_task():
+                old_task.cancel()
+            self._read_task = asyncio.create_task(self._read_loop(self._reader))
                 
         except asyncio.TimeoutError:
             logger.error(f"Connection timeout to {ip}:{port}")
@@ -2382,24 +2386,33 @@ class AISConnectionManager:
             # _schedule_reconnect() again, which would otherwise see this
             # still-running task as "already scheduled" and stop retrying.
             self._reconnect_task = None
-            if self._should_run:
+            # Something else (Settings, manual reconnect) may have reconnected
+            # while we slept; never replace a healthy connection.
+            if self._should_run and not self._connected:
                 await self._connect()
         
         self._reconnect_task = asyncio.create_task(reconnect_after_delay())
     
-    async def _read_loop(self):
-        """Main loop for reading AIS data from the TCP connection."""
+    async def _read_loop(self, reader=None):
+        """Main loop for reading AIS data from one TCP connection.
+
+        `reader` pins the loop to the connection it was started for. If the
+        manager has since moved to a new connection, this loop exits quietly
+        instead of reporting a disconnect or scheduling a reconnect."""
         logger.info("Starting AIS read loop")
-        
-        while self._should_run and self._connected and self._reader:
+        reader = reader or self._reader
+
+        while self._should_run and self._connected and self._reader is reader and reader:
             try:
                 # Read a line using asyncio (non-blocking)
                 try:
                     line_bytes = await asyncio.wait_for(
-                        self._reader.readline(),
+                        reader.readline(),
                         timeout=30.0  # 30 second timeout for each line
                     )
                     
+                    if reader is not self._reader:
+                        break  # superseded by a newer connection
                     if not line_bytes:
                         # Empty read = connection closed by remote
                         logger.warning("AIS connection closed by remote host (EOF)")
@@ -2430,6 +2443,8 @@ class AISConnectionManager:
                 logger.info("AIS read loop cancelled")
                 break
             except Exception as e:
+                if reader is not self._reader:
+                    break  # our own close of a superseded connection
                 logger.error(f"Error in AIS read loop: {e}")
                 self._connected = False
                 await self._broadcast_status("error", f"Read error: {str(e)}")
@@ -2557,11 +2572,20 @@ class AISConnectionManager:
                 await self._apply_static_to_active(mmsi_parsed, vessel_data)
                 return
             
-            # Always enforce main-channel filtering.
-            # This excludes AIS targets on tributaries such as the St. Croix and Illinois River
-            # so they do not affect Mississippi lock timing, traffic ahead, trip planning,
-            # or speed-to-beat calculations.
-            if not is_on_upper_mississippi(lat, lon):
+            # Own ship: an !AIVDO sentence carries this boat's MMSI. If the
+            # feed has no MMSI configured yet, adopt it so the position shows
+            # as "your vessel" without any manual setup.
+            is_own = bool(vessel_data.get('is_own_vessel')) or (bool(config_mmsi) and mmsi_parsed == config_mmsi)
+            if vessel_data.get('is_own_vessel') and self._config is not None and not config_mmsi:
+                self._config['user_mmsi'] = mmsi_parsed
+                config_mmsi = mmsi_parsed
+                logger.info(f"Own vessel identified from !AIVDO: MMSI {mmsi_parsed}")
+
+            # Main-channel filtering for OTHER vessels: excludes targets on
+            # tributaries such as the St. Croix and Illinois River so they do not
+            # affect Mississippi lock timing, traffic ahead, trip planning, or
+            # speed-to-beat. Never drop the user's own boat (e.g. in a marina).
+            if not is_own and not is_on_upper_mississippi(lat, lon):
                 filter_stats["filtered"] += 1
                 logger.debug(f"Filtered vessel {mmsi_parsed} - not on Mississippi main channel (lat={lat}, lon={lon})")
                 return
@@ -2661,12 +2685,14 @@ class AISConnectionManager:
         """Broadcast vessel update to all subscribers, marking user's vessel for each."""
         disconnected = []
         vessel_mmsi = vessel_dict.get('mmsi', '')
-        
+        feed_mmsi = (self._config or {}).get('user_mmsi', '')
+
         for ws, user_info in list(self._subscribers.items()):
             try:
-                # Create copy with user-specific is_user_vessel flag
+                # Create copy with user-specific is_user_vessel flag. A viewer
+                # with no MMSI of their own sees the feed's boat as theirs.
                 user_vessel_dict = vessel_dict.copy()
-                user_mmsi = user_info.get('mmsi', '')
+                user_mmsi = user_info.get('mmsi', '') or feed_mmsi
                 user_vessel_dict['is_user_vessel'] = (vessel_mmsi == user_mmsi)
                 
                 await ws.send_json({"type": "vessel_update", "vessel": user_vessel_dict})
@@ -2693,10 +2719,11 @@ class AISConnectionManager:
                 "message": "Not connected to AIS feed"
             })
         
-        # Send current vessel list - mark user's vessel
+        # Send current vessel list - mark user's vessel (or the feed's own boat)
+        mark_mmsi = user_mmsi or (self._config or {}).get('user_mmsi', '')
         vessels = []
         for mmsi, vessel in active_vessels.items():
-            v_dict = prepare_vessel_for_output(vessel, user_mmsi)
+            v_dict = prepare_vessel_for_output(vessel, mark_mmsi)
             vessels.append(v_dict)
         await websocket.send_json({"type": "vessels", "vessels": vessels})
     

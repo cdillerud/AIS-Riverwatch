@@ -51,3 +51,33 @@ def test_late_static_data_names_a_vessel_already_on_the_map(monkeypatch):
     # Same data again: nothing changed, nothing re-broadcast.
     asyncio.run(server.ais_manager._apply_static_to_active(mmsi, {"name": "ANSON NORTHRUP", "ship_type": 52}))
     assert len(sent) == 1
+
+
+AIVDO_OWN = "!AIVDO,1,1,,,13u?etPv2;0n:dDPwUM1U1Cb069D,0*67"
+
+
+def test_own_ship_aivdo_is_adopted_and_never_channel_filtered(monkeypatch):
+    from pyais import decode
+    own_mmsi = str(decode(AIVDO_OWN).asdict()["mmsi"])
+    mgr = server.AISConnectionManager()
+    mgr._config = {"ip_address": "x", "port": 1, "user_mmsi": "", "boat_name": ""}
+    sent = []
+
+    async def fake_broadcast(v):
+        sent.append(v)
+
+    async def noop(*a, **k):
+        return None
+
+    monkeypatch.setattr(mgr, "_broadcast_vessel_update", fake_broadcast)
+    monkeypatch.setattr(server, "broadcast_raw_line", noop)
+    monkeypatch.setattr(server, "is_on_upper_mississippi", lambda lat, lon: False)  # e.g. in a marina
+    monkeypatch.delitem(server.active_vessels, own_mmsi, raising=False)
+    monkeypatch.setattr(server, "is_mmsi_blocked", lambda m: False)
+
+    asyncio.run(mgr._process_line(AIVDO_OWN))
+
+    assert mgr._config["user_mmsi"] == own_mmsi
+    assert own_mmsi in server.active_vessels
+    assert sent and sent[-1]["mmsi"] == own_mmsi
+    server.active_vessels.pop(own_mmsi, None)

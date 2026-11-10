@@ -46,6 +46,8 @@ import secrets
 
 from services import river_geometry as _river_geo
 from services.google_auth import GoogleAuthError, google_client_id, verify_google_credential
+from services import aisstream as _aisstream
+_aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
 from services.navigation_service import (
@@ -1507,6 +1509,22 @@ def _is_demo_vessel(vessel, mmsi: str) -> bool:
     return bool(getattr(vessel, "is_demo", False))
 
 
+# Per-source coverage: {source: {mmsi: {"last_seen": datetime, "name": str}}}
+# Used to compare what each AIS source sees (GET /api/admin/feeds/coverage).
+source_sightings: Dict[str, Dict[str, dict]] = {}
+
+
+def _record_source_sighting(source: str, mmsi: str, name: Optional[str] = None) -> None:
+    if not mmsi:
+        return
+    bucket = source_sightings.setdefault(source, {})
+    entry = bucket.setdefault(mmsi, {"first_seen": datetime.now(timezone.utc), "reports": 0})
+    entry["last_seen"] = datetime.now(timezone.utc)
+    entry["reports"] += 1
+    if name:
+        entry["name"] = name
+
+
 def _record_live_ais_event(mmsi: str) -> None:
     """Record that a real (non-demo, non-filtered) AIS vessel update arrived."""
     if not mmsi or mmsi in _demo_mmsi_set():
@@ -1538,6 +1556,42 @@ def _should_suppress_demo_vessels() -> bool:
         return False
     # auto: hide demo vessels as soon as real AIS traffic is available
     return _has_live_ais_traffic()
+
+
+@api_router.get("/admin/feeds/coverage")
+async def admin_feed_coverage(request: Request, hours: float = 24.0):
+    """Compare which vessels each AIS source has seen (admin only).
+
+    For the source trial: unique MMSIs per source in the window, how many
+    only that source saw, and the overlap. In-memory since server start."""
+    await require_admin(request)
+    since = datetime.now(timezone.utc) - timedelta(hours=max(0.1, min(hours, 24 * 30)))
+    seen = {
+        src: {m: e for m, e in bucket.items() if e.get("last_seen") and e["last_seen"] >= since}
+        for src, bucket in source_sightings.items()
+    }
+    sets = {src: set(v) for src, v in seen.items()}
+    union = set().union(*sets.values()) if sets else set()
+    sources = {}
+    for src, mmsis in sets.items():
+        others = set().union(*(v for k, v in sets.items() if k != src)) if len(sets) > 1 else set()
+        sources[src] = {
+            "unique_vessels": len(mmsis),
+            "only_this_source": len(mmsis - others),
+            "reports": sum(e.get("reports", 0) for e in seen[src].values()),
+        }
+    return {
+        "window_hours": hours,
+        "all_sources_vessels": len(union),
+        "seen_by_every_source": len(set.intersection(*sets.values())) if sets else 0,
+        "sources": sources,
+        "aisstream": {k: v for k, v in _aisstream.status.items()},
+        "vessels": sorted(
+            ({"mmsi": m, "name": next((seen[s][m].get("name") for s in seen if m in seen[s] and seen[s][m].get("name")), None),
+              "sources": sorted(s for s in sets if m in sets[s])} for m in union),
+            key=lambda v: (v["name"] or "~", v["mmsi"]),
+        ),
+    }
 
 
 @api_router.get("/admin/vessels/live-status")
@@ -2526,7 +2580,18 @@ class AISConnectionManager:
         
         # Then try to parse as AIS
         vessel_data = parse_nmea_ais(line)
-        
+        if vessel_data is None and line.startswith('!AIVDM'):
+            logger.debug(f"Failed to parse AIVDM: {line[:80]}")
+        await self.ingest_vessel_data(vessel_data, source="feed")
+
+    async def ingest_vessel_data(self, vessel_data, source: str = "feed"):
+        """Store one decoded AIS report and push it to viewers.
+
+        Shared by every AIS source (the phone/relay TCP feed and aisstream.io)
+        so filtering, naming, lock tracking and broadcasting behave the same.
+        `source` is recorded per vessel for source-coverage comparisons."""
+        config_mmsi = self._config.get("user_mmsi", "") if self._config else ""
+
         if vessel_data and vessel_data.get('mmsi'):
             mmsi_parsed = vessel_data['mmsi']
             # Drop filtered/blocked MMSIs IMMEDIATELY after parsing (before logging
@@ -2538,8 +2603,6 @@ class AISConnectionManager:
             logger.debug(f"Parsed AIS vessel: MMSI={mmsi_parsed}, lat={vessel_data.get('lat')}, lon={vessel_data.get('lon')}")
         elif vessel_data:
             logger.debug(f"Parsed AIS but no MMSI: {vessel_data}")
-        elif line.startswith('!AIVDM'):
-            logger.debug(f"Failed to parse AIVDM: {line[:80]}")
         
         if vessel_data and vessel_data.get('mmsi'):
             mmsi_parsed = vessel_data['mmsi']
@@ -2644,6 +2707,7 @@ class AISConnectionManager:
             # First real AIS vessel from the live feed → record the event so the
             # /api/vessels endpoint can hide demo vessels in 'auto' mode.
             _record_live_ais_event(vessel.mmsi)
+            _record_source_sighting(source, vessel.mmsi, vessel.name)
             
             # Track vessel passage through locks
             await track_vessel_lock_passage(vessel.model_dump())
@@ -4152,6 +4216,225 @@ def parse_nmea_gps(line: str) -> Optional[dict]:
 _ais_assembler = NmeaFragmentAssembler()
 
 
+def vessel_data_from_decoded(decoded: dict, is_own_vessel: bool = False) -> Optional[dict]:
+    """Turn one decoded AIS message (pyais field names) into RiverWatch vessel data.
+
+    Shared by the NMEA parser and by sources that deliver already-decoded
+    messages (aisstream.io), so every source gets the same static-data cache,
+    tow detection and USACE enrichment. Returns None when the message yields
+    nothing to store."""
+    global vessel_static_cache
+    if 'mmsi' not in decoded:
+        return None
+    mmsi = str(decoded.get('mmsi', ''))
+    msg_type = decoded.get('msg_type', 0)
+
+    # Mark if this is own vessel data (AIVDO)
+    if is_own_vessel:
+        logger.debug(f"Own vessel data received: MMSI {mmsi}")
+
+    # Handle static data messages (Type 5, 19, 24) - cache the vessel info
+    if msg_type in [5, 19, 24]:
+        static_data = {'is_own_vessel': is_own_vessel}
+
+        # Get vessel name
+        shipname = decoded.get('shipname', '') or decoded.get('name', '')
+        if shipname and shipname.strip() and shipname.strip() != '@@@@@@@@@@@@@@@@@@@@':
+            static_data['name'] = shipname.strip()
+
+        # Get call sign
+        callsign = decoded.get('callsign', '')
+        if callsign and callsign.strip() and '@' not in callsign:
+            static_data['callsign'] = callsign.strip()
+
+        # Get IMO number
+        if decoded.get('imo'):
+            static_data['imo'] = decoded.get('imo')
+
+        # Get destination
+        destination = decoded.get('destination', '')
+        if destination and destination.strip() and '@' not in destination:
+            static_data['destination'] = destination.strip()
+
+        # Get ETA (from Type 5)
+        if decoded.get('month') and decoded.get('day'):
+            eta_month = decoded.get('month', 0)
+            eta_day = decoded.get('day', 0)
+            eta_hour = decoded.get('hour', 0)
+            eta_min = decoded.get('minute', 0)
+            if eta_month > 0 and eta_day > 0:
+                static_data['eta'] = f"{eta_month:02d}/{eta_day:02d} {eta_hour:02d}:{eta_min:02d}"
+
+        # Get ship type and dimensions
+        if decoded.get('ship_type'):
+            static_data['ship_type'] = decoded.get('ship_type')
+
+        # Calculate dimensions from bow/stern/port/starboard
+        to_bow = decoded.get('to_bow', 0) or 0
+        to_stern = decoded.get('to_stern', 0) or 0
+        to_port = decoded.get('to_port', 0) or 0
+        to_starboard = decoded.get('to_starboard', 0) or 0
+
+        if to_bow + to_stern > 0:
+            static_data['length'] = to_bow + to_stern
+        if to_port + to_starboard > 0:
+            static_data['width'] = to_port + to_starboard
+
+        if decoded.get('draught'):
+            static_data['draught'] = decoded.get('draught')
+
+        # Update cache
+        if static_data:
+            if mmsi not in vessel_static_cache:
+                vessel_static_cache[mmsi] = {}
+            vessel_static_cache[mmsi].update(static_data)
+            logger.info(f"Cached static data for MMSI {mmsi}: {static_data.get('name', 'unnamed')}")
+
+            # Static-only messages (5, 24) carry no position: hand the
+            # name back so the caller can persist it to the database.
+            if msg_type in (5, 24) and static_data.get('name'):
+                return {
+                    'mmsi': mmsi,
+                    'name': static_data['name'],
+                    'ship_type': static_data.get('ship_type'),
+                    '_static_only': True,
+                    '_persist_to_db': True,
+                }
+
+    # Handle position messages (Type 1,2,3,18,19)
+    if msg_type in [1, 2, 3, 18, 19]:
+        lat = decoded.get('lat')
+        lon = decoded.get('lon')
+
+        # Filter invalid positions
+        if lat is None or lon is None:
+            return None
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
+        if lat == 91.0 or lon == 181.0:  # AIS "not available" values
+            return None
+        # Get navigation status
+        nav_status = decoded.get('status')
+        nav_status_text = NAV_STATUS.get(nav_status, 'Unknown') if nav_status is not None else None
+
+        # Get heading (true heading, different from course over ground)
+        heading_true = decoded.get('heading')
+        if heading_true == 511:  # 511 = not available
+            heading_true = None
+
+        # Get rate of turn
+        turn_rate = decoded.get('turn')
+        if turn_rate == -128 or turn_rate == 128:  # not available
+            turn_rate = None
+
+        # Build vessel data from position report
+        vessel = {
+            'mmsi': mmsi,
+            'lat': lat,
+            'lon': lon,
+            'speed': clean_sog(decoded.get('speed')),  # knots; 102.3 = n/a
+            'course': clean_cog(decoded.get('course')) or 0.0,
+            'course_valid': clean_cog(decoded.get('course')) is not None,
+            'name': '',
+            'vessel_type': 'unknown',
+            'ship_type': 0,
+            'length': None,
+            'width': None,
+            'draught': None,
+            'is_own_vessel': is_own_vessel,
+            'heading_true': heading_true,
+            'turn_rate': turn_rate,
+            'nav_status': nav_status,
+            'nav_status_text': nav_status_text,
+        }
+
+        # Merge in cached static data if available
+        if mmsi in vessel_static_cache:
+            cached = vessel_static_cache[mmsi]
+            if cached.get('name'):
+                vessel['name'] = cached['name']
+            if cached.get('ship_type'):
+                vessel['ship_type'] = cached['ship_type']
+                vessel['vessel_type'] = str(cached['ship_type'])
+            if cached.get('length'):
+                vessel['length'] = cached['length']
+            if cached.get('width'):
+                vessel['width'] = cached['width']
+            if cached.get('draught'):
+                vessel['draught'] = cached['draught']
+            if cached.get('destination'):
+                vessel['destination'] = cached['destination']
+            if cached.get('callsign'):
+                vessel['callsign'] = cached['callsign']
+            if cached.get('imo'):
+                vessel['imo'] = cached['imo']
+            if cached.get('eta'):
+                vessel['eta'] = cached['eta']
+            if cached.get('is_own_vessel') or cached.get('is_user'):
+                vessel['is_own_vessel'] = True
+
+        # Type 19 includes name directly
+        if msg_type == 19:
+            shipname = decoded.get('shipname', '')
+            if shipname and shipname.strip():
+                vessel['name'] = shipname.strip()
+
+        # First check USACE lock queue data for authoritative barge count
+        mmsi = vessel.get('mmsi', '')
+        usace_info = get_usace_vessel_info(mmsi) if mmsi else None
+
+        if usace_info and usace_info.get('num_barges') is not None:
+            # Use USACE authoritative data
+            vessel['barge_count'] = usace_info['num_barges']
+            vessel['is_tow'] = usace_info['num_barges'] > 0
+            vessel['usace_source'] = True
+            vessel['usace_lock'] = usace_info.get('lock_id')
+            vessel['usace_status'] = usace_info.get('status')
+
+            # Calculate lockage time from barge count
+            bc = usace_info['num_barges']
+            if bc <= 6:
+                vessel['estimated_lockage_time'] = 30
+            elif bc <= 9:
+                vessel['estimated_lockage_time'] = 45
+            else:
+                vessel['estimated_lockage_time'] = 90 + (bc - 9) * 5
+            vessel['is_double_lockage'] = bc > 9
+
+            # Estimate tow config from barge count
+            if bc > 0:
+                if bc <= 6:
+                    vessel['tow_config'] = f"2x{(bc+1)//2}"
+                elif bc <= 9:
+                    vessel['tow_config'] = f"3x{(bc+2)//3}"
+                else:
+                    vessel['tow_config'] = f"3x{(bc+2)//3}+"
+
+            logger.debug(f"Using USACE data for {mmsi}: {usace_info['num_barges']} barges")
+
+            # Persist USACE-enriched vessel data to database
+            asyncio.create_task(persist_vessel_sighting(vessel))
+        else:
+            # NO USACE data - use AIS-based tow detection only
+            # IMPORTANT: Clear any stale barge data - only show if USACE confirms
+            tow_info = estimate_tow_info(vessel)
+            vessel.update(tow_info)
+            # Explicitly ensure no stale data
+            vessel['barge_count'] = None
+            vessel['tow_config'] = None
+            vessel['estimated_lockage_time'] = None
+            vessel['is_double_lockage'] = False
+            vessel['usace_source'] = False
+            vessel['usace_lock'] = None
+            vessel['usace_status'] = None
+
+        # Persist vessel sighting (even without USACE for tracking)
+        asyncio.create_task(persist_vessel_sighting(vessel))
+
+        return vessel
+    return None
+
+
 def parse_nmea_ais(data: str) -> Optional[dict]:
     """
     Parse NMEA/AIS data. Boat Beacon typically sends !AIVDM sentences.
@@ -4187,216 +4470,9 @@ def parse_nmea_ais(data: str) -> Optional[dict]:
                     msg = decode(*fragments, error_if_checksum_invalid=True)
                     decoded = msg.asdict()
                     
-                    if 'mmsi' not in decoded:
-                        continue
-                        
-                    mmsi = str(decoded.get('mmsi', ''))
-                    msg_type = decoded.get('msg_type', 0)
-                    
-                    # Mark if this is own vessel data (AIVDO)
-                    if is_own_vessel:
-                        logger.debug(f"Own vessel data received: MMSI {mmsi}")
-                    
-                    # Handle static data messages (Type 5, 19, 24) - cache the vessel info
-                    if msg_type in [5, 19, 24]:
-                        static_data = {'is_own_vessel': is_own_vessel}
-                        
-                        # Get vessel name
-                        shipname = decoded.get('shipname', '') or decoded.get('name', '')
-                        if shipname and shipname.strip() and shipname.strip() != '@@@@@@@@@@@@@@@@@@@@':
-                            static_data['name'] = shipname.strip()
-                        
-                        # Get call sign
-                        callsign = decoded.get('callsign', '')
-                        if callsign and callsign.strip() and '@' not in callsign:
-                            static_data['callsign'] = callsign.strip()
-                        
-                        # Get IMO number
-                        if decoded.get('imo'):
-                            static_data['imo'] = decoded.get('imo')
-                        
-                        # Get destination
-                        destination = decoded.get('destination', '')
-                        if destination and destination.strip() and '@' not in destination:
-                            static_data['destination'] = destination.strip()
-                        
-                        # Get ETA (from Type 5)
-                        if decoded.get('month') and decoded.get('day'):
-                            eta_month = decoded.get('month', 0)
-                            eta_day = decoded.get('day', 0)
-                            eta_hour = decoded.get('hour', 0)
-                            eta_min = decoded.get('minute', 0)
-                            if eta_month > 0 and eta_day > 0:
-                                static_data['eta'] = f"{eta_month:02d}/{eta_day:02d} {eta_hour:02d}:{eta_min:02d}"
-                        
-                        # Get ship type and dimensions
-                        if decoded.get('ship_type'):
-                            static_data['ship_type'] = decoded.get('ship_type')
-                        
-                        # Calculate dimensions from bow/stern/port/starboard
-                        to_bow = decoded.get('to_bow', 0) or 0
-                        to_stern = decoded.get('to_stern', 0) or 0
-                        to_port = decoded.get('to_port', 0) or 0
-                        to_starboard = decoded.get('to_starboard', 0) or 0
-                        
-                        if to_bow + to_stern > 0:
-                            static_data['length'] = to_bow + to_stern
-                        if to_port + to_starboard > 0:
-                            static_data['width'] = to_port + to_starboard
-                        
-                        if decoded.get('draught'):
-                            static_data['draught'] = decoded.get('draught')
-                        
-                        # Update cache
-                        if static_data:
-                            if mmsi not in vessel_static_cache:
-                                vessel_static_cache[mmsi] = {}
-                            vessel_static_cache[mmsi].update(static_data)
-                            logger.info(f"Cached static data for MMSI {mmsi}: {static_data.get('name', 'unnamed')}")
-                            
-                            # Static-only messages (5, 24) carry no position: hand the
-                            # name back so the caller can persist it to the database.
-                            if msg_type in (5, 24) and static_data.get('name'):
-                                return {
-                                    'mmsi': mmsi,
-                                    'name': static_data['name'],
-                                    'ship_type': static_data.get('ship_type'),
-                                    '_static_only': True,
-                                    '_persist_to_db': True,
-                                }
-                    
-                    # Handle position messages (Type 1,2,3,18,19)
-                    if msg_type in [1, 2, 3, 18, 19]:
-                        lat = decoded.get('lat')
-                        lon = decoded.get('lon')
-                        
-                        # Filter invalid positions
-                        if lat is None or lon is None:
-                            continue
-                        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                            continue
-                        if lat == 91.0 or lon == 181.0:  # AIS "not available" values
-                            continue
-                        
-                        # Get navigation status
-                        nav_status = decoded.get('status')
-                        nav_status_text = NAV_STATUS.get(nav_status, 'Unknown') if nav_status is not None else None
-                        
-                        # Get heading (true heading, different from course over ground)
-                        heading_true = decoded.get('heading')
-                        if heading_true == 511:  # 511 = not available
-                            heading_true = None
-                        
-                        # Get rate of turn
-                        turn_rate = decoded.get('turn')
-                        if turn_rate == -128 or turn_rate == 128:  # not available
-                            turn_rate = None
-                        
-                        # Build vessel data from position report
-                        vessel = {
-                            'mmsi': mmsi,
-                            'lat': lat,
-                            'lon': lon,
-                            'speed': clean_sog(decoded.get('speed')),  # knots; 102.3 = n/a
-                            'course': clean_cog(decoded.get('course')) or 0.0,
-                            'course_valid': clean_cog(decoded.get('course')) is not None,
-                            'name': '',
-                            'vessel_type': 'unknown',
-                            'ship_type': 0,
-                            'length': None,
-                            'width': None,
-                            'draught': None,
-                            'is_own_vessel': is_own_vessel,
-                            'heading_true': heading_true,
-                            'turn_rate': turn_rate,
-                            'nav_status': nav_status,
-                            'nav_status_text': nav_status_text,
-                        }
-                        
-                        # Merge in cached static data if available
-                        if mmsi in vessel_static_cache:
-                            cached = vessel_static_cache[mmsi]
-                            if cached.get('name'):
-                                vessel['name'] = cached['name']
-                            if cached.get('ship_type'):
-                                vessel['ship_type'] = cached['ship_type']
-                                vessel['vessel_type'] = str(cached['ship_type'])
-                            if cached.get('length'):
-                                vessel['length'] = cached['length']
-                            if cached.get('width'):
-                                vessel['width'] = cached['width']
-                            if cached.get('draught'):
-                                vessel['draught'] = cached['draught']
-                            if cached.get('destination'):
-                                vessel['destination'] = cached['destination']
-                            if cached.get('callsign'):
-                                vessel['callsign'] = cached['callsign']
-                            if cached.get('imo'):
-                                vessel['imo'] = cached['imo']
-                            if cached.get('eta'):
-                                vessel['eta'] = cached['eta']
-                            if cached.get('is_own_vessel') or cached.get('is_user'):
-                                vessel['is_own_vessel'] = True
-                        
-                        # Type 19 includes name directly
-                        if msg_type == 19:
-                            shipname = decoded.get('shipname', '')
-                            if shipname and shipname.strip():
-                                vessel['name'] = shipname.strip()
-                        
-                        # First check USACE lock queue data for authoritative barge count
-                        mmsi = vessel.get('mmsi', '')
-                        usace_info = get_usace_vessel_info(mmsi) if mmsi else None
-                        
-                        if usace_info and usace_info.get('num_barges') is not None:
-                            # Use USACE authoritative data
-                            vessel['barge_count'] = usace_info['num_barges']
-                            vessel['is_tow'] = usace_info['num_barges'] > 0
-                            vessel['usace_source'] = True
-                            vessel['usace_lock'] = usace_info.get('lock_id')
-                            vessel['usace_status'] = usace_info.get('status')
-                            
-                            # Calculate lockage time from barge count
-                            bc = usace_info['num_barges']
-                            if bc <= 6:
-                                vessel['estimated_lockage_time'] = 30
-                            elif bc <= 9:
-                                vessel['estimated_lockage_time'] = 45
-                            else:
-                                vessel['estimated_lockage_time'] = 90 + (bc - 9) * 5
-                            vessel['is_double_lockage'] = bc > 9
-                            
-                            # Estimate tow config from barge count
-                            if bc > 0:
-                                if bc <= 6:
-                                    vessel['tow_config'] = f"2x{(bc+1)//2}"
-                                elif bc <= 9:
-                                    vessel['tow_config'] = f"3x{(bc+2)//3}"
-                                else:
-                                    vessel['tow_config'] = f"3x{(bc+2)//3}+"
-                            
-                            logger.debug(f"Using USACE data for {mmsi}: {usace_info['num_barges']} barges")
-                            
-                            # Persist USACE-enriched vessel data to database
-                            asyncio.create_task(persist_vessel_sighting(vessel))
-                        else:
-                            # NO USACE data - use AIS-based tow detection only
-                            # IMPORTANT: Clear any stale barge data - only show if USACE confirms
-                            tow_info = estimate_tow_info(vessel)
-                            vessel.update(tow_info)
-                            # Explicitly ensure no stale data
-                            vessel['barge_count'] = None
-                            vessel['tow_config'] = None
-                            vessel['estimated_lockage_time'] = None
-                            vessel['is_double_lockage'] = False
-                            vessel['usace_source'] = False
-                            vessel['usace_lock'] = None
-                            vessel['usace_status'] = None
-                        
-                        # Persist vessel sighting (even without USACE for tracking)
-                        asyncio.create_task(persist_vessel_sighting(vessel))
-                        
-                        return vessel
+                    result = vessel_data_from_decoded(decoded, is_own_vessel)
+                    if result is not None:
+                        return result
                         
                 except Exception as e:
                     logger.debug(f"Failed to parse AIS message: {e}")
@@ -7255,6 +7331,16 @@ async def startup_event():
     
     # Load persisted vessel names (shared across all users)
     await load_vessel_names_from_db()
+
+    # Optional second AIS source: aisstream.io (needs AISSTREAM_API_KEY).
+    global _aisstream_task
+    if _aisstream.api_key():
+        _aisstream_task = asyncio.create_task(_aisstream.run(
+            vessel_data_from_decoded,
+            ais_manager.ingest_vessel_data,
+            vessel_static_cache,
+            ais_manager._apply_static_to_active,
+        ))
     
     # Initial fetch of USACE lock queue data
     try:
@@ -7307,6 +7393,8 @@ async def usace_refresh_task():
 @app.on_event("shutdown")
 async def shutdown_db_client():
     """Clean up resources on shutdown."""
+    if _aisstream_task and not _aisstream_task.done():
+        _aisstream_task.cancel()
     # Close HTTP client pool
     await close_http_client()
     # Close MongoDB connection

@@ -3252,7 +3252,8 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
         v_dict['usace_source'] = True
         v_dict['usace_lock'] = usace_info.get('lock_id')
         v_dict['usace_status'] = usace_info.get('status')
-        
+        v_dict.update(_in_lock_fields(usace_info, v_dict.get('river_mile')))
+
         # Calculate lockage time from actual barge count
         if bc <= 6:
             v_dict['estimated_lockage_time'] = 30
@@ -3282,9 +3283,35 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
         v_dict['usace_source'] = False
         v_dict['usace_lock'] = None
         v_dict['usace_status'] = None
+        v_dict.update(_in_lock_fields(None, None))
         # Keep is_tow based on AIS data (ship type, name patterns)
-    
+
     return v_dict
+
+
+# A boat USACE shows mid-lockage is drawn "in the lock" only if its own
+# position agrees (a stale queue row must not pin a boat that has moved on).
+IN_LOCK_MAX_MI = 1.0
+
+
+def _in_lock_fields(usace_info: Optional[dict], river_mile) -> dict:
+    """in_lock / in_lock_id / in_lock_since / in_lock_cut for the map, from the
+    USACE queue: lockage started (start-of-lockage logged) and not finished."""
+    off = {"in_lock": False, "in_lock_id": None, "in_lock_since": None, "in_lock_cut": None}
+    if not usace_info or usace_info.get("status") != "locking":
+        return off
+    lock_id = usace_info.get("lock_id")
+    lock = LOCKS.get(lock_id) or {}
+    if river_mile is not None and lock.get("river_mile") is not None:
+        try:
+            if abs(float(river_mile) - float(lock["river_mile"])) > IN_LOCK_MAX_MI:
+                return off
+        except (TypeError, ValueError):
+            pass
+    started = _usace_lockages.parse_time(usace_info.get("sol_date"), usace_info.get("timezone"))
+    return {"in_lock": True, "in_lock_id": lock_id,
+            "in_lock_since": started.isoformat() if started else None,
+            "in_lock_cut": int(usace_info.get("cuts_completed") or 0) + 1}
 
 
 def estimate_tow_info(vessel_data: dict) -> dict:

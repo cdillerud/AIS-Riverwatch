@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { getVesselDisplayName, getVesselShortName, hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, getLastSeenMs } from "@/utils/vesselDisplay";
 import { API } from "@/lib/api";
 import LockageRow from "@/components/LockageRow";
+import { inLockInfo, queueEntryInLock } from "@/lib/inLock";
 
 // Default River Mile range for Upper Mississippi (Lock 1 to Chain of Rocks)
 const FULL_MIN_RM = 180;  // Chain of Rocks (RM 185) with buffer
@@ -835,7 +836,10 @@ const RiverVisualizationComponent = ({
           // Selected but no analysis yet - cyan
           lockStyle = { borderColor: '#22d3ee', backgroundColor: 'rgba(34, 211, 238, 0.2)' };
         }
-        
+        // A boat in the chamber now (live AIS boat or USACE queue entry).
+        const occupied = vessels.some(v => v.in_lock && v.in_lock_id === lock.id)
+          || (lockQueues[lock.id] || []).some(queueEntryInLock);
+
         return (
           <div
             key={lock.id}
@@ -845,11 +849,12 @@ const RiverVisualizationComponent = ({
               transform: 'translate(-50%, -50%)'
             }}
             data-testid={`lock-marker-${lock.id}`}
+            data-occupied={occupied ? 'true' : undefined}
             onClick={() => onLockClick(lock.id)}
-            title={`Click for ${lock.name} details`}
+            title={occupied ? `${lock.name}: a vessel is in the lock - click for details` : `Click for ${lock.name} details`}
           >
-            <div 
-              className={`lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6 hover:scale-110 transition-transform`}
+            <div
+              className={`lock-indicator text-[8px] md:text-[10px] w-12 md:w-[60px] h-5 md:h-6 hover:scale-110 transition-transform ${occupied ? 'ring-2 ring-cyan-300/80' : ''}`}
               style={lockStyle}
             >
               <Lock className="w-2 h-2 md:w-3 md:h-3 mr-0.5 md:mr-1" />
@@ -885,18 +890,24 @@ const RiverVisualizationComponent = ({
           >
             {shown.map((e, i) => {
               const up = e.direction === 'upbound';
+              const inChamber = queueEntryInLock(e);
               return (
-                <div key={i} className="border border-dashed border-amber-500/60 bg-slate-950/90 rounded px-1.5 py-0.5 text-[9px] md:text-[10px] max-w-full truncate hover:border-amber-300 hover:bg-slate-900"
+                <div key={i} className={`border rounded px-1.5 py-0.5 text-[9px] md:text-[10px] max-w-full truncate hover:bg-slate-900 ${inChamber
+                       ? 'border-solid border-cyan-400/80 bg-cyan-950/90 hover:border-cyan-200'
+                       : 'border-dashed border-amber-500/60 bg-slate-950/90 hover:border-amber-300'}`}
+                     data-in-lock={inChamber ? 'true' : undefined}
                      onClick={(ev) => { ev.stopPropagation(); onVesselDetails(e, lock.name); }}
                      title={`${e.vessel_name || 'Vessel'} - click for vessel details`}
                      data-testid="lock-queue-vessel">
-                  <span className="text-slate-500 mr-1">USACE</span>
+                  {inChamber
+                    ? <Lock className="inline w-2.5 h-2.5 mr-1 -mt-0.5 text-cyan-300" />
+                    : <span className="text-slate-500 mr-1">USACE</span>}
                   <span className="text-slate-100">{e.vessel_name || 'Unknown'}</span>
                   <span className={`ml-1 ${up ? 'text-green-400' : 'text-red-400'}`}>{up ? '↑' : '↓'}</span>
                   {!compact && <span className="text-slate-400">{e.barges ? ` ${e.barges}b` : ' light'}</span>}
-                  <span className={e.started_at ? 'text-cyan-400' : 'text-slate-400'}>
+                  <span className={e.started_at ? 'text-cyan-300 font-semibold' : 'text-slate-400'}>
                     {e.started_at
-                      ? ` · locking${e.cuts_completed ? ` ${e.cuts_completed}/${e.cuts_completed + 1}` : ''}`
+                      ? ` · in lock${e.cuts_completed ? `, cut ${e.cuts_completed + 1}` : ''}`
                       : (e.waiting_minutes != null ? ` · at lock ${e.waiting_minutes >= 60 ? `${Math.floor(e.waiting_minutes / 60)}h${e.waiting_minutes % 60 ? ` ${e.waiting_minutes % 60}m` : ''}` : `${e.waiting_minutes}m`}` : '')}
                   </span>
                 </div>
@@ -924,6 +935,7 @@ const RiverVisualizationComponent = ({
         const labelShift = labelShifts[vessel.mmsi]?.dy || 0;
         const labelLeft = (labelShifts[vessel.mmsi]?.side || (horizontalOffset < 0 ? "left" : "right")) === "left";
         const labelGap = compact ? 15 : 20;
+        const inLock = inLockInfo(vessel, mapNowTick);
 
         return (
           <div
@@ -954,20 +966,36 @@ const RiverVisualizationComponent = ({
                 }}
               />
             )}
-            {/* Vessel pip */}
-            <div 
-              className={`
-                vessel-pip absolute
-                ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
-                ${isFocused || mapSelectedVessel?.mmsi === vessel.mmsi ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-900' : ''}
-                hover:scale-125 transition-transform
-              `}
-              style={{ 
-                left: '0', 
-                top: '50%', 
-                transform: isUser ? 'translate(-50%, -50%)' : 'translate(-50%, -50%) rotate(45deg)'
-              }}
-            />
+            {/* Vessel pip - a lock chamber with the boat in it while it's locking */}
+            {inLock ? (
+              <div
+                className={`
+                  absolute flex items-center justify-center rounded-[3px] border-2 border-cyan-300 bg-cyan-500/35
+                  shadow-[0_0_10px_rgba(34,211,238,0.65)] w-6 h-4 md:w-7 md:h-[18px]
+                  ${isFocused || mapSelectedVessel?.mmsi === vessel.mmsi ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-900' : ''}
+                  hover:scale-125 transition-transform
+                `}
+                style={{ left: '0', top: '50%', transform: 'translate(-50%, -50%)' }}
+                data-testid="in-lock-marker"
+                title={inLock.label}
+              >
+                <div className={`${isUser ? 'w-2 h-2 rounded-full bg-cyan-200' : 'w-1.5 h-1.5 md:w-2 md:h-2 bg-amber-300 rotate-45'}`} />
+              </div>
+            ) : (
+              <div
+                className={`
+                  vessel-pip absolute
+                  ${isUser ? 'user w-3 h-3 md:w-4 md:h-4 user-vessel-pulse' : 'commercial w-2 h-2 md:w-3 md:h-3'}
+                  ${isFocused || mapSelectedVessel?.mmsi === vessel.mmsi ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-900' : ''}
+                  hover:scale-125 transition-transform
+                `}
+                style={{
+                  left: '0',
+                  top: '50%',
+                  transform: isUser ? 'translate(-50%, -50%)' : 'translate(-50%, -50%) rotate(45deg)'
+                }}
+              />
+            )}
 
             {/* Leader line when the label was moved to avoid overlapping another */}
             {Math.abs(labelShift) > 6 && (
@@ -980,7 +1008,9 @@ const RiverVisualizationComponent = ({
             <div 
               className={`
                 absolute px-1.5 py-1 rounded text-[10px] leading-tight flex items-center gap-1 whitespace-nowrap
-                ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
+                ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400'
+                  : inLock ? 'bg-slate-900/95 border border-cyan-400/70 text-amber-400'
+                  : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
               `}
               style={{ 
                 left: labelLeft ? 'auto' : `${labelGap}px`,
@@ -1003,6 +1033,12 @@ const RiverVisualizationComponent = ({
                 <div className="font-semibold">
                   {compact ? getVesselShortName(vessel, showVesselNames, 10) : getVesselDisplayName(vessel, showVesselNames)}
                 </div>
+                {inLock && (
+                  <div className="text-cyan-300 font-semibold text-[9px] flex items-center gap-0.5" data-testid="in-lock-label">
+                    <Lock className="w-2.5 h-2.5" />
+                    {inLock.label}
+                  </div>
+                )}
                 <div className="text-slate-400 font-mono text-[9px]">
                   {speedMph} mph {!compact && `• RM ${formatRiverMile(vessel.river_mile)}`}
                 </div>
@@ -1043,6 +1079,12 @@ const RiverVisualizationComponent = ({
             <div className="flex items-center gap-2">
               <Lock className="w-2 h-2 md:w-3 md:h-3 text-white" />
               <span className="text-[10px] md:text-xs text-slate-300">Lock & Dam</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-2.5 md:w-5 md:h-3 rounded-[2px] border-2 border-cyan-300 bg-cyan-500/35 flex items-center justify-center">
+                <div className="w-1 h-1 bg-amber-300 rotate-45" />
+              </div>
+              <span className="text-[10px] md:text-xs text-slate-300">In the lock</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-2 md:w-4 md:h-2.5 border border-dashed border-amber-500/70 rounded-sm" />

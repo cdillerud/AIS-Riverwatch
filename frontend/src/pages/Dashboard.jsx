@@ -307,9 +307,11 @@ export default function Dashboard({
                             !hasRequiredSpeed &&
                             !!raceAnalysis?.analysis?.threatening_vessel &&
                             raceAnalysis?.analysis?.can_beat_at_max_speed === false;
-  const isDangerous = !isTimingPaused && (
-                      cannotArriveFirst ||
-                      (hasRequiredSpeed && raceAnalysis.analysis.required_speed_mph > maxAllowedSpeedMph));
+  // Lost the race to the lock: a tow gets there first at any allowed speed.
+  // Whether that's a DELAY depends on the expected wait (isDangerous, below).
+  const raceLost = !isTimingPaused && (
+                   cannotArriveFirst ||
+                   (hasRequiredSpeed && raceAnalysis.analysis.required_speed_mph > maxAllowedSpeedMph));
   
   // Track current threatening vessel to reset alert when it changes
   const currentThreatMmsi = raceAnalysis?.analysis?.threatening_vessel?.mmsi;
@@ -424,6 +426,14 @@ export default function Dashboard({
       totalMinutes: travelMinutes && wait != null ? (parseFloat(travelMinutes) + wait).toFixed(0) : null
     };
   }, [userVessel, selectedLockObj, activeTimingLockId, targetLockBoard]);
+
+  // DELAY (red badge, bouncing alert) only when losing the race means a real
+  // wait. USACE history says pleasure boats behind a tow usually wait a few
+  // minutes (often locked with it), so "a tow gets there first" alone used to
+  // raise "Traffic Delay Expected" next to an estimated wait of ~6 min.
+  const DELAY_WAIT_MINUTES = 20;
+  const expectedWaitMinutes = lockTravelInfo.estimatedWait;
+  const isDangerous = raceLost && (expectedWaitMinutes == null || expectedWaitMinutes >= DELAY_WAIT_MINUTES);
 
   // Vessel details for any boat listed at a lock (USACE queue, AIS, ahead
   // of you): the live AIS record when there is one, else what USACE knows.
@@ -914,20 +924,26 @@ export default function Dashboard({
                     </>
                   ) : cannotArriveFirst ? (
                     <>
-                      <div className="text-lg font-semibold text-red-400" data-testid="cannot-arrive-first">Can't arrive first</div>
-                      <div className="text-[10px] text-red-400 mt-1">
+                      <div className={`text-lg font-semibold ${isDangerous ? 'text-red-400' : 'text-amber-400'}`} data-testid="cannot-arrive-first">Can't arrive first</div>
+                      <div className={`text-[10px] mt-1 ${isDangerous ? 'text-red-400' : 'text-slate-400'}`}>
                         {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)} reaches
                         the lock first{Number.isFinite(raceAnalysis.analysis.threatening_vessel.eta_minutes)
-                          ? ` (~${Math.round(raceAnalysis.analysis.threatening_vessel.eta_minutes)} min)` : ''}. Plan to wait behind it.
+                          ? ` (~${Math.round(raceAnalysis.analysis.threatening_vessel.eta_minutes)} min)` : ''}.
+                        {expectedWaitMinutes != null
+                          ? ` Expected wait when you get there: ~${fmtDuration(expectedWaitMinutes)}.`
+                          : ' Plan to wait behind it.'}
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                      <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : raceLost ? 'text-amber-400' : 'text-green-400'}`}>
                         {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
                       </div>
-                      {isDangerous && (
-                        <div className="text-[10px] text-red-400 mt-1">Exceeds max speed ({maxAllowedSpeedMph} mph)</div>
+                      {raceLost && (
+                        <div className={`text-[10px] mt-1 ${isDangerous ? 'text-red-400' : 'text-slate-400'}`}>
+                          Exceeds max speed ({maxAllowedSpeedMph} mph)
+                          {!isDangerous && expectedWaitMinutes != null && ` · expected wait ~${fmtDuration(expectedWaitMinutes)}`}
+                        </div>
                       )}
                     </>
                   )}

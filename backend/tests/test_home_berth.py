@@ -37,3 +37,18 @@ def test_nothing_known():
     assert H.position_to_show({}, NOW) == (None, "none")
     pos, src = H.position_to_show({"home_berth": HOME}, NOW)
     assert src == "home"
+
+
+def test_parked_boat_has_no_race(monkeypatch):
+    """Seen: 'Traffic Ahead: ITASCA' for REBOOT sitting in its slip."""
+    import asyncio
+    import server
+    me = server.VesselPosition(mmsi="338414076", name="REBOOT", lat=HOME["lat"], lon=HOME["lon"], speed=0.0,
+                               course=0.0, river_mile=830.3, heading="stationary", timestamp=NOW)
+    tow = server.VesselPosition(mmsi="367000002", name="ITASCA", lat=44.85, lon=-93.0, speed=4.0, course=150.0,
+                                river_mile=833.4, heading="southbound", timestamp=datetime.now(timezone.utc))
+    monkeypatch.setitem(server.active_vessels, "338414076", me)
+    monkeypatch.setitem(server.active_vessels, "367000002", tow)
+    r = asyncio.run(server.get_session_race_analysis("338414076", "lock_2"))
+    a = r.analysis if hasattr(r, "analysis") else r["analysis"]
+    assert a["user_parked"] is True and a["threatening_vessel"] is None

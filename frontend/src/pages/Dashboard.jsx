@@ -295,6 +295,8 @@ export default function Dashboard({
                             raceAnalysis?.analysis?.can_beat_at_max_speed === false;
   // Waiting at / locking through the target lock (API: user_at_lock).
   const atLock = !isTrafficWatch && !!raceAnalysis?.analysis?.user_at_lock;
+  // Stopped with no direction (e.g. in its home berth): no race to show.
+  const parked = !isTrafficWatch && !atLock && !!raceAnalysis?.analysis?.user_parked;
 
   // Lost the race to the lock: a tow gets there first at any allowed speed.
   // Whether that's a DELAY depends on the expected wait (isDangerous, below).
@@ -807,7 +809,7 @@ export default function Dashboard({
                     ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
                     : 'bg-green-500/20 text-green-400 border-green-500/50'
             }`}>
-              {atLock ? 'AT LOCK' : isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
+              {atLock ? 'AT LOCK' : parked ? 'PARKED' : isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
             </Badge>
           </div>
           <div className="p-3 space-y-3">
@@ -944,12 +946,13 @@ export default function Dashboard({
                   <Check className="w-4 h-4 text-green-400" />
                 </div>
                 <div className="text-green-400 font-semibold text-sm">
-                  {atLock ? "You're at the lock" : lockTravelInfo?.aheadList?.length ? 'No traffic on AIS' : 'No Traffic'}
+                  {atLock ? "You're at the lock" : parked ? 'Parked' : lockTravelInfo?.aheadList?.length ? 'No traffic on AIS' : 'No Traffic'}
                 </div>
                 <div className="text-[10px] text-slate-400" data-testid="no-traffic-note">
                   {atLock ? (lockTravelInfo.estimatedWait != null
                       ? `Expected wait ~${fmtDuration(lockTravelInfo.estimatedWait)} · boats arriving now queue behind you`
                       : 'Boats arriving now queue behind you')
+                    : parked ? "Lock timing starts when you're under way"
                     : !isConnected ? 'None seen - AIS offline, vessels on the way may not show'
                     : lockTravelInfo?.aheadList?.length ? 'No boat in sight to race to the lock' : 'Clear path to lock'}
                 </div>

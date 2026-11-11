@@ -156,12 +156,23 @@ def fit_tow_features(train: List[dict]) -> dict:
     }
 
 
-def fit_model(train: List[dict]) -> dict:
+def fit_recreational(train: List[dict]) -> dict:
+    """Recreational wait: L1 (median) fit of intercept + slope * same-direction
+    queue. Pleasure-boat waits are mostly 0 with a few long ones; least squares
+    let those pull every estimate up (5.7 + 0.09q). Backtest 2026-11-11 on the
+    last third of 699 USACE recreational lockages: MAE 8.3 -> 6.4 min."""
     recs = [s for s in train if s["recreational"]]
-    ra, rb = fit_linear([s["v2"] for s in recs], [s["actual"] for s in recs])
+    if len(recs) < 10:
+        ra, rb = fit_linear([s["v2"] for s in recs], [s["actual"] for s in recs])
+    else:
+        ra, rb = fit_l1([[1.0, float(s["v2"])] for s in recs], [s["actual"] for s in recs], ridge=0.0)
+    return {"intercept": round(max(0.0, ra), 1), "slope": round(max(0.0, rb), 3)}
+
+
+def fit_model(train: List[dict]) -> dict:
     return {
         "tow": fit_tow_features(train),
-        "recreational": {"intercept": round(ra, 1), "slope": round(rb, 3)},
+        "recreational": fit_recreational(train),
     }
 
 
@@ -237,14 +248,24 @@ def recalibrate(rows: List[dict], current: dict) -> dict:
               "history_from": start, "history_to": end, "split_at": split}
     if len(train) < MIN_SAMPLES or len(test) < MIN_SAMPLES // 4:
         return {**report, "adopt": False, "reason": f"not enough samples ({len(train)} train / {len(test)} test)"}
-    model = fit_model(train)
-    new_score, current_score = score(model, test), score(current, test)
-    report.update({"model": model, "new_score": new_score, "current_score": current_score})
-    problem = within_bounds(model)
+    fitted = fit_model(train)
+    problem = within_bounds(fitted)
     if problem:
-        return {**report, "adopt": False, "reason": f"fit rejected: {problem}"}
-    if new_score["all"]["mae"] > current_score["all"]["mae"] - MIN_IMPROVEMENT_MINUTES:
+        return {**report, "adopt": False, "model": fitted, "reason": f"fit rejected: {problem}"}
+    fitted_score, current_score = score(fitted, test), score(current, test)
+    # Tows and pleasure boats are judged separately: pleasure boats are ~12% of
+    # lockages, so a real gain for them vanished inside the combined MAE.
+    model, changed = {}, []
+    for part in ("tow", "recreational"):
+        new_mae, cur_mae = fitted_score[part].get("mae"), current_score[part].get("mae")
+        if new_mae is not None and cur_mae is not None and new_mae <= cur_mae - MIN_IMPROVEMENT_MINUTES:
+            model[part] = fitted[part]
+            changed.append(f"{part} MAE {cur_mae} -> {new_mae}")
+        else:
+            model[part] = current[part]
+    new_score = score(model, test)
+    report.update({"model": model, "fitted": fitted, "new_score": new_score, "current_score": current_score})
+    if not changed:
         return {**report, "adopt": False,
-                "reason": f"no improvement (MAE {new_score['all']['mae']} vs current {current_score['all']['mae']})"}
-    return {**report, "adopt": True,
-            "reason": f"MAE {current_score['all']['mae']} -> {new_score['all']['mae']} min on {len(test)} recent lockages"}
+                "reason": f"no improvement (MAE {fitted_score['all']['mae']} vs current {current_score['all']['mae']})"}
+    return {**report, "adopt": True, "reason": f"{'; '.join(changed)} min on {len(test)} recent lockages"}

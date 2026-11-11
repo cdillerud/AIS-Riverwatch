@@ -213,6 +213,37 @@ def score(model: dict, samples: List[dict]) -> dict:
     }
 
 
+RANGE_LO, RANGE_HI = 0.2, 0.8     # "likely" = the middle 60% of outcomes
+RANGE_MIN_SAMPLES = 15
+
+
+def _quantile(xs: List[float], p: float) -> float:
+    s = sorted(xs)
+    return s[min(len(s) - 1, int(p * len(s)))]
+
+
+def fit_ranges(model: dict, samples: List[dict]) -> dict:
+    """Per-lock "likely" range for tow waits, learned from how far real waits
+    landed from the model's estimate on held-out lockages. Ratio form:
+    (actual + 10) / (estimate + 10), so the range widens with the estimate.
+    Backtest 2026-11-11 (bands from one half of the held-out days, checked on
+    the other): 63% of real waits inside the 20-80% band (target 60%),
+    median width 32 min; per-lock bands beat one river-wide band at the
+    worst-covered lock (38% vs 29%)."""
+    off = lock_board.RANGE_OFFSET
+    tows = [s for s in samples if not s["recreational"]]
+    if len(tows) < RANGE_MIN_SAMPLES:
+        return {}
+    ratios: Dict[str, List[float]] = defaultdict(list)
+    for s in tows:
+        ratios[s["lock_id"]].append((s["actual"] + off) / (lock_board.tow_wait(s, model) + off))
+    every = [r for rs in ratios.values() for r in rs]
+    band = lambda rs: [round(_quantile(rs, RANGE_LO), 3), round(_quantile(rs, RANGE_HI), 3)]
+    return {"kind": "ratio", "p": [RANGE_LO, RANGE_HI], "global": band(every),
+            "locks": {l: band(rs) for l, rs in ratios.items() if len(rs) >= RANGE_MIN_SAMPLES},
+            "samples": len(every)}
+
+
 def within_bounds(model: dict) -> Optional[str]:
     tow = model["tow"]
     if tow.get("kind") == "l1_features":
@@ -272,6 +303,8 @@ def recalibrate(rows: List[dict], current: dict) -> dict:
             model[part] = current[part]
     new_score = score(model, test)
     report.update({"model": model, "fitted": fitted, "new_score": new_score, "current_score": current_score})
+    # Likely-wait ranges for whichever model is in use after this run.
+    report["ranges"] = fit_ranges(model if changed else current, test)
     if not changed:
         return {**report, "adopt": False,
                 "reason": f"no improvement (MAE {fitted_score['all']['mae']} vs current {current_score['all']['mae']})"}

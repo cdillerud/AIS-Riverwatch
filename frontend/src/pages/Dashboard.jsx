@@ -333,8 +333,6 @@ export default function Dashboard({
 
   // USACE queues at every lock, drawn on the map beside each lock.
   const [lockQueues, setLockQueues] = useState({});
-  // Vessels predicted between locks (last USACE lockage + learned transit times)
-  const [predictedVessels, setPredictedVessels] = useState([]);
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -343,23 +341,11 @@ export default function Dashboard({
         if (!r.ok) return;
         const data = await r.json();
         const byLock = {};
-        const predicted = [];
         for (const lk of data.locks || []) {
           const entries = [...(lk.locking || []), ...(lk.waiting || [])];
           if (entries.length) byLock[lk.lock_id] = entries;
-          for (const a of lk.approaching || []) {
-            if (a.est_river_mile != null) predicted.push({ ...a, to_lock: lk.lock_id, to_lock_name: lk.name });
-          }
         }
-        // A vessel predicted two locks out is also predicted one lock out:
-        // draw it once, for its next lock (earliest ETA).
-        const nearest = new Map();
-        for (const p of predicted) {
-          const key = p.mmsi || p.vessel_name;
-          const prev = nearest.get(key);
-          if (!prev || new Date(p.eta) < new Date(prev.eta)) nearest.set(key, p);
-        }
-        if (!cancelled) { setLockQueues(byLock); setPredictedVessels([...nearest.values()]); }
+        if (!cancelled) { setLockQueues(byLock); }
       } catch { /* keep the last queues */ }
     };
     load();
@@ -1191,7 +1177,6 @@ export default function Dashboard({
                     onFocusClear={() => setFocusedVessel(null)}
                     onVesselDetails={(vessel) => setSelectedVessel(vessel)}
                     lockQueues={lockQueues}
-                    predictedVessels={predictedVessels}
                   />
                   
                   {/* Feature #4: Mini Compass/Heading Indicator - Top Right */}
@@ -1980,7 +1965,6 @@ export default function Dashboard({
                   onFocusClear={() => setFocusedVessel(null)}
                   onVesselDetails={(vessel) => setSelectedVessel(vessel)}
                   lockQueues={lockQueues}
-                    predictedVessels={predictedVessels}
                 />
               </CardContent>
             </Card>

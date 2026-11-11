@@ -1,5 +1,6 @@
 // One completed lockage: where, when, and how long it took.
 // Shared by the vessel detail views and a lock's recent-lockages list.
+import { fmtRiverDateTime } from "@/lib/riverTime";
 
 export function fmtDuration(minutes) {
   if (minutes === null || minutes === undefined || minutes === "") return "—";  // no data, not zero
@@ -12,10 +13,7 @@ export function fmtDuration(minutes) {
 }
 
 function fmtWhen(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return fmtRiverDateTime(iso);   // Central time, like the locks
 }
 
 export function cutsLabel(lockage) {

@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import { MapPin, Lock, ChevronUp, ChevronDown, Minus, Anchor, X, Navigation, Gauge, Box, Timer, ExternalLink, ChevronRight, Radio, Compass, Ruler, Clock, History, Edit3, Hash } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { fmtRiverTime } from "@/lib/riverTime";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getVesselDisplayName, getVesselShortName, hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, getLastSeenMs } from "@/utils/vesselDisplay";
@@ -416,6 +417,16 @@ const RiverVisualizationComponent = ({
 
   // Reset scroll offset when selected lock changes (but NOT when focusing on a vessel)
   const prevSelectedLock = useRef(selectedLock);
+  // Map height in px, for laying out vessel labels without overlap
+  const [mapHeightPx, setMapHeightPx] = useState(500);
+  useEffect(() => {
+    const el = mapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => setMapHeightPx(el.clientHeight || 500));
+    ro.observe(el);
+    setMapHeightPx(el.clientHeight || 500);
+    return () => ro.disconnect();
+  }, []);
   useEffect(() => {
     // Only reset if lock changed and we're not focusing on a vessel
     if (prevSelectedLock.current !== selectedLock && !focusedVessel) {
@@ -580,6 +591,56 @@ const RiverVisualizationComponent = ({
     
     return offsets;
   }, [vessels, minRM, maxRM, userMmsi, compact, isInView]);
+
+  // Vertical label shifts (px) so labels on the same side of the river line
+  // don't overlap: boats 1-3 mi apart weren't close enough to be spread
+  // sideways, but each label is ~3 mi tall at the default zoom, so they
+  // stacked on top of each other. Sweep top-to-bottom per side and push each
+  // label below the previous one; a leader line joins a moved label to its boat.
+  const labelShifts = useMemo(() => {
+    const shifts = {};
+    const H = mapHeightPx || 500;
+    const LH = compact ? 34 : 48;   // label height incl. spacing
+    // Each label goes to whichever side of the river line keeps it closest to
+    // its boat (a dense reach fills both columns instead of one long one).
+    const sides = { left: [], right: [] };
+    const last = { left: -Infinity, right: -Infinity };
+    const items = vessels
+      .filter(v => hasRiverMile(v) && isInView(v.river_mile))
+      .map(v => ({ id: v.mmsi, y: (getRiverPosition(v.river_mile) / 100) * H,
+                   pref: (vesselOffsets[v.mmsi] || 0) < 0 ? "left" : "right" }))
+      .sort((a, b) => a.y - b.y);
+    for (const it of items) {
+      const other = it.pref === "left" ? "right" : "left";
+      const dPref = Math.max(it.y, last[it.pref] + LH) - it.y;
+      const dOther = Math.max(it.y, last[other] + LH) - it.y;
+      const side = dOther + LH / 4 < dPref ? other : it.pref;
+      last[side] = Math.max(it.y, last[side] + LH);
+      sides[side].push(it);
+    }
+    for (const list of Object.values(sides)) {
+      list.sort((a, b) => a.y - b.y);
+      // Forward pass pushes labels down; then each run of touching labels is
+      // re-centred on its boats so a cluster spreads both up and down.
+      const pos = list.map(l => l.y);
+      for (let i = 1; i < pos.length; i++) pos[i] = Math.max(pos[i], pos[i - 1] + LH);
+      let start = 0;
+      for (let i = 1; i <= pos.length; i++) {
+        if (i === pos.length || pos[i] > pos[i - 1] + LH + 0.5) {
+          const run = list.slice(start, i);
+          const drift = run.reduce((acc, l, k) => acc + (pos[start + k] - l.y), 0) / run.length;
+          const lo = LH / 2 - pos[start];                 // keep inside the map
+          const hi = H - LH / 2 - pos[i - 1];
+          const shift = Math.min(Math.max(-drift, lo), Math.max(hi, lo));
+          for (let k = start; k < i; k++) pos[k] += shift;
+          start = i;
+        }
+      }
+      list.forEach((l, k) => { shifts[l.id] = { dy: Math.round(pos[k] - l.y), side: list === sides.left ? "left" : "right" }; });
+    }
+    return shifts;
+  }, [vessels, vesselOffsets, isInView, getRiverPosition, mapHeightPx, compact]);
+
 
   // Get direction icon
   const getDirectionIcon = (heading) => {
@@ -841,7 +902,7 @@ const RiverVisualizationComponent = ({
           .filter(p => isInView(p.est_river_mile) && !(p.mmsi && liveMmsis.has(String(p.mmsi))))
           .map((p, i) => {
             const up = p.direction === 'upbound';
-            const eta = p.eta ? new Date(p.eta).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+            const eta = p.eta ? fmtRiverTime(p.eta) : '';
             return (
               <div
                 key={`pred-${p.mmsi || p.vessel_name}-${i}`}
@@ -873,6 +934,9 @@ const RiverVisualizationComponent = ({
         const lastCheckInClass = getCheckInTextClass(vessel, mapNowTick);
         const horizontalOffset = vesselOffsets[vessel.mmsi] || 0;
         const isOffset = horizontalOffset !== 0;
+        const labelShift = labelShifts[vessel.mmsi]?.dy || 0;
+        const labelLeft = (labelShifts[vessel.mmsi]?.side || (horizontalOffset < 0 ? "left" : "right")) === "left";
+        const labelGap = compact ? 15 : 20;
 
         return (
           <div
@@ -918,6 +982,13 @@ const RiverVisualizationComponent = ({
               }}
             />
 
+            {/* Leader line when the label was moved to avoid overlapping another */}
+            {Math.abs(labelShift) > 6 && (
+              <svg className="absolute pointer-events-none overflow-visible" style={{ left: 0, top: '50%', width: 1, height: 1 }}>
+                <line x1="0" y1="0" x2={labelLeft ? -labelGap : labelGap} y2={labelShift}
+                      stroke={isUser ? 'rgba(34,211,238,0.5)' : 'rgba(245,158,11,0.45)'} strokeWidth="1" />
+              </svg>
+            )}
             {/* Vessel info label - position based on offset direction */}
             <div 
               className={`
@@ -925,9 +996,9 @@ const RiverVisualizationComponent = ({
                 ${isUser ? 'bg-cyan-950/95 border border-cyan-500/50 text-cyan-400' : 'bg-slate-900/95 border border-amber-500/30 text-amber-400'}
               `}
               style={{ 
-                left: horizontalOffset >= 0 ? (compact ? '15px' : '20px') : 'auto',
-                right: horizontalOffset < 0 ? (compact ? '15px' : '20px') : 'auto',
-                top: '50%', 
+                left: labelLeft ? 'auto' : `${labelGap}px`,
+                right: labelLeft ? `${labelGap}px` : 'auto',
+                top: `calc(50% + ${labelShift}px)`, 
                 transform: 'translateY(-50%)'
               }}
             >

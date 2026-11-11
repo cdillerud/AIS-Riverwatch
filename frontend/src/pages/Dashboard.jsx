@@ -62,6 +62,23 @@ function ViewToggle({ value, onChange }) {
   );
 }
 
+function DirectionToggle({ value, onChange, size }) {
+  const btn = (v, label) => (
+    <button
+      type="button"
+      onClick={() => onChange(v)}
+      aria-pressed={value === v}
+      data-testid={`map-edit-direction-${v}`}
+      className={`flex-1 ${size} text-xs font-mono rounded border ${value === v
+        ? "border-cyan-500 bg-cyan-500/15 text-cyan-300"
+        : "border-slate-700 bg-slate-950 text-slate-400 hover:text-white"}`}
+    >
+      {label}
+    </button>
+  );
+  return <div className="flex gap-1">{btn("upbound", "↑ Up")}{btn("downbound", "↓ Down")}</div>;
+}
+
 export default function Dashboard({ 
   isConnected, 
   vessels, 
@@ -150,7 +167,9 @@ export default function Dashboard({
   const [showPositionEditor, setShowPositionEditor] = useState(false);
   const [editRM, setEditRM] = useState("");
   const [editSpeed, setEditSpeed] = useState("");
-  const [editCourse, setEditCourse] = useState("");
+  // Direction, not a compass course: the river isn't north-south (at RM 823
+  // it runs east-northeast), so the course is derived from the channel there.
+  const [editDirection, setEditDirection] = useState("downbound");
   
   // Auto next lock tracking
   const [autoNextLock, setAutoNextLock] = useState(false);
@@ -382,14 +401,22 @@ export default function Dashboard({
     };
   }, [userVessel, selectedLockObj, activeTimingLockId, targetLockBoard]);
 
-  // Get vessels near the target lock (within 5 RM, heading towards it)
-  const lockQueue = useMemo(() => {
-    if (!selectedLockObj?.river_mile) return [];
+  // Get vessels near the target lock (within 10 RM, heading towards it).
+  // A STOPPED vessel at the lock counts as queued only if USACE agrees: with a
+  // current USACE queue for this lock, a parked boat that isn't waiting or
+  // locking (e.g. a harbor tug moored at Lock 2) is listed as moored instead.
+  const { lockQueue, mooredAtLock } = useMemo(() => {
+    if (!selectedLockObj?.river_mile) return { lockQueue: [], mooredAtLock: [] };
     
     const lockRM = selectedLockObj.river_mile;
     const queueRange = 10; // vessels within 10 miles of lock
+    const board = targetLockBoard?.lock_id === selectedLockObj.id && !targetLockBoard.queue_stale ? targetLockBoard : null;
+    const norm = (x) => String(x || "").trim().toUpperCase();
+    const inUsace = board ? new Set([...(board.locking || []), ...(board.waiting || [])]
+      .flatMap(e => [e.mmsi && String(e.mmsi), norm(e.vessel_name)]).filter(Boolean)) : null;
+    const moored = [];
     
-    return vessels
+    const queue = vessels
       .filter(v => {
         // ONLY exclude by MMSI match, not is_user_vessel flag
         if (userMmsi && v.mmsi === userMmsi) return false;
@@ -404,7 +431,13 @@ export default function Dashboard({
         if (v.river_mile > lockRM && v.heading === 'southbound') return true;
         if (v.river_mile < lockRM && v.heading === 'northbound') return true;
         // Include stationary vessels very close to lock
-        if (distToLock < 2) return true;
+        if (distToLock < 2) {
+          if (inUsace && !inUsace.has(String(v.mmsi)) && !inUsace.has(norm(v.name))) {
+            moored.push(v);
+            return false;
+          }
+          return true;
+        }
         
         return false;
       })
@@ -415,7 +448,8 @@ export default function Dashboard({
         return distA - distB;
       })
       .slice(0, 5); // Max 5 vessels in queue view
-  }, [vessels, selectedLockObj, userMmsi]);
+    return { lockQueue: queue, mooredAtLock: moored };
+  }, [vessels, selectedLockObj, userMmsi, targetLockBoard]);
 
   // Get last lockage info from lockageTimes
   const lastLockage = useMemo(() => {
@@ -561,7 +595,7 @@ export default function Dashboard({
     if (userVessel) {
       setEditRM(hasRiverMile(userVessel) ? formatRiverMile(userVessel.river_mile) : "");
       setEditSpeed(formatSpeedMph(userVessel.speed) === '--' ? "" : formatSpeedMph(userVessel.speed));
-      setEditCourse(userVessel.course?.toFixed(0) || "180");
+      setEditDirection(userVessel.heading === "northbound" ? "upbound" : "downbound");
     }
     setShowPositionEditor(true);
   }, [userVessel]);
@@ -571,7 +605,7 @@ export default function Dashboard({
     // Pre-fill the form with current vessel data
     setEditRM(hasRiverMile(vessel) ? formatRiverMile(vessel.river_mile) : "");
     setEditSpeed(formatSpeedMph(vessel.speed) === '--' ? "" : formatSpeedMph(vessel.speed));
-    setEditCourse(vessel.course?.toFixed(0) || "180");
+    setEditDirection(vessel.heading === "northbound" ? "upbound" : "downbound");
     setShowPositionEditor(true);
   };
 
@@ -579,7 +613,6 @@ export default function Dashboard({
   const updateQuickPosition = async () => {
     const rm = parseFloat(editRM);
     const speed = parseFloat(editSpeed);
-    const course = parseFloat(editCourse);
     
     if (isNaN(rm) || rm < 100 || rm > 900) {
       toast.error("River Mile must be between 100 and 900");
@@ -594,6 +627,7 @@ export default function Dashboard({
         return;
       }
       const coords = await coordsResponse.json();
+      const course = editDirection === "upbound" ? coords.upbound_course : coords.downbound_course;
       
       // Convert speed from MPH to knots
       const speedKnots = (speed || 0) * 0.868976;
@@ -616,7 +650,7 @@ export default function Dashboard({
           lat: coords.lat,
           lon: coords.lon,
           speed: speedKnots,
-          course: course || 0,
+          course: course ?? (editDirection === "upbound" ? 0 : 180),
           source: "manual",
           mmsi: effectiveMmsi,
           name: userSettings.boat_name || userVessel?.name || "Your Vessel"
@@ -742,7 +776,7 @@ export default function Dashboard({
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-sm ${isConnected ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}
                 title={isConnected
                   ? "Live vessel positions are arriving from the AIS feed (Settings > AIS Connection)."
-                  : "The AIS feed (Settings > AIS Connection) is not connected, so vessel positions on the map are not updating. Lock queues, waits and history come from USACE and stay current."}
+                  : "The AIS feed (Settings > AIS Connection) is not connected, so vessel positions on the map are not updating. Lock queues, waits and history come from USACE separately (the lock board flags any that are out of date)."}
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'} ${isConnected ? 'animate-pulse' : ''}`} />
                 <span className="text-xs font-mono uppercase whitespace-nowrap">AIS<span className="hidden sm:inline">{isConnected ? ' live' : ' offline'}</span></span>
@@ -1240,15 +1274,8 @@ export default function Dashboard({
                             />
                           </div>
                           <div>
-                            <Label className="text-xs text-slate-400">Course (°)</Label>
-                            <Input
-                              type="number"
-                              placeholder="180"
-                              value={editCourse}
-                              onChange={(e) => setEditCourse(e.target.value)}
-                              className="bg-slate-950 border-slate-700 text-white font-mono h-9"
-                              data-testid="map-edit-course"
-                            />
+                            <Label className="text-xs text-slate-400">Direction</Label>
+                            <DirectionToggle value={editDirection} onChange={setEditDirection} size="h-9" />
                           </div>
                         </div>
                         
@@ -1273,7 +1300,7 @@ export default function Dashboard({
                         </div>
                         
                         <p className="text-[10px] text-slate-500">
-                          0°=North, 180°=South (downriver)
+                          Upbound = toward St. Paul (higher river mile). The course follows the channel at that mile.
                         </p>
                       </div>
                     </div>
@@ -1343,9 +1370,16 @@ export default function Dashboard({
                           <span className="text-slate-400">At this lock (USACE)</span>
                           <span className={`font-mono text-right ${targetLockBoard.queue_count === 0 ? 'text-green-400' : targetLockBoard.wait_estimate_minutes >= 60 ? 'text-amber-400' : 'text-white'}`}
                                 title={WAIT_TOOLTIP}>
-                            {targetLockBoard.queue_count === 0 ? 'No queue · ' : ''}tow ≈ {fmtDuration(targetLockBoard.wait_estimate_minutes)} · pleasure ≈ {fmtDuration(targetLockBoard.wait_estimate_recreational_minutes)}
+                            {targetLockBoard.queue_count === 0 ? (targetLockBoard.queue_stale ? 'Queue unknown · ' : 'No queue · ') : ''}tow ≈ {fmtDuration(targetLockBoard.wait_estimate_minutes)} · pleasure ≈ {fmtDuration(targetLockBoard.wait_estimate_recreational_minutes)}
                           </span>
                         </div>
+                        {targetLockBoard.queue_stale && (
+                          <div className="text-[10px] text-amber-400/90 text-right" data-testid="timing-queue-stale">
+                            {targetLockBoard.queue_age_minutes != null
+                              ? `USACE queue data ${fmtDuration(targetLockBoard.queue_age_minutes)} old - may be out of date`
+                              : 'Waiting for USACE queue data'}
+                          </div>
+                        )}
                         {[...(targetLockBoard.locking || []), ...(targetLockBoard.waiting || [])].slice(0, 4).map((v, i) => (
                           <div key={i} className="flex justify-between text-slate-300 mt-1">
                             <span className="truncate">
@@ -1575,10 +1609,18 @@ export default function Dashboard({
                         <Check className="w-4 h-4 text-green-400" />
                       </div>
                       <div className="text-green-400 font-semibold text-sm">No Traffic</div>
-                      <div className="text-[10px] text-slate-400">Clear path to lock</div>
+                      <div className="text-[10px] text-slate-400" data-testid="no-traffic-note">
+                        {isConnected ? 'Clear path to lock' : 'None seen - AIS offline, vessels on the way may not show'}
+                      </div>
                     </div>
                   )}
                   
+                  {mooredAtLock.length > 0 && (
+                    <div className="text-[10px] text-slate-500 pb-1" data-testid="moored-at-lock"
+                         title="Stopped at the lock but not in the USACE queue - likely tied up, not waiting to lock">
+                      Moored near lock, not waiting (USACE): {mooredAtLock.slice(0, 3).map(v => getVesselDisplayName(v, userSettings.show_vessel_names !== false)).join(", ")}
+                    </div>
+                  )}
                   {/* Feature #2: Lock Queue Preview */}
                   {lockQueue.length > 0 && (
                     <div className="pb-2 border-b border-slate-700">
@@ -1652,7 +1694,9 @@ export default function Dashboard({
               )}
 
               {/* Nearby Vessels Card - Expands to fill remaining space */}
-              <Card className="glass-panel hud-border flex-1 flex flex-col min-h-0" data-testid="vessels-sidebar">
+              {/* Never squeezed below a usable height: the sidebar column scrolls
+                  to reveal it, and its list scrolls inside (was cut to the header). */}
+              <Card className="glass-panel hud-border flex-1 flex-shrink-0 flex flex-col min-h-[340px]" data-testid="vessels-sidebar">
                 <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between flex-shrink-0">
                   <div className="flex items-center gap-2">
                     <Ship className="w-4 h-4 text-cyan-400" />
@@ -1678,7 +1722,7 @@ export default function Dashboard({
                       
                       return (
                         <>
-                          {displayVessels.slice(0, 12).map(vessel => {
+                          {displayVessels.slice(0, 60).map(vessel => {
                             // ONLY match by MMSI, not is_user_vessel flag
                             const isUser = userMmsi && vessel.mmsi === userMmsi;
                             // Highlight search matches
@@ -1739,9 +1783,9 @@ export default function Dashboard({
                               </div>
                             );
                           })}
-                          {displayVessels.length > 12 && (
+                          {displayVessels.length > 60 && (
                             <div className="text-center py-2 text-xs text-slate-500">
-                              +{displayVessels.length - 12} more vessels
+                              +{displayVessels.length - 60} more vessels
                             </div>
                           )}
                         </>
@@ -1826,14 +1870,8 @@ export default function Dashboard({
                                     />
                                   </div>
                                   <div>
-                                    <Label className="text-sm text-slate-400">Course (°)</Label>
-                                    <Input
-                                      type="number"
-                                      placeholder="180"
-                                      value={editCourse}
-                                      onChange={(e) => setEditCourse(e.target.value)}
-                                      className="bg-slate-950 border-slate-700 text-white font-mono h-10"
-                                    />
+                                    <Label className="text-sm text-slate-400">Direction</Label>
+                                    <DirectionToggle value={editDirection} onChange={setEditDirection} size="h-10" />
                                   </div>
                                 </div>
                               </div>
@@ -1845,7 +1883,7 @@ export default function Dashboard({
                                 Update Position
                               </Button>
                               <p className="text-xs text-slate-500 text-center">
-                                0°=North, 180°=South (downriver)
+                                Upbound = toward St. Paul (higher river mile). The course follows the channel at that mile.
                               </p>
                             </div>
                           </SheetContent>

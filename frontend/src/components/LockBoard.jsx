@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { API } from "@/lib/api";
 import { fmtDuration } from "@/components/LockageRow";
+import { fmtRiverTime } from "@/lib/riverTime";
 
 // Lock-first view: every lock's status, queue, estimated wait and typical
 // lockage times from USACE data. Works with no AIS feed. The boat's own
@@ -29,7 +30,7 @@ function lockLabel(lockId) {
 function fmtTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return Number.isNaN(d.getTime()) ? "" : fmtRiverTime(d);   // Central time, like the locks
 }
 
 function StatusBadge({ lock }) {
@@ -119,12 +120,20 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
           <div className="mt-1 text-right" title={WAIT_TOOLTIP}>
             {lock.queue_count > 0 ? (
               <div className={`text-sm font-mono ${busy ? "text-amber-400" : "text-white"}`}>Tow ≈ {fmtDuration(wait)}</div>
+            ) : lock.queue_stale ? (
+              <div className="text-sm font-mono text-slate-400">Queue unknown</div>
             ) : (
               <div className="text-sm font-mono text-green-400">No queue</div>
             )}
             <div className="text-[11px] text-slate-400 font-mono">
               {lock.queue_count > 0 ? "" : `tow ≈ ${fmtDuration(wait)} · `}pleasure ≈ {fmtDuration(lock.wait_estimate_recreational_minutes)}
             </div>
+            {lock.queue_stale && (
+              <div className="text-[11px] text-amber-400/90" data-testid="queue-stale"
+                   title="USACE queue data for this lock hasn't updated recently; the queue and waits may be out of date">
+                {lock.queue_age_minutes != null ? `Queue data ${fmtDuration(lock.queue_age_minutes)} old` : "Waiting for USACE data"}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -288,6 +297,13 @@ export default function LockBoard({ userVessel, selectedLockId, onSelectLock, on
       </div>
 
       {error && <div className="text-xs text-red-400 py-2">{error}</div>}
+      {data?.usace && data.usace.status !== "ok" && (
+        <div className="text-xs text-amber-400 border border-amber-500/30 bg-amber-500/5 rounded px-2 py-1.5 mb-2" data-testid="usace-delayed">
+          {data.usace.status === "down"
+            ? "USACE lock queue data is not coming through right now - queues and waits may be out of date. Call the lock to confirm."
+            : `USACE queue data is delayed for ${data.usace.stale_locks.length} lock${data.usace.stale_locks.length === 1 ? "" : "s"} - those are marked below.`}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto space-y-2 pr-1">
         {locks.map((lock) => (

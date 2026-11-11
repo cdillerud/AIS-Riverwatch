@@ -23,6 +23,18 @@ def is_admin(user: dict) -> bool:
     return bool(user and (user.get("is_admin") or user.get("is_super_admin")))
 
 
+def owns_mmsi(user: dict, mmsi: str) -> bool:
+    """The boat is on this account (POST /user/vessels, first account to add
+    an MMSI keeps it), or the user is an admin. Required to move, simulate,
+    name or claim a boat others see on the map."""
+    if not user or not mmsi:
+        return False
+    if is_admin(user):
+        return True
+    return any(str(v.get("mmsi")) == str(mmsi).strip()
+               for v in (user.get("vessels") or []) if isinstance(v, dict))
+
+
 def visible_global_settings(settings: Dict[str, Any], user: dict) -> Dict[str, Any]:
     if is_admin(user):
         return dict(settings)

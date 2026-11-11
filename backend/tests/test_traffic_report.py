@@ -90,9 +90,63 @@ def test_csv_and_eml():
     assert msg["X-Unsent"] == "1" and msg["Subject"] == r["title"]
     parts = {p.get_content_type(): p for p in msg.walk()}
     assert {"text/plain", "text/html", "text/csv"} <= set(parts)
-    assert parts["text/csv"].get_filename() == "riverwatch-traffic-2026-11-10.csv"
+    assert sorted(p.get_filename() for p in msg.walk() if p.get_content_type() == "text/csv") == [
+        "riverwatch-tows-2026-11-10.csv", "riverwatch-traffic-2026-11-10.csv"]
     sent = T.build_email(r, to="a@example.com", sender="RiverWatch <r@example.com>")
     assert sent["To"] == "a@example.com" and "X-Unsent" not in sent
+
+
+def test_lockage_types_and_long_single_threshold():
+    hist = [{"lock_id": "lock_2", "is_tow": True, "cuts": 1, "lockage_duration_minutes": float(m)}
+            for m in range(20, 50)]                                    # 30 singles, 20..49 min
+    hist += [{"lock_id": "lock_3", "is_tow": True, "cuts": 1, "lockage_duration_minutes": 30.0}] * 5
+    th = T.long_single_thresholds(hist)
+    assert th == {"lock_2": 47.0}                                      # lock_3: too few to judge
+    tow = {"is_tow": True, "cuts": 1, "lockage_duration_minutes": 70.0}
+    assert T.lockage_type(tow, th["lock_2"]) == "Long single"
+    assert T.lockage_type({**tow, "lockage_duration_minutes": 35.0}, 47.0) == "Single"
+    assert T.lockage_type(tow, None) == "Single"                        # no threshold: never flagged
+    assert T.lockage_type({**tow, "cuts": 2}) == "Double"
+    split = [{"barges": 9}, {"barges": 6}]
+    boat = [{"barges": 4}, {"barges": 0}]
+    assert T.lockage_type({**tow, "cuts": 2, "cut_times": split}) == "Double"
+    assert T.lockage_type({**tow, "cuts": 2, "cut_times": boat}) == "Boat separate"
+    assert T.lockage_type({**tow, "cuts": 3}) == "Triple"
+    assert T.lockage_type({"is_tow": False, "is_recreational": False}) == "Light boat"
+
+
+def test_vessel_detail_per_lock():
+    s1, e1 = datetime(2026, 11, 10, 18, 30), datetime(2026, 11, 10, 19, 20)
+    s2, e2 = datetime(2026, 11, 10, 19, 25), datetime(2026, 11, 10, 20, 30)
+    double = {**_row("lock_2", name="BIG TOW", wait=45), "cuts": 2, "entry_time": s1,
+              "lockage_duration_minutes": 120.0, "cut_times": [{"start": s1, "end": e1}, {"start": s2, "end": e2}]}
+    early = {**_row("lock_2", name="EARLY", barges=6, arrival=datetime(2026, 11, 10, 12, 0)), "cuts": 1,
+             "entry_time": datetime(2026, 11, 10, 12, 10), "lockage_duration_minutes": 80.0}
+    light = {**_row("lock_2", kind="other", name="LIGHT BOAT", barges=0), "cuts": 1,
+             "entry_time": datetime(2026, 11, 10, 21, 0)}
+    rec = _row("lock_2", kind="rec", name="RECREATIONAL VESSEL", barges=0)
+    s3, e3, s4, e4 = (datetime(2026, 11, 10, 22, 0), datetime(2026, 11, 10, 22, 50),
+                      datetime(2026, 11, 10, 22, 55), datetime(2026, 11, 10, 23, 20))
+    boat_sep = {**_row("lock_2", name="SMALL TOW", barges=4), "cuts": 2, "entry_time": s3,
+                "cut_times": [{"start": s3, "end": e3, "barges": 4}, {"start": s4, "end": e4, "barges": 0}]}
+    double["cut_times"] = [{**c, "barges": b} for c, b in zip(double["cut_times"], (9, 6))]
+    r = T.build_report(DAY, [double, early, light, rec, boat_sep], [], LOCKS, now=NOW,
+                       long_single_min={"lock_2": 50.0})
+    l2 = r["locks"][0]
+    assert [v["vessel"] for v in l2["vessels"]] == ["EARLY", "BIG TOW", "LIGHT BOAT", "SMALL TOW"]  # no pleasure
+    assert [v["type"] for v in l2["vessels"]] == ["Long single", "Double", "Light boat", "Boat separate"]
+    big = l2["vessels"][1]
+    assert big["cut_minutes"] == [50, 65] and big["cut_barges"] == [9, 6]
+    assert big["barges"] == 15 and big["wait_min"] == 45
+    assert big["started"] == "12:30 PM" and big["arrived"] == "12:00 PM"
+    assert (l2["singles"], l2["long_singles"], l2["doubles"], l2["boat_separate"], l2["light_boats"]) == (1, 1, 1, 1, 1)
+    assert r["totals"]["doubles"] == 1 and r["totals"]["boat_separate"] == 1
+    html = T.render_html(r)
+    assert "Tows by lock" in html and "Double (9+6 barges, 50 + 65 min)" in html
+    assert "Boat separate (50 + 25 min)" in html and "Long single" in html
+    csv_lines = T.render_tows_csv(r).strip().splitlines()
+    assert csv_lines[0].startswith("date,lock_id,lock_name") and len(csv_lines) == 5
+    assert "Double" in csv_lines[2] and "9+6" in csv_lines[2] and "50 + 65" in csv_lines[2]
 
 
 def test_endpoint_formats(monkeypatch, signed_in):
@@ -111,6 +165,9 @@ def test_endpoint_formats(monkeypatch, signed_in):
     assert c.get("/api/reports/traffic", params={"format": "csv"}).headers["content-type"].startswith("text/csv")
     e = c.get("/api/reports/traffic", params={"format": "eml"})
     assert e.headers["content-type"] == "message/rfc822" and "attachment" in e.headers["content-disposition"]
+    tows = c.get("/api/reports/traffic", params={"format": "tows", "download": "true"})
+    assert tows.headers["content-type"].startswith("text/csv")
+    assert 'filename="riverwatch-tows-2026-11-10.csv"' in tows.headers["content-disposition"]
     assert c.get("/api/reports/traffic", params={"format": "pdf"}).status_code == 400
     assert c.get("/api/reports/traffic", params={"date": "2026-11-12"}).status_code == 400  # future
     assert c.get("/api/reports/traffic", params={"date": "2026-09-01"}).status_code == 400  # too old

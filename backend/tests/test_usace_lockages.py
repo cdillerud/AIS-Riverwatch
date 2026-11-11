@@ -36,6 +36,10 @@ def test_cuts_are_combined_into_one_lockage():
     crimson = _records()["CRIMSON GLORY"]
     assert crimson["cuts"] == 2 and crimson["is_double_lockage"]
     assert crimson["barge_count"] == 15                      # 9 + 6
+    cuts = crimson["cut_times"]                              # each cut kept, in order
+    assert len(cuts) == 2 and cuts[0]["start"] < cuts[1]["start"]
+    assert all(c["end"] > c["start"] for c in cuts)
+    assert sorted(c["barges"] for c in cuts) == [6, 9]
     assert crimson["direction"] == "downbound"
     assert crimson["wait_time_minutes"] == 41.0              # 01:14 -> 01:55
     assert crimson["lockage_duration_minutes"] == 136.0      # 01:55 -> 04:11

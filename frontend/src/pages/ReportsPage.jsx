@@ -66,7 +66,7 @@ export default function ReportsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `riverwatch-traffic-${day}.${format}`;
+      a.download = format === "tows" ? `riverwatch-tows-${day}.csv` : `riverwatch-traffic-${day}.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -157,6 +157,11 @@ export default function ReportsPage() {
             <Button size="sm" variant="outline" onClick={() => download("csv")} disabled={!!busy || !html}
                     className="border-slate-700 text-slate-200" data-testid="report-download-csv">
               <Table2 className="w-4 h-4 mr-1" /> Spreadsheet (CSV)
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => download("tows")} disabled={!!busy || !html}
+                    className="border-slate-700 text-slate-200" data-testid="report-download-tows"
+                    title="Every tow at every lock: barges, wait, lockage time, single/double">
+              <Table2 className="w-4 h-4 mr-1" /> Tow detail (CSV)
             </Button>
             {sub?.email_available && (
               <Button size="sm" variant="outline" onClick={emailMe} disabled={!!busy || !html}

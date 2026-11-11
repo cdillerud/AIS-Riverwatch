@@ -5178,14 +5178,32 @@ async def admin_relearn_arrivals(request: Request):
 # ---------------------------------------------------------------------------
 REPORT_MAX_AGE_DAYS = 30  # lockage_history keeps about 30 days of USACE rows
 _report_email_me_last: Dict[str, datetime] = {}
+_long_single_cache: Dict[str, object] = {"at": None, "value": {}}
+
+
+async def _long_single_thresholds() -> Dict[str, float]:
+    """Per-lock 'unusually long single' cut-off, learned from the last 30 days
+    of one-cut tow lockages at that lock; refreshed every 6 h."""
+    now = datetime.now(timezone.utc)
+    if _long_single_cache["at"] and now - _long_single_cache["at"] < timedelta(hours=6):
+        return _long_single_cache["value"]
+    history = await db.lockage_history.find(
+        {"source": "usace_lpms", "is_tow": True, "cuts": 1,
+         "exit_time": {"$gte": (now - timedelta(days=30)).replace(tzinfo=None)}},
+        {"_id": 0, "lock_id": 1, "is_tow": 1, "cuts": 1, "lockage_duration_minutes": 1, "in_progress": 1}
+    ).to_list(None)
+    value = _traffic_report.long_single_thresholds(history)
+    _long_single_cache.update(at=now, value=value)
+    return value
 
 
 async def build_traffic_report(day) -> dict:
     start, end = _traffic_report.day_bounds_utc(day)
     prior_days = 7
-    fields = {"_id": 0, "lock_id": 1, "vessel_name": 1, "direction": 1, "barge_count": 1, "is_tow": 1,
-              "is_recreational": 1, "arrival_time": 1, "exit_time": 1, "wait_time_minutes": 1,
-              "lockage_duration_minutes": 1, "in_progress": 1}
+    fields = {"_id": 0, "lock_id": 1, "vessel_name": 1, "mmsi": 1, "direction": 1, "barge_count": 1,
+              "is_tow": 1, "is_recreational": 1, "arrival_time": 1, "entry_time": 1, "exit_time": 1,
+              "wait_time_minutes": 1, "lockage_duration_minutes": 1, "in_progress": 1, "cuts": 1,
+              "cut_times": 1}
     naive = lambda t: t.astimezone(timezone.utc).replace(tzinfo=None)
     rows = await db.lockage_history.find(
         {"source": "usace_lpms", "exit_time": {"$gte": naive(start), "$lt": naive(end)}}, fields).to_list(None)
@@ -5198,7 +5216,8 @@ async def build_traffic_report(day) -> dict:
     if (_traffic_report.central_today(now) - day).days <= 1:  # status is "now": only beside recent days
         statuses = {s["lock_id"]: s for s in await db.lock_status.find(
             {}, {"_id": 0, "lock_id": 1, "status": 1, "closure_info": 1}).to_list(100) if s.get("lock_id")}
-    return _traffic_report.build_report(day, rows, prior, LOCKS, statuses, prior_days=prior_days, now=now)
+    return _traffic_report.build_report(day, rows, prior, LOCKS, statuses, prior_days=prior_days, now=now,
+                                        long_single_min=await _long_single_thresholds())
 
 
 def _report_day(date_str: Optional[str]):
@@ -5226,14 +5245,18 @@ async def get_traffic_report(date: Optional[str] = None, format: str = "json", d
         body, media = _traffic_report.render_html(report, app_url=_report_mailer.app_url()), "text/html; charset=utf-8"
     elif fmt == "csv":
         body, media = _traffic_report.render_csv(report), "text/csv; charset=utf-8"
+    elif fmt == "tows":  # every tow and light boat: one row per lockage
+        body, media = _traffic_report.render_tows_csv(report), "text/csv; charset=utf-8"
     elif fmt == "eml":
         body, media = _traffic_report.render_eml(report, app_url=_report_mailer.app_url()), "message/rfc822"
         download = True
     else:
-        raise HTTPException(status_code=400, detail="format must be json, html, csv or eml")
+        raise HTTPException(status_code=400, detail="format must be json, html, csv, tows or eml")
     headers = {"Cache-Control": "no-store"}
     if download:
-        headers["Content-Disposition"] = f'attachment; filename="{_traffic_report.filename(report, fmt)}"'
+        name = (f"riverwatch-tows-{report['date']}.csv" if fmt == "tows"
+                else _traffic_report.filename(report, fmt))
+        headers["Content-Disposition"] = f'attachment; filename="{name}"'
     return Response(content=body, media_type=media, headers=headers)
 
 

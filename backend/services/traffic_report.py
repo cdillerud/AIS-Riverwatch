@@ -101,12 +101,80 @@ def _round(v: Optional[float], nd: int = 0):
     return round(v, nd) if nd else int(round(v))
 
 
+def long_single_thresholds(history: Iterable[dict], quantile: float = 0.9,
+                           min_samples: int = 20) -> Dict[str, float]:
+    """Per lock: how long a one-cut tow lockage takes before it is unusually
+    long (the `quantile` of that lock's own one-cut tow lockages). The USACE
+    feed doesn't say "knockout"; a single far slower than the lock's usual
+    single is the visible sign of one (or of a set-over / slow approach).
+    Locks with too few singles get no threshold."""
+    by_lock: Dict[str, List[float]] = {}
+    for r in history:
+        d = _num(r.get("lockage_duration_minutes"))
+        if r.get("is_tow") and r.get("cuts") == 1 and d is not None and not r.get("in_progress"):
+            by_lock.setdefault(r.get("lock_id"), []).append(d)
+    out = {}
+    for lid, ds in by_lock.items():
+        if len(ds) >= min_samples:
+            ds.sort()
+            out[lid] = ds[min(len(ds) - 1, int(quantile * len(ds)))]
+    return out
+
+
+def lockage_type(r: dict, long_single_min: Optional[float] = None) -> str:
+    """Single / Long single / Double / Triple / Light boat, from the cuts."""
+    if not r.get("is_tow"):
+        return "Light boat"
+    cuts = int(r.get("cuts") or 1)
+    if cuts >= 3:
+        return "Triple" if cuts == 3 else f"{cuts} cuts"
+    if cuts == 2:
+        # All the barges in one cut and the towboat alone in the other.
+        per_cut = [c.get("barges") for c in (r.get("cut_times") or [])]
+        if len(per_cut) == 2 and None not in per_cut and sorted(per_cut)[0] == 0:
+            return "Boat separate"
+        return "Double"
+    d = _num(r.get("lockage_duration_minutes"))
+    if long_single_min is not None and d is not None and d > long_single_min:
+        return "Long single"
+    return "Single"
+
+
+def _vessel_detail(r: dict, day: date, long_single_min: Optional[float]) -> dict:
+    arr = _aware(r.get("arrival_time"))
+    ent = _aware(r.get("entry_time"))
+    cuts, cut_barges = [], []
+    for c in r.get("cut_times") or []:
+        s, e = _aware(c.get("start")), _aware(c.get("end"))
+        if s and e:
+            cuts.append(_round((e - s).total_seconds() / 60))
+            cut_barges.append(c.get("barges"))
+    return {
+        "vessel": (r.get("vessel_name") or "Unknown").strip(),
+        "mmsi": r.get("mmsi"),
+        "direction": r.get("direction"),
+        "barges": int(_num(r.get("barge_count")) or 0),
+        "arrived": _arrived(arr, day),
+        "started": _arrived(ent, day),
+        "wait_min": _round(_num(r.get("wait_time_minutes"))),
+        "lockage_min": _round(_num(r.get("lockage_duration_minutes"))),
+        "cuts": int(r.get("cuts") or 1),
+        "cut_minutes": cuts if len(cuts) > 1 else [],
+        "cut_barges": cut_barges if len(cuts) > 1 and None not in cut_barges else [],
+        "type": lockage_type(r, long_single_min),
+        "_sort": ent or arr or datetime.min.replace(tzinfo=timezone.utc),
+    }
+
+
 def build_report(day: date, rows: Iterable[dict], prior_rows: Iterable[dict],
                  locks: Dict[str, dict], statuses: Optional[Dict[str, dict]] = None,
-                 prior_days: int = 7, now: Optional[datetime] = None) -> dict:
+                 prior_days: int = 7, now: Optional[datetime] = None,
+                 long_single_min: Optional[Dict[str, float]] = None) -> dict:
     """rows: the day's completed lockages; prior_rows: the `prior_days` days
     before it (for the usual-traffic comparison); locks: config.LOCKS;
-    statuses: lock_id -> {status, closure_info} as of now (optional)."""
+    statuses: lock_id -> {status, closure_info} as of now (optional);
+    long_single_min: per-lock long-single thresholds (long_single_thresholds)."""
+    long_single_min = long_single_min or {}
     now = now or datetime.now(timezone.utc)
     statuses = statuses or {}
     start, end = day_bounds_utc(day)
@@ -130,7 +198,20 @@ def build_report(day: date, rows: Iterable[dict], prior_rows: Iterable[dict],
         durations = [d for r in rs for d in [_num(r.get("lockage_duration_minutes"))] if d is not None]
         usual = prior_count[lid] / prior_days if prior_days else None
         status = statuses.get(lid) or {}
+        vessels = sorted((_vessel_detail(r, day, long_single_min.get(lid)) for r in rs
+                          if _kind(r) != "recreational"), key=lambda v: v["_sort"])
+        for v in vessels:
+            v.pop("_sort")
+        types = [v["type"] for v in vessels]
         lock_rows.append({
+            "vessels": vessels,
+            "singles": types.count("Single") + types.count("Long single"),
+            "long_singles": types.count("Long single"),
+            "doubles": types.count("Double"),
+            "boat_separate": types.count("Boat separate"),
+            "triples": sum(1 for t in types if t == "Triple" or t.endswith("cuts")),
+            "light_boats": types.count("Light boat"),
+            "long_single_over_min": _round(long_single_min.get(lid)),
             "lock_id": lid,
             "name": info.get("name", lid),
             "river_mile": info.get("river_mile"),
@@ -182,6 +263,12 @@ def build_report(day: date, rows: Iterable[dict], prior_rows: Iterable[dict],
         "recreational": sum(lr["recreational"] for lr in counted),
         "other": sum(lr["other"] for lr in counted),
         "barges": sum(lr["barges"] for lr in counted),
+        "singles": sum(lr["singles"] for lr in counted),
+        "long_singles": sum(lr["long_singles"] for lr in counted),
+        "doubles": sum(lr["doubles"] for lr in counted),
+        "boat_separate": sum(lr["boat_separate"] for lr in counted),
+        "triples": sum(lr["triples"] for lr in counted),
+        "light_boats": sum(lr["light_boats"] for lr in counted),
         "upbound": sum(lr["upbound"] for lr in counted),
         "downbound": sum(lr["downbound"] for lr in counted),
         "median_tow_wait_min": _round(st.median(tow_waits)) if tow_waits else None,
@@ -363,6 +450,8 @@ def render_html(report: dict, app_url: Optional[str] = None) -> str:
                       f'<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;font-size:13px;">'
                       f"<thead><tr>{wh}</tr></thead><tbody>{rows}</tbody></table>")
 
+    detail_html = _render_vessel_detail(report)
+
     closures = ""
     if report["closures"]:
         items = "".join(f'<li><b>{_e(c["name"])}</b>: {_e(c["status"].title())}'
@@ -376,6 +465,12 @@ def render_html(report: dict, app_url: Optional[str] = None) -> str:
                    "a tow locked through in cuts counts once. Usual = average a day over the previous 7 days "
                    "(orange when well above it). Tow wait = the typical (median) wait from arrival to start of "
                    "lockage; Longest = longest wait of any vessel.",
+                   "Lockage type comes from the cuts USACE logged: Single = one lockage; Double = the barges "
+                   "split across two lockages (e.g. 9+6); Boat separate = all barges in one lockage and the "
+                   "towboat alone in a second; Long single = one lockage, but slower than 9 in 10 singles at "
+                   "that lock over the past 30 days, which usually means the towboat had to be reconfigured "
+                   "(e.g. a knockout, moved alongside the barges to fit). USACE's public feed doesn't name "
+                   "the lockage type, so these are read from its timings and barge counts.",
                    f"Generated {gen.strftime('%b')} {gen.day}, {gen.year} {_clock(gen)} {gen.tzname()}."]
     if report["no_data_locks"]:
         footer_bits.append("No USACE data: " + _e(", ".join(report["no_data_locks"])) + ".")
@@ -400,13 +495,93 @@ def render_html(report: dict, app_url: Optional[str] = None) -> str:
 <h2 style="font-size:15px;margin:24px 0 8px;color:{_C['ink']};">By lock, upstream to downstream</h2>
 <div style="overflow-x:auto;">{table}</div>
 {waits_html}
+{detail_html}
 <div style="margin-top:24px;padding-top:10px;border-top:1px solid {_C['line']};font-size:11px;color:{_C['muted']};line-height:1.4;">{footer}</div>
 </div></body></html>"""
 
 
+_TYPE_COLOR = {"Long single": _C["warn"], "Double": _C["accent"], "Boat separate": _C["accent"],
+               "Triple": _C["bad"]}
+
+
+def _type_label(v: dict) -> str:
+    """'Double (9+6 barges, 52 + 61 min)'."""
+    label = v["type"]
+    bits = []
+    if v.get("cut_barges") and v["type"] != "Boat separate":
+        bits.append("+".join(str(b) for b in v["cut_barges"]) + " barges")
+    if v["cut_minutes"]:
+        bits.append(" + ".join(str(m) for m in v["cut_minutes"]) + " min")
+    return label + (f" ({', '.join(bits)})" if bits else "")
+
+
+def _render_vessel_detail(report: dict) -> str:
+    """Every tow and light boat at each lock, in the order they locked."""
+    dash = "—"
+    th = lambda h, a: (f'<th style="padding:5px 8px;background:{_C["head"]};text-align:{a};font-size:11px;'
+                       f'color:{_C["muted"]};text-transform:uppercase;border-bottom:1px solid {_C["line"]};'
+                       f'white-space:nowrap;">{h}</th>')
+    head = "".join(th(h, a) for h, a in [("Vessel", "left"), ("Dir", "left"), ("Barges", "right"),
+                                         ("Arrived", "right"), ("Wait", "right"), ("Started", "right"),
+                                         ("Lockage", "right"), ("Type", "left")])
+    blocks = []
+    for lr in report["locks"]:
+        vs = lr.get("vessels") or []
+        if not vs:
+            continue
+        counts = [f"{lr['tows']} tow{'s' if lr['tows'] != 1 else ''}"]
+        for n, word in ((lr["singles"], "single"), (lr["doubles"], "double"), (lr["triples"], "triple"),
+                        (lr["light_boats"], "light boat")):
+            if n:
+                counts.append(f"{n} {word}{'s' if n != 1 else ''}")
+        if lr["boat_separate"]:
+            counts.append(f"{lr['boat_separate']} boat separate")
+        if lr["long_singles"]:
+            counts.append(f"{lr['long_singles']} long")
+        rows = "".join(
+            "<tr>" + _cell(_e(v["vessel"]), "left", bold=True)
+            + _cell({"upbound": "Up", "downbound": "Down"}.get(v["direction"], dash), "left")
+            + _cell(v["barges"] if v["type"] != "Light boat" else dash)
+            + _cell(_e(v["arrived"] or dash)) + _cell(_e(_fmt_minutes(v["wait_min"])))
+            + _cell(_e(v["started"] or dash)) + _cell(_e(_fmt_minutes(v["lockage_min"])))
+            + _cell(_e(_type_label(v)), "left", color=_TYPE_COLOR.get(v["type"])) + "</tr>"
+            for v in vs)
+        blocks.append(
+            f'<h3 style="font-size:13px;margin:16px 0 4px;color:{_C["ink"]};">{_e(lr["name"])} '
+            f'<span style="font-weight:400;color:{_C["muted"]};">RM {_e(lr["river_mile"])} · '
+            f'{_e(", ".join(counts))}</span></h3>'
+            f'<div style="overflow-x:auto;"><table role="presentation" cellspacing="0" cellpadding="0" '
+            f'style="border-collapse:collapse;width:100%;font-size:12px;"><thead><tr>{head}</tr></thead>'
+            f"<tbody>{rows}</tbody></table></div>")
+    if not blocks:
+        return ""
+    return (f'<h2 style="font-size:15px;margin:28px 0 4px;color:{_C["ink"]};">Tows by lock</h2>'
+            f'<div style="font-size:12px;color:{_C["muted"]};">Every tow and light boat, in the order they '
+            f"locked through. Pleasure boats are counted above.</div>" + "".join(blocks))
+
+
+TOW_CSV_COLUMNS = ["date", "lock_id", "lock_name", "river_mile", "vessel", "mmsi", "direction", "barges",
+                   "arrived", "started", "wait_min", "lockage_min", "type", "cuts", "cut_barges",
+                   "cut_minutes"]
+
+
+def render_tows_csv(report: dict) -> str:
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=TOW_CSV_COLUMNS, extrasaction="ignore", lineterminator="\r\n")
+    w.writeheader()
+    for lr in report["locks"]:
+        for v in lr.get("vessels") or []:
+            w.writerow({**v, "date": report["date"], "lock_id": lr["lock_id"], "lock_name": lr["name"],
+                        "river_mile": lr["river_mile"],
+                        "cut_barges": "+".join(str(b) for b in v["cut_barges"]),
+                        "cut_minutes": " + ".join(str(m) for m in v["cut_minutes"])})
+    return buf.getvalue()
+
+
 CSV_COLUMNS = ["date", "lock_id", "name", "river_mile", "lockages", "upbound", "downbound", "tows",
                "barges", "recreational", "other", "median_tow_wait_min", "median_rec_wait_min",
-               "max_wait_min", "avg_lockage_min", "usual_lockages", "status"]
+               "max_wait_min", "avg_lockage_min", "usual_lockages", "singles", "long_singles", "doubles",
+               "boat_separate", "triples", "light_boats", "status"]
 
 
 def render_csv(report: dict) -> str:
@@ -460,4 +635,6 @@ def build_email(report: dict, to: Optional[str] = None, sender: Optional[str] = 
     msg.add_alternative(render_html(report, app_url=app_url), subtype="html")
     msg.add_attachment(render_csv(report).encode("utf-8"), maintype="text", subtype="csv",
                        filename=filename(report, "csv"))
+    msg.add_attachment(render_tows_csv(report).encode("utf-8"), maintype="text", subtype="csv",
+                       filename=f"riverwatch-tows-{report['date']}.csv")
     return msg

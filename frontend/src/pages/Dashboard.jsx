@@ -40,6 +40,7 @@ import { useAuth } from "@/context/AuthContext";
 import { API } from "@/lib/api";
 import LockageRow, { fmtDuration } from "@/components/LockageRow";
 import LockBoard, { WAIT_TOOLTIP } from "@/components/LockBoard";
+import { fmtRiverTime } from "@/lib/riverTime";
 
 // Map (vessel positions) or Locks (lock-first board from USACE data).
 const VIEW_KEY = "riverwatch_main_view";
@@ -77,6 +78,29 @@ function DirectionToggle({ value, onChange, size }) {
     </button>
   );
   return <div className="flex gap-1">{btn("upbound", "↑ Up")}{btn("downbound", "↓ Down")}</div>;
+}
+
+// One boat expected to lock before us, and why we think so.
+function AheadRow({ a }) {
+  const up = a.direction === "upbound";
+  const arrow = a.direction ? (up ? "↑" : "↓") : "";
+  const etaAt = a.eta ? new Date(a.eta) : null;
+  const eta = etaAt ? fmtRiverTime(etaAt) : "";
+  // A guessed boat past its usual arrival time: still counted (it may be
+  // slow), but say so
+  const overdue = a.source === "usace_prediction" && etaAt && etaAt.getTime() < Date.now();
+  const why = a.source === "queue" ? "at the lock now (USACE)"
+    : a.source === "ais" ? `seen on AIS${a.distance_mi != null ? ` · ${a.distance_mi} mi out` : ""}${eta ? ` · ≈ ${eta}` : ""}`
+    : `expected from USACE history${a.probability != null && a.probability < 0.8 ? ` · ${Math.round(a.probability * 100)}% likely` : ""}${eta ? (overdue ? ` · overdue (due ${eta})` : ` · ≈ ${eta}`) : ""}`;
+  return (
+    <div className="text-[11px] py-0.5" data-testid="ahead-row">
+      <div className="text-slate-300 break-words">
+        {a.vessel_name || "Unknown"} <span className={up ? "text-green-400" : "text-red-400"}>{arrow}</span>
+        <span className="text-slate-500"> {a.barges ? `${a.barges} barges` : ""}</span>
+      </div>
+      <div className={`pl-2 ${a.source === "usace_prediction" ? "text-slate-500" : "text-slate-400"}`}>{why}</div>
+    </div>
+  );
 }
 
 export default function Dashboard({ 
@@ -320,7 +344,9 @@ export default function Dashboard({
         const arrive = arriveInMinutes != null ? `&arrive_in=${arriveInMinutes}` : "";
         // The wait model splits the queue into same / opposite direction.
         const dir = userDirection ? `&direction=${userDirection}` : "";
-        const r = await fetch(`${API}/locks/board?lock_id=${encodeURIComponent(activeTimingLockId)}${arrive}${dir}`, { credentials: "include" });
+        // Our own boat is never counted as arriving ahead of us
+        const me = userMmsi ? `&mmsi=${encodeURIComponent(userMmsi)}` : "";
+        const r = await fetch(`${API}/locks/board?lock_id=${encodeURIComponent(activeTimingLockId)}${arrive}${dir}${me}`, { credentials: "include" });
         if (!r.ok) return;
         const data = await r.json();
         if (!cancelled) setTargetLockBoard(data.locks?.[0] || null);
@@ -329,7 +355,7 @@ export default function Dashboard({
     load();
     const id = setInterval(load, 60000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [activeTimingLockId, arriveInMinutes, userDirection]);
+  }, [activeTimingLockId, arriveInMinutes, userDirection, userMmsi]);
 
   // USACE queues at every lock, drawn on the map beside each lock.
   const [lockQueues, setLockQueues] = useState({});
@@ -381,6 +407,9 @@ export default function Dashboard({
       waitKind: userIsTow ? 'tow' : 'pleasure',
       onArrival: !!atArrival,
       aheadCount: atArrival ? atArrival.ahead_count : null,
+      // Who is expected to lock before us: USACE queue, boats seen heading in
+      // on AIS, and boats expected from USACE history
+      aheadList: atArrival?.ahead || [],
       towWait: board ? board.wait_estimate_minutes : null,
       pleasureWait: board ? board.wait_estimate_recreational_minutes : null,
       totalMinutes: travelMinutes && wait != null ? (parseFloat(travelMinutes) + wait).toFixed(0) : null
@@ -1553,6 +1582,18 @@ export default function Dashboard({
                           <span className="text-cyan-400 font-mono font-semibold">~{lockTravelInfo.totalMinutes || '--'} min</span>
                         </div>
                       </div>
+                      {lockTravelInfo.aheadList?.length > 0 && (
+                        <div className="mt-2 pt-1.5 border-t border-slate-800" data-testid="ahead-on-arrival">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
+                               title="Boats expected to lock through before you get there. The wait above counts them.">
+                            Ahead of you when you arrive
+                          </div>
+                          {lockTravelInfo.aheadList.slice(0, 5).map((a, i) => <AheadRow key={i} a={a} />)}
+                          {lockTravelInfo.aheadList.length > 5 && (
+                            <div className="text-[10px] text-slate-500">+{lockTravelInfo.aheadList.length - 5} more</div>
+                          )}
+                        </div>
+                      )}
                     </>
                   )}
                   
@@ -1598,9 +1639,12 @@ export default function Dashboard({
                       <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-1">
                         <Check className="w-4 h-4 text-green-400" />
                       </div>
-                      <div className="text-green-400 font-semibold text-sm">No Traffic</div>
+                      <div className="text-green-400 font-semibold text-sm">
+                        {lockTravelInfo?.aheadList?.length ? 'No traffic on AIS' : 'No Traffic'}
+                      </div>
                       <div className="text-[10px] text-slate-400" data-testid="no-traffic-note">
-                        {isConnected ? 'Clear path to lock' : 'None seen - AIS offline, vessels on the way may not show'}
+                        {!isConnected ? 'None seen - AIS offline, vessels on the way may not show'
+                          : lockTravelInfo?.aheadList?.length ? 'No boat in sight to race to the lock' : 'Clear path to lock'}
                       </div>
                     </div>
                   )}

@@ -227,9 +227,14 @@ def predict_waits_at(lock_id: str, locking: List[dict], waiting: List[dict], app
     now = now or datetime.now(timezone.utc)
     sim = queue_minutes_at(lock_id, locking, waiting, approaching, typical, arrive_at, now)
     q = sim["queue_minutes"]
-    if (arrive_at - now) <= SIMULATE_BEYOND:
+    # Boats seen on AIS heading in ahead of you are observed, not guessed.
+    ais_ahead = any(v.get("source") == "ais" for v in sim["ahead"] if v not in waiting)
+    if (arrive_at - now) <= SIMULATE_BEYOND and not ais_ahead:
         # Close in, the queue as it stands predicts better than simulating it
-        # forward (backtest 1 h ahead: MAE 57.6 vs 65.2 min).
+        # forward with USACE-based guesses (backtest 1 h ahead: MAE 57.6 vs
+        # 65.2 min). Arrivals confirmed on AIS are simulated instead: the
+        # backtest's error came from guessed boats that never showed up.
+        # (Not backtested: AIS history is too short so far.)
         tow = predict_waits(lock_id, locking, waiting, typical, direction, now)["tow"]
     else:
         # Further out, simulate: the lockage in progress finishes, waiting and
@@ -240,8 +245,12 @@ def predict_waits_at(lock_id: str, locking: List[dict], waiting: List[dict], app
     rec = CALIBRATION["recreational"]["intercept"] + CALIBRATION["recreational"]["slope"] * q
     return {"tow": round(max(0.0, tow)), "recreational": round(max(0.0, rec)),
             "queue_minutes": q, "ahead_count": len(sim["ahead"]),
-            "ahead": [{"vessel_name": v.get("vessel_name"), "barges": v.get("barges"),
+            "ahead": [{"vessel_name": v.get("vessel_name"), "mmsi": v.get("mmsi"), "barges": v.get("barges"),
                        "direction": v.get("direction"), "predicted": "eta" in v,
+                       # "queue" (USACE: at the lock), "ais" (seen heading in) or "usace_prediction"
+                       "source": v.get("source") or ("usace_prediction" if "eta" in v else "queue"),
+                       "eta": v["eta"].isoformat() if isinstance(v.get("eta"), datetime) else v.get("eta"),
+                       "distance_mi": v.get("distance_mi"),
                        "probability": v.get("probability", 1.0)} for v in sim["ahead"]]}
 
 

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
-  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings, Map,
+  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings, MapIcon,
   Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
   Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info,
   LogOut, Radio, User, Eye, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
@@ -400,6 +400,10 @@ export default function Dashboard({
       totalMinutes: travelMinutes && wait != null ? (parseFloat(travelMinutes) + wait).toFixed(0) : null
     };
   }, [userVessel, selectedLockObj, activeTimingLockId, targetLockBoard]);
+
+  // Other boats with a fresh AIS position, for the Locks list ("On AIS now").
+  const liveAisVessels = useMemo(() => vessels.filter(v =>
+    !(userMmsi && v.mmsi === userMmsi) && hasRiverMile(v) && !isVesselStale(v)), [vessels, userMmsi]);
 
   // Get vessels near the target lock (within 10 RM, heading towards it).
   // A STOPPED vessel at the lock counts as queued only if USACE agrees: with a
@@ -805,7 +809,7 @@ export default function Dashboard({
                 data-testid="trips-nav-btn"
                 title="My Trips"
               >
-                <Map className="w-4 h-4" />
+                <MapIcon className="w-4 h-4" />
               </Button>
 
               {/* Settings - Icon only */}
@@ -1167,7 +1171,8 @@ export default function Dashboard({
                 <div className="relative h-[calc(100%-44px)]">
                   {mainView === "locks" && (
                     <div className="absolute inset-0 z-40 bg-[#020617]">
-                      <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail} />
+                      <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail}
+                                 aisVessels={liveAisVessels} allLocks={locks} />
                     </div>
                   )}
                   <RiverVisualization

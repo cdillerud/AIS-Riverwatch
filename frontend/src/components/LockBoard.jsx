@@ -3,10 +3,13 @@ import { RefreshCw } from "lucide-react";
 import { API } from "@/lib/api";
 import { fmtDuration } from "@/components/LockageRow";
 import { fmtRiverTime } from "@/lib/riverTime";
+import { aisNearLocks } from "@/lib/aisAtLocks";
+import { getVesselDisplayName } from "@/utils/vesselDisplay";
 
 // Lock-first view: every lock's status, queue, estimated wait and typical
 // lockage times from USACE data. Works with no AIS feed. The boat's own
-// position (phone GPS / AIS) only narrows it to the locks ahead.
+// position (phone GPS / AIS) narrows it to the locks ahead; live AIS boats
+// near each lock are listed beside the USACE queue.
 
 const POLL_MS = 60000;
 
@@ -97,10 +100,38 @@ function Vessel({ v, locking }) {
   );
 }
 
-function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
+const normName = (x) => String(x || "").trim().toUpperCase();
+
+// Live AIS boats at or heading for this lock - the boats Boat Beacon shows.
+function AisRow({ a, inUsace }) {
+  const v = a.vessel;
+  const up = a.direction === "upbound";
+  const arrow = a.direction ? (up ? "↑" : "↓") : "";
+  const mph = (Number(v.speed) || 0) * 1.15078;
+  const where = a.distance_mi < 0.3 ? "at the lock" : `${a.distance_mi} mi ${a.side}`;
+  return (
+    <div className="flex justify-between gap-2 text-xs py-0.5 text-slate-300" data-testid="lock-ais-row">
+      <span className="truncate">
+        {getVesselDisplayName(v)} <span className={up ? "text-green-400" : "text-red-400"}>{arrow}</span>
+        <span className="text-slate-500"> · {where}{a.moving ? ` · ${mph.toFixed(1)} mph` : " · stopped"}</span>
+        {inUsace && <span className="text-cyan-400/80"> · in USACE queue</span>}
+      </span>
+      {a.moving && a.eta_minutes != null && (
+        <span className="shrink-0 font-mono text-slate-300" title="At its current speed">≈ {fmtDuration(a.eta_minutes)}</span>
+      )}
+    </div>
+  );
+}
+
+function LockCard({ lock, selected, onSelectLock, onLockDetails, ais = [], liveIds }) {
   const t = lock.typical || {};
   const wait = lock.wait_estimate_minutes;
   const busy = wait >= 60;
+  const usaceIds = new Set([...(lock.locking || []), ...(lock.waiting || [])]
+    .flatMap(e => [e.mmsi && String(e.mmsi), normName(e.vessel_name)]).filter(Boolean));
+  // A predicted boat that is live on AIS is shown from AIS instead.
+  const approaching = (lock.approaching || []).filter(a =>
+    !(liveIds && ((a.mmsi && liveIds.has(String(a.mmsi))) || liveIds.has(normName(a.vessel_name)))));
   return (
     <div
       className={`rounded border p-3 cursor-pointer ${selected ? "border-cyan-500/70 bg-cyan-500/5" : "border-slate-700 bg-slate-900/40 hover:border-slate-500"}`}
@@ -148,13 +179,27 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
         </div>
       )}
 
-      {lock.approaching?.length > 0 && (
+      {ais.length > 0 && (
+        <div className="mt-2 border-t border-slate-800 pt-1.5" data-testid="lock-ais">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
+               title="Live positions from your AIS feed (Boat Beacon): boats stopped within 3 mi of this lock, or under way toward it within 15 mi. A boat stopped near a lock may be moored or fleeting, not waiting.">
+            On AIS now
+          </div>
+          {ais.slice(0, 6).map((a, i) => (
+            <AisRow key={a.vessel.mmsi || i} a={a}
+                    inUsace={usaceIds.has(String(a.vessel.mmsi)) || usaceIds.has(normName(a.vessel.name))} />
+          ))}
+          {ais.length > 6 && <div className="text-[11px] text-slate-500">+{ais.length - 6} more</div>}
+        </div>
+      )}
+
+      {approaching.length > 0 && (
         <div className="mt-2 border-t border-slate-800 pt-1.5" data-testid="lock-approaching">
           <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
                title="Predicted from each vessel's last USACE lockage and typical transit times between these locks (typically within ~45 min)">
             Approaching · predicted
           </div>
-          {lock.approaching.slice(0, 4).map((a, i) => {
+          {approaching.slice(0, 4).map((a, i) => {
             const up = a.direction === "upbound";
             return (
               <div key={i} className="flex justify-between gap-2 text-xs py-0.5 text-slate-300">
@@ -175,8 +220,8 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
               </div>
             );
           })}
-          {lock.approaching.length > 4 && (
-            <div className="text-[11px] text-slate-500">+{lock.approaching.length - 4} more</div>
+          {approaching.length > 4 && (
+            <div className="text-[11px] text-slate-500">+{approaching.length - 4} more</div>
           )}
         </div>
       )}
@@ -210,7 +255,12 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails }) {
   );
 }
 
-export default function LockBoard({ userVessel, selectedLockId, onSelectLock, onLockDetails, compact = false }) {
+export default function LockBoard({ userVessel, selectedLockId, onSelectLock, onLockDetails, compact = false,
+                                    aisVessels = [], allLocks = [] }) {
+  // Live AIS boats (already filtered to fresh positions, not our own boat)
+  const aisByLock = useMemo(() => aisNearLocks(aisVessels, allLocks), [aisVessels, allLocks]);
+  const liveIds = useMemo(() => new Set(aisVessels.flatMap(v => [v.mmsi && String(v.mmsi), normName(v.name)]).filter(Boolean)),
+    [aisVessels]);
   const autoDirection = headingToDirection(userVessel?.heading || userVessel?.heading_direction);
   const position = Number.isFinite(Number(userVessel?.river_mile)) ? Number(userVessel.river_mile) : null;
 
@@ -308,7 +358,8 @@ export default function LockBoard({ userVessel, selectedLockId, onSelectLock, on
       <div className="flex-1 overflow-y-auto space-y-2 pr-1">
         {locks.map((lock) => (
           <LockCard key={lock.lock_id} lock={lock} selected={lock.lock_id === selectedLockId}
-                    onSelectLock={onSelectLock} onLockDetails={onLockDetails} />
+                    onSelectLock={onSelectLock} onLockDetails={onLockDetails}
+                    ais={aisByLock[lock.lock_id] || []} liveIds={liveIds} />
         ))}
         {!loading && !error && locks.length === 0 && (
           <div className="text-xs text-slate-500 py-4 text-center">No locks in that direction from your position.</div>

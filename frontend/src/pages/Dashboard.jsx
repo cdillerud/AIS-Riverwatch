@@ -783,6 +783,228 @@ export default function Dashboard({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showPositionEditor, selectedVessel, selectedLockDetail, openPositionEditor, handleRefresh]);
 
+  // Lock Timing card (vessel owners): next lock, travel, expected wait when you
+  // arrive, who's ahead, race-the-tow. Same card on desktop and phones.
+  const renderLockTimingCard = () => (
+        <Card className="glass-panel hud-border flex-shrink-0" data-testid="timing-sidebar">
+          <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm font-medium text-white">Lock Timing</span>
+            </div>
+            <Badge className={`text-[10px] ${
+              isDangerous
+                ? 'bg-red-500/20 text-red-400 border-red-500/50'
+                : isTimingPaused
+                  ? 'bg-slate-500/20 text-slate-300 border-slate-500/50'
+                  : raceAnalysis?.analysis?.threatening_vessel
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
+                    : 'bg-green-500/20 text-green-400 border-green-500/50'
+            }`}>
+              {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
+            </Badge>
+          </div>
+          <div className="p-3 space-y-3">
+            {/* Target Lock Info - Clickable to open details */}
+            <div 
+              className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
+              onClick={() => setSelectedLockDetail(activeTimingLockId)}
+              title="Click to view lock details"
+            >
+              <div className="text-[10px] text-slate-500 uppercase">Target Lock</div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
+                  <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
+                  {!isTrafficWatch && selectedLock !== activeTimingLockId && (
+                    <div className="text-[10px] text-cyan-400 mt-1">
+                      Timing follows your next lock. Map view: L{selectedLock.replace('lock_', '')}.
+                    </div>
+                  )}
+                </div>
+                <ChevronDown className="w-4 h-4 text-cyan-400" />
+              </div>
+            </div>
+            
+            {/* Feature #1: Distance & Time Breakdown */}
+            {lockTravelInfo.distance && (
+              <>
+                {/* Show warning if lock is very far away */}
+                {parseFloat(lockTravelInfo.distance) > 100 && (
+                  <div className="text-[10px] text-slate-500 bg-slate-800/50 rounded px-2 py-1.5 mb-2 flex items-center gap-1.5">
+                    <Route className="w-3 h-3" />
+                    <span>This lock is {parseFloat(lockTravelInfo.distance).toFixed(0)} miles away. Select a closer lock for relevant timing data.</span>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2 text-xs pb-2 border-b border-slate-700">
+                  <div className="flex items-center gap-1.5">
+                    <Route className="w-3 h-3 text-slate-500" />
+                    <span className="text-slate-400">Distance:</span>
+                    <span className="text-white font-mono">{lockTravelInfo.distance} mi</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Timer className="w-3 h-3 text-slate-500" />
+                    <span className="text-slate-400">Travel:</span>
+                    <span className="text-white font-mono">{lockTravelInfo.travelMinutes || '--'} min</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-3 h-3 text-slate-500" />
+                    <span className="text-slate-400">Est. Wait:</span>
+                    <span className="text-amber-400 font-mono"
+                          title={`${WAIT_TOOLTIP}${lockTravelInfo.towWait != null ? ` Tow ≈ ${fmtDuration(lockTravelInfo.towWait)}, pleasure boat ≈ ${fmtDuration(lockTravelInfo.pleasureWait)}.` : ''}`}>
+                      {lockTravelInfo.estimatedWait == null ? '--'
+                        : `~${fmtDuration(lockTravelInfo.estimatedWait)} ${lockTravelInfo.waitKind}${
+                            lockTravelInfo.onArrival
+                              ? (lockTravelInfo.aheadCount ? ` · ${lockTravelInfo.aheadCount} ahead when you arrive` : ' · on arrival')
+                              : (lockTravelInfo.queueCount ? ` (${lockTravelInfo.queueCount} ahead)` : '')}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Gauge className="w-3 h-3 text-slate-500" />
+                    <span className="text-slate-400">Total:</span>
+                    <span className="text-cyan-400 font-mono font-semibold">~{lockTravelInfo.totalMinutes || '--'} min</span>
+                  </div>
+                </div>
+                {lockTravelInfo.aheadList?.length > 0 && (
+                  <div className="mt-2 pt-1.5 border-t border-slate-800" data-testid="ahead-on-arrival">
+                    <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
+                         title="Boats expected to lock through before you get there. The wait above counts them.">
+                      Ahead of you when you arrive
+                    </div>
+                    {lockTravelInfo.aheadList.slice(0, 5).map((a, i) => <AheadRow key={i} a={a} onOpen={() => openVesselDetails(a, selectedLockObj?.name)} />)}
+                    {lockTravelInfo.aheadList.length > 5 && (
+                      <div className="text-[10px] text-slate-500">+{lockTravelInfo.aheadList.length - 5} more</div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            
+            {/* Threat Info / Clear Status */}
+            {raceAnalysis?.analysis?.threatening_vessel ? (
+              <div className="space-y-2 pb-2 border-b border-slate-700">
+                <div className="flex items-center gap-2 text-amber-400">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="text-sm font-semibold">Traffic Ahead</span>
+                </div>
+                <div className="bg-slate-800/50 rounded p-2 text-xs">
+                  <div className="font-medium text-white mb-1">
+                    {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-slate-400">
+                    <span>ETA: {raceAnalysis.analysis.threatening_vessel.eta_minutes?.toFixed(0) || '--'}m</span>
+                    <span>RM: {formatRiverMile(raceAnalysis.analysis.threatening_vessel.river_mile)}</span>
+                  </div>
+                </div>
+                <div className="text-center py-2">
+                  <div className="text-[10px] text-slate-500 uppercase">Speed Needed to Arrive Before Tow</div>
+                  {isTimingPaused ? (
+                    <>
+                      <div className="text-2xl font-mono font-bold text-slate-300">Stopped</div>
+                      <div className="text-[10px] text-slate-400 mt-1">
+                        Start moving or enter a speed to estimate the speed needed to arrive before the tow.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
+                        {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
+                      </div>
+                      {isDangerous && (
+                        <div className="text-[10px] text-red-400 mt-1">Exceeds max speed ({maxAllowedSpeedMph} mph)</div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-3 pb-2 border-b border-slate-700">
+                <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-1">
+                  <Check className="w-4 h-4 text-green-400" />
+                </div>
+                <div className="text-green-400 font-semibold text-sm">
+                  {lockTravelInfo?.aheadList?.length ? 'No traffic on AIS' : 'No Traffic'}
+                </div>
+                <div className="text-[10px] text-slate-400" data-testid="no-traffic-note">
+                  {!isConnected ? 'None seen - AIS offline, vessels on the way may not show'
+                    : lockTravelInfo?.aheadList?.length ? 'No boat in sight to race to the lock' : 'Clear path to lock'}
+                </div>
+              </div>
+            )}
+            
+            {mooredAtLock.length > 0 && (
+              <div className="text-[10px] text-slate-500 pb-1" data-testid="moored-at-lock"
+                   title="Stopped at the lock but not in the USACE queue - likely tied up, not waiting to lock">
+                Moored near lock, not waiting (USACE): {mooredAtLock.slice(0, 3).map(v => getVesselDisplayName(v, userSettings.show_vessel_names !== false)).join(", ")}
+              </div>
+            )}
+            {/* Feature #2: Lock Queue Preview */}
+            {lockQueue.length > 0 && (
+              <div className="pb-2 border-b border-slate-700">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Users className="w-3 h-3 text-amber-400" />
+                  <span className="text-[10px] text-amber-400 uppercase font-semibold">
+                    Queue ({lockQueue.length} vessel{lockQueue.length > 1 ? 's' : ''})
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {lockQueue.map((vessel, idx) => (
+                    <div 
+                      key={vessel.mmsi}
+                      className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/50"
+                    >
+                      <span className="text-slate-300 truncate max-w-[120px]">
+                        {idx + 1}. {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {vessel.barge_count > 0 && (
+                          <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
+                            {vessel.barge_count}B
+                          </Badge>
+                        )}
+                        <span className="text-slate-500 font-mono">
+                          {Math.abs(Number(vessel.river_mile) - selectedLockObj.river_mile).toFixed(1)}mi
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {/* Show "You" in queue ONLY if this is the lock you're heading toward */}
+                  {userVessel && nextLock && activeTimingLockId === nextLock.id && (
+                    <div className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-cyan-900/30 border border-cyan-500/30">
+                      <span className="text-cyan-400 font-semibold">
+                        {lockQueue.length + 1}. You
+                      </span>
+                      <span className="text-cyan-400 font-mono">
+                        {lockTravelInfo.distance}mi
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Feature #8: Last Lockage Info */}
+            {lastLockage && (
+              <div className="pt-2 border-t border-slate-700">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <History className="w-3 h-3 text-slate-500" />
+                  <span className="text-[10px] text-slate-500 uppercase">Last Through</span>
+                </div>
+                <div className="text-xs">
+                  <span className="text-slate-300">{lastLockage.vesselName}</span>
+                  {lastLockage.bargeCount > 0 && (
+                    <span className="text-amber-400 ml-1">({lastLockage.bargeCount} barges)</span>
+                  )}
+                  {lastLockage.minutesAgo && (
+                    <span className="text-slate-500 ml-1">• {lastLockage.minutesAgo} min ago</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 font-sans" data-testid="dashboard">
       {/* Clean Header */}
@@ -1511,223 +1733,7 @@ export default function Dashboard({
                 </Card>
               ) : (
               /* Lock Timing Card - Enhanced (for vessel owners) */
-              <Card className="glass-panel hud-border flex-shrink-0" data-testid="timing-sidebar">
-                <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Target className="w-4 h-4 text-cyan-400" />
-                    <span className="text-sm font-medium text-white">Lock Timing</span>
-                  </div>
-                  <Badge className={`text-[10px] ${
-                    isDangerous
-                      ? 'bg-red-500/20 text-red-400 border-red-500/50'
-                      : isTimingPaused
-                        ? 'bg-slate-500/20 text-slate-300 border-slate-500/50'
-                        : raceAnalysis?.analysis?.threatening_vessel
-                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
-                          : 'bg-green-500/20 text-green-400 border-green-500/50'
-                  }`}>
-                    {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
-                  </Badge>
-                </div>
-                <div className="p-3 space-y-3">
-                  {/* Target Lock Info - Clickable to open details */}
-                  <div 
-                    className="pb-2 border-b border-slate-700 cursor-pointer hover:bg-slate-800/50 -mx-3 px-3 py-2 transition-colors rounded"
-                    onClick={() => setSelectedLockDetail(activeTimingLockId)}
-                    title="Click to view lock details"
-                  >
-                    <div className="text-[10px] text-slate-500 uppercase">Target Lock</div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-white font-semibold">{selectedLockObj?.name || 'Lock 2'}</div>
-                        <div className="text-xs text-slate-400">River Mile {selectedLockObj?.river_mile}</div>
-                        {!isTrafficWatch && selectedLock !== activeTimingLockId && (
-                          <div className="text-[10px] text-cyan-400 mt-1">
-                            Timing follows your next lock. Map view: L{selectedLock.replace('lock_', '')}.
-                          </div>
-                        )}
-                      </div>
-                      <ChevronDown className="w-4 h-4 text-cyan-400" />
-                    </div>
-                  </div>
-                  
-                  {/* Feature #1: Distance & Time Breakdown */}
-                  {lockTravelInfo.distance && (
-                    <>
-                      {/* Show warning if lock is very far away */}
-                      {parseFloat(lockTravelInfo.distance) > 100 && (
-                        <div className="text-[10px] text-slate-500 bg-slate-800/50 rounded px-2 py-1.5 mb-2 flex items-center gap-1.5">
-                          <Route className="w-3 h-3" />
-                          <span>This lock is {parseFloat(lockTravelInfo.distance).toFixed(0)} miles away. Select a closer lock for relevant timing data.</span>
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-2 text-xs pb-2 border-b border-slate-700">
-                        <div className="flex items-center gap-1.5">
-                          <Route className="w-3 h-3 text-slate-500" />
-                          <span className="text-slate-400">Distance:</span>
-                          <span className="text-white font-mono">{lockTravelInfo.distance} mi</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Timer className="w-3 h-3 text-slate-500" />
-                          <span className="text-slate-400">Travel:</span>
-                          <span className="text-white font-mono">{lockTravelInfo.travelMinutes || '--'} min</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="w-3 h-3 text-slate-500" />
-                          <span className="text-slate-400">Est. Wait:</span>
-                          <span className="text-amber-400 font-mono"
-                                title={`${WAIT_TOOLTIP}${lockTravelInfo.towWait != null ? ` Tow ≈ ${fmtDuration(lockTravelInfo.towWait)}, pleasure boat ≈ ${fmtDuration(lockTravelInfo.pleasureWait)}.` : ''}`}>
-                            {lockTravelInfo.estimatedWait == null ? '--'
-                              : `~${fmtDuration(lockTravelInfo.estimatedWait)} ${lockTravelInfo.waitKind}${
-                                  lockTravelInfo.onArrival
-                                    ? (lockTravelInfo.aheadCount ? ` · ${lockTravelInfo.aheadCount} ahead when you arrive` : ' · on arrival')
-                                    : (lockTravelInfo.queueCount ? ` (${lockTravelInfo.queueCount} ahead)` : '')}`}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Gauge className="w-3 h-3 text-slate-500" />
-                          <span className="text-slate-400">Total:</span>
-                          <span className="text-cyan-400 font-mono font-semibold">~{lockTravelInfo.totalMinutes || '--'} min</span>
-                        </div>
-                      </div>
-                      {lockTravelInfo.aheadList?.length > 0 && (
-                        <div className="mt-2 pt-1.5 border-t border-slate-800" data-testid="ahead-on-arrival">
-                          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
-                               title="Boats expected to lock through before you get there. The wait above counts them.">
-                            Ahead of you when you arrive
-                          </div>
-                          {lockTravelInfo.aheadList.slice(0, 5).map((a, i) => <AheadRow key={i} a={a} onOpen={() => openVesselDetails(a, selectedLockObj?.name)} />)}
-                          {lockTravelInfo.aheadList.length > 5 && (
-                            <div className="text-[10px] text-slate-500">+{lockTravelInfo.aheadList.length - 5} more</div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-                  
-                  {/* Threat Info / Clear Status */}
-                  {raceAnalysis?.analysis?.threatening_vessel ? (
-                    <div className="space-y-2 pb-2 border-b border-slate-700">
-                      <div className="flex items-center gap-2 text-amber-400">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span className="text-sm font-semibold">Traffic Ahead</span>
-                      </div>
-                      <div className="bg-slate-800/50 rounded p-2 text-xs">
-                        <div className="font-medium text-white mb-1">
-                          {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)}
-                        </div>
-                        <div className="grid grid-cols-2 gap-1 text-slate-400">
-                          <span>ETA: {raceAnalysis.analysis.threatening_vessel.eta_minutes?.toFixed(0) || '--'}m</span>
-                          <span>RM: {formatRiverMile(raceAnalysis.analysis.threatening_vessel.river_mile)}</span>
-                        </div>
-                      </div>
-                      <div className="text-center py-2">
-                        <div className="text-[10px] text-slate-500 uppercase">Speed Needed to Arrive Before Tow</div>
-                        {isTimingPaused ? (
-                          <>
-                            <div className="text-2xl font-mono font-bold text-slate-300">Stopped</div>
-                            <div className="text-[10px] text-slate-400 mt-1">
-                              Start moving or enter a speed to estimate the speed needed to arrive before the tow.
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className={`text-2xl font-mono font-bold ${isDangerous ? 'text-red-400' : 'text-green-400'}`}>
-                              {raceAnalysis.analysis.required_speed_mph?.toFixed(1)} mph
-                            </div>
-                            {isDangerous && (
-                              <div className="text-[10px] text-red-400 mt-1">Exceeds max speed ({maxAllowedSpeedMph} mph)</div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-3 pb-2 border-b border-slate-700">
-                      <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-1">
-                        <Check className="w-4 h-4 text-green-400" />
-                      </div>
-                      <div className="text-green-400 font-semibold text-sm">
-                        {lockTravelInfo?.aheadList?.length ? 'No traffic on AIS' : 'No Traffic'}
-                      </div>
-                      <div className="text-[10px] text-slate-400" data-testid="no-traffic-note">
-                        {!isConnected ? 'None seen - AIS offline, vessels on the way may not show'
-                          : lockTravelInfo?.aheadList?.length ? 'No boat in sight to race to the lock' : 'Clear path to lock'}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {mooredAtLock.length > 0 && (
-                    <div className="text-[10px] text-slate-500 pb-1" data-testid="moored-at-lock"
-                         title="Stopped at the lock but not in the USACE queue - likely tied up, not waiting to lock">
-                      Moored near lock, not waiting (USACE): {mooredAtLock.slice(0, 3).map(v => getVesselDisplayName(v, userSettings.show_vessel_names !== false)).join(", ")}
-                    </div>
-                  )}
-                  {/* Feature #2: Lock Queue Preview */}
-                  {lockQueue.length > 0 && (
-                    <div className="pb-2 border-b border-slate-700">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Users className="w-3 h-3 text-amber-400" />
-                        <span className="text-[10px] text-amber-400 uppercase font-semibold">
-                          Queue ({lockQueue.length} vessel{lockQueue.length > 1 ? 's' : ''})
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        {lockQueue.map((vessel, idx) => (
-                          <div 
-                            key={vessel.mmsi}
-                            className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-slate-800/50"
-                          >
-                            <span className="text-slate-300 truncate max-w-[120px]">
-                              {idx + 1}. {getVesselDisplayName(vessel, userSettings.show_vessel_names !== false)}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              {vessel.barge_count > 0 && (
-                                <Badge className="bg-amber-900/30 text-amber-400 border-amber-500/30 text-[8px] px-1 py-0">
-                                  {vessel.barge_count}B
-                                </Badge>
-                              )}
-                              <span className="text-slate-500 font-mono">
-                                {Math.abs(Number(vessel.river_mile) - selectedLockObj.river_mile).toFixed(1)}mi
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                        {/* Show "You" in queue ONLY if this is the lock you're heading toward */}
-                        {userVessel && nextLock && activeTimingLockId === nextLock.id && (
-                          <div className="flex items-center justify-between text-[10px] py-1 px-1.5 rounded bg-cyan-900/30 border border-cyan-500/30">
-                            <span className="text-cyan-400 font-semibold">
-                              {lockQueue.length + 1}. You
-                            </span>
-                            <span className="text-cyan-400 font-mono">
-                              {lockTravelInfo.distance}mi
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Feature #8: Last Lockage Info */}
-                  {lastLockage && (
-                    <div className="pt-2 border-t border-slate-700">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <History className="w-3 h-3 text-slate-500" />
-                        <span className="text-[10px] text-slate-500 uppercase">Last Through</span>
-                      </div>
-                      <div className="text-xs">
-                        <span className="text-slate-300">{lastLockage.vesselName}</span>
-                        {lastLockage.bargeCount > 0 && (
-                          <span className="text-amber-400 ml-1">({lastLockage.bargeCount} barges)</span>
-                        )}
-                        {lastLockage.minutesAgo && (
-                          <span className="text-slate-500 ml-1">• {lastLockage.minutesAgo} min ago</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </Card>
+              renderLockTimingCard()
               )}
 
               {/* Trip Plan - Multi-Lock Chain Analysis (vessel_owner only) */}
@@ -1845,18 +1851,23 @@ export default function Dashboard({
           {/* Race Panel - Mobile */}
           {mobilePanel === "race" && (
             <div className="space-y-4">
-              <RaceAnalysisPanel 
-                raceAnalysis={raceAnalysis}
-                userVessel={userVessel}
-                isDangerous={isDangerous}
-                isTimingPaused={isTimingPaused}
-                maxAllowedSpeedMph={maxAllowedSpeedMph}
-                compact={true}
-                showVesselNames={userSettings.show_vessel_names !== false}
-              />
+              {/* Same Lock Timing card as desktop: distance, travel, the wait
+                  when you get there, who's ahead. Phones used to get the older
+                  race panel, which had none of the wait estimate. */}
+              {isTrafficWatch ? (
+                <RaceAnalysisPanel
+                  raceAnalysis={raceAnalysis}
+                  userVessel={userVessel}
+                  isDangerous={isDangerous}
+                  isTimingPaused={isTimingPaused}
+                  maxAllowedSpeedMph={maxAllowedSpeedMph}
+                  compact={true}
+                  showVesselNames={userSettings.show_vessel_names !== false}
+                />
+              ) : renderLockTimingCard()}
 
               {!isTrafficWatch && userMmsi && (
-                <TripPlanPanel userMmsi={userMmsi} maxLocks={4} bufferMinutes={20} compact={true} />
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={5} bufferMinutes={20} compact={true} />
               )}
 
               {userVessel && (

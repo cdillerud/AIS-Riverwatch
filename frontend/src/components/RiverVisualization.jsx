@@ -871,7 +871,7 @@ const RiverVisualizationComponent = ({
           <div
             key={`queue-${lock.id}`}
             className="absolute z-20 flex flex-col items-end gap-0.5 cursor-pointer"
-            style={{ top: `${getRiverPosition(lock.river_mile)}%`, right: 'calc(50% + 40px)', transform: 'translateY(-50%)' }}
+            style={{ top: `${getRiverPosition(lock.river_mile)}%`, right: 'calc(50% + 40px)', maxWidth: 'calc(50% - 44px)', transform: 'translateY(-50%)' }}
             onClick={() => onLockClick(lock.id)}
             title={`Reported by USACE at ${lock.name} - click a boat for its details`}
             data-testid={`lock-queue-${lock.id}`}
@@ -879,7 +879,7 @@ const RiverVisualizationComponent = ({
             {shown.map((e, i) => {
               const up = e.direction === 'upbound';
               return (
-                <div key={i} className="border border-dashed border-amber-500/60 bg-slate-950/90 rounded px-1.5 py-0.5 text-[9px] md:text-[10px] whitespace-nowrap hover:border-amber-300 hover:bg-slate-900"
+                <div key={i} className="border border-dashed border-amber-500/60 bg-slate-950/90 rounded px-1.5 py-0.5 text-[9px] md:text-[10px] max-w-full truncate hover:border-amber-300 hover:bg-slate-900"
                      onClick={(ev) => { ev.stopPropagation(); onVesselDetails(e, lock.name); }}
                      title={`${e.vessel_name || 'Vessel'} - click for vessel details`}
                      data-testid="lock-queue-vessel">
@@ -1066,9 +1066,10 @@ const RiverVisualizationComponent = ({
         </div>
       )}
 
-      {/* Out of view vessels indicator */}
+      {/* Out of view vessels indicator. Phones have no legend, so it goes
+          bottom-right there: bottom-left is where the lowest lock's USACE tags sit. */}
       {vessels.length > 0 && vessels.filter(v => isInView(v.river_mile)).length < vessels.length && (
-        <div className="absolute bottom-2 left-2 glass-panel px-2 py-1 rounded text-xs text-amber-400">
+        <div className={`absolute bottom-2 ${compact ? 'right-2' : 'left-2'} glass-panel px-2 py-1 rounded text-xs text-amber-400`}>
           {vessels.length - vessels.filter(v => isInView(v.river_mile)).length} vessel(s) outside view
         </div>
       )}

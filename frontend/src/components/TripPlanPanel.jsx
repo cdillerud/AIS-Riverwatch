@@ -122,7 +122,11 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
   }, [fetchPlan, waiting]);
 
   const legs = plan?.legs || [];
-  const overall = OVERALL_META[summary?.overall_status] || OVERALL_META.no_data;
+  // Stopped with locks ahead (e.g. waiting at a lock): show the route, say why
+  // there are no ETAs, instead of a "NO DATA" warning on every lock.
+  const stoppedWithRoute = summary?.overall_status === "no_data" && legs.length > 0;
+  const overall = stoppedWithRoute ? { text: "Stopped", badge: OVERALL_META.no_data.badge }
+    : (OVERALL_META[summary?.overall_status] || OVERALL_META.no_data);
 
   return (
     <Card className="glass-panel hud-border" data-testid="trip-plan-panel">
@@ -241,11 +245,19 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
               </span>
             </div>
 
+            {stoppedWithRoute && (
+              <div className="text-xs text-slate-400 px-1" data-testid="trip-plan-stopped-note">
+                You're stopped. ETAs resume once you're under way.
+              </div>
+            )}
+
             {/* Leg list */}
             <ScrollArea className={compact ? "max-h-[280px]" : "max-h-[420px]"}>
               <div className="space-y-2 pr-2" data-testid="trip-plan-legs">
                 {legs.map((leg, idx) => {
-                  const meta = STATUS_META[leg.status] || STATUS_META.no_data;
+                  const meta = stoppedWithRoute && leg.status === "no_data"
+                    ? { ...STATUS_META.no_data, label: "STOPPED", icon: Anchor }
+                    : (STATUS_META[leg.status] || STATUS_META.no_data);
                   const StatusIcon = meta.icon;
                   return (
                     <div

@@ -46,3 +46,14 @@ def test_tow_still_locking_when_user_arrives_is_a_threat_with_delay(monkeypatch,
     assert leg["threatening_vessel"]["mmsi"] == "BIGTOW"
     assert leg["status"] in ("cant_beat", "speed_up")
     assert leg["expected_delay_minutes"] > 60
+
+
+def test_stopped_at_the_lock_it_stays_first_with_no_race(monkeypatch, signed_in):
+    # REBOOT held at Lock 3 (RM 796.9, 0 kn): the plan used to start at Lock 4
+    # and the first leg showed "Race: MARY J" for a tow hours away.
+    vessels = {
+        "338414076": _boat("338414076", 796.9, 0.0, "southbound", is_tow=False),
+        "MARYJ": _boat("MARYJ", 830.0, 5.0, "southbound", barges=15),
+    }
+    leg = _plan(monkeypatch, vessels, lock_id="lock_3")
+    assert leg["threatening_vessel"] is None

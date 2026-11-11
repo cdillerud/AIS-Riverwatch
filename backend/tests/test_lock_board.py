@@ -168,3 +168,16 @@ def test_wait_at_arrival_counts_tows_that_get_there_first():
     assert far["tow"] == round(lock_board.tow_wait(feats)) and q == 30
     later = lock_board.predict_waits_at("lock_14", [], [], approaching, typical, NOW + timedelta(minutes=600), NOW)
     assert later["ahead_count"] == 2
+
+
+def test_lock_is_ahead_keeps_the_lock_a_stopped_boat_is_at():
+    # REBOOT held at Lock 3 (RM 796.9): Lock Timing / trip plan jumped to Lock 4.
+    assert lock_board.lock_is_ahead(796.9, 796.9, "southbound", 0)
+    assert lock_board.lock_is_ahead(796.9, 796.75, "downbound", 0.5)      # in the chamber
+    assert lock_board.lock_is_ahead(796.9, 796.9, "northbound", 0)
+    assert not lock_board.lock_is_ahead(796.9, 796.7, "downbound", 20)   # under way past it
+    assert lock_board.lock_is_ahead(796.9, 799.3, "downbound", 20)
+    assert not lock_board.lock_is_ahead(796.9, 799.3, None, 20)
+    ahead = lock_board.locks_in_view([{"river_mile": 815.2}, {"river_mile": 796.9}, {"river_mile": 752.8}],
+                                     796.9, "downbound", "ahead")
+    assert [lk["river_mile"] for lk in ahead] == [796.9, 752.8]

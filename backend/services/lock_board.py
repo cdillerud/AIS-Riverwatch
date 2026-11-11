@@ -254,17 +254,34 @@ def predict_waits_at(lock_id: str, locking: List[dict], waiting: List[dict], app
                        "probability": v.get("probability", 1.0)} for v in sim["ahead"]]}
 
 
+# A boat stopped at a lock (waiting on the approach wall or in the chamber)
+# sits about at the lock's river mile; the lock is still the one ahead of it
+# until it is under way past it. Same rule in frontend/src/lib/timingLock.js.
+AT_LOCK_MI = 0.25       # chamber + approach, when slow
+PASSING_MI = 0.05       # GPS jitter, when under way
+SLOW_KNOTS = 2.0
+
+
+def lock_is_ahead(lock_rm: float, rm: float, direction: Optional[str], speed_knots: Optional[float] = None) -> bool:
+    """Is the lock at `lock_rm` still ahead of a boat at `rm` going `direction`
+    (upbound/downbound, or northbound/southbound)?"""
+    slow = speed_knots is not None and float(speed_knots) < SLOW_KNOTS
+    tol = AT_LOCK_MI if slow else PASSING_MI
+    if direction in ("downbound", "southbound"):
+        return lock_rm < rm + tol
+    if direction in ("upbound", "northbound"):
+        return lock_rm > rm - tol
+    return False
+
+
 def locks_in_view(locks: List[dict], from_rm: Optional[float], direction: Optional[str],
-                  scope: str = "all") -> List[dict]:
+                  scope: str = "all", speed_knots: Optional[float] = None) -> List[dict]:
     """Order locks for the board.
 
     scope="ahead" with a position and direction: only locks in front of the
-    boat, nearest first. Otherwise every lock, north to south (or south to
-    north for an upbound boat)."""
+    boat (including the one it's stopped at), nearest first. Otherwise every
+    lock, north to south (or south to north for an upbound boat)."""
     if scope == "ahead" and from_rm is not None and direction in ("upbound", "downbound"):
-        if direction == "downbound":
-            ahead = [lk for lk in locks if lk["river_mile"] < from_rm]
-            return sorted(ahead, key=lambda lk: -lk["river_mile"])
-        ahead = [lk for lk in locks if lk["river_mile"] > from_rm]
-        return sorted(ahead, key=lambda lk: lk["river_mile"])
+        ahead = [lk for lk in locks if lock_is_ahead(lk["river_mile"], from_rm, direction, speed_knots)]
+        return sorted(ahead, key=lambda lk: lk["river_mile"], reverse=(direction == "downbound"))
     return sorted(locks, key=lambda lk: lk["river_mile"], reverse=(direction != "upbound"))

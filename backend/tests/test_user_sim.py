@@ -52,3 +52,18 @@ def test_held_boat_reports_zero_speed(monkeypatch):
     asyncio.run(server._update_simulated_user_vessel("338414076", s))
     assert server.active_vessels["338414076"]["speed"] == 0.0
     server.active_vessels.pop("338414076", None)
+
+
+def test_lock_board_live_positions_survive_a_simulated_boat(monkeypatch):
+    """A simulated boat (a dict in active_vessels) crashed /api/locks/board."""
+    import server
+    now = datetime.now(timezone.utc)
+    s = sim(river_mile=799.3)
+    monkeypatch.delitem(server.active_vessels, "338414076", raising=False)
+    asyncio.run(server._update_simulated_user_vessel("338414076", s))
+    tow = server.VesselPosition(mmsi="367000001", name="MARY J", lat=44.6, lon=-92.6, speed=3.0, course=120.0,
+                                river_mile=799.1, heading="southbound", timestamp=now)
+    monkeypatch.setitem(server.active_vessels, "367000001", tow)
+    live = server._live_positions(now)
+    assert [v["mmsi"] for v in live if v["mmsi"] in ("338414076", "367000001")] == ["367000001"]
+    server.active_vessels.pop("338414076", None)

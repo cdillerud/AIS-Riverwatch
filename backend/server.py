@@ -689,6 +689,8 @@ async def restore_user_vessels(request: Request):
         
         if mmsi and _live_ais.on_live_ais(mmsi):
             continue  # live AIS position already on the map; don't put an old one over it
+        if mmsi and (user_vessel_simulation.get(mmsi) or {}).get('enabled'):
+            continue  # being simulated: a page reload must not jump it back to the saved spot
         if mmsi and last_pos and last_pos.get("lat") and last_pos.get("lon"):
             # Create vessel and add to active_vessels
             lat = last_pos["lat"]
@@ -5160,11 +5162,14 @@ def _live_positions(now: datetime) -> List[dict]:
     """Live AIS boats (no demo boats) for services/live_arrivals.py."""
     out = []
     for mmsi, v in list(active_vessels.items()):
-        if _is_demo_vessel(v, str(mmsi)) or v.river_mile is None:
-            continue
-        out.append({"mmsi": str(mmsi), "name": v.name, "river_mile": v.river_mile, "speed": v.speed,
-                    "heading": v.heading, "ship_type": v.ship_type,
-                    "timestamp": v.last_ais_checkin or v.timestamp})
+        # active_vessels holds models (AIS) and dicts (simulated / demo boats);
+        # a simulated boat on the map used to crash the lock board here.
+        g = v.get if isinstance(v, dict) else (lambda k, d=None, _v=v: getattr(_v, k, d))
+        if _is_demo_vessel(v, str(mmsi)) or g("is_simulated") or g("river_mile") is None:
+            continue  # demo and simulated boats aren't real traffic
+        out.append({"mmsi": str(mmsi), "name": g("name"), "river_mile": g("river_mile"), "speed": g("speed"),
+                    "heading": g("heading"), "ship_type": g("ship_type"),
+                    "timestamp": g("last_ais_checkin") or g("timestamp")})
     return out
 
 

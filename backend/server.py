@@ -56,6 +56,7 @@ from services import usace_lockages as _usace_lockages
 from services import lock_board as _lock_board
 from services import transits as _transits
 from services import live_arrivals as _live_arrivals
+from services import trip_timeline as _trip_timeline
 from services import calibration as _calibration
 from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
@@ -4793,8 +4794,25 @@ async def get_transit_stats() -> dict:
     return _transit_cache["stats"]
 
 
+_APPROACHING_CACHE: Dict[str, object] = {"at": None, "data": None}
+APPROACHING_CACHE_SECONDS = 60
+
+
 async def approaching_by_lock(now: datetime) -> Dict[str, list]:
-    """Vessels predicted to reach each lock next, from their last USACE lockage."""
+    """Vessels predicted to reach each lock next, from their last USACE lockage.
+
+    Cached for a minute: every lock board request needs it, and a trip plan
+    asks the board once per lock ahead. Lockages only change every few
+    minutes (USACE worker cycle)."""
+    at = _APPROACHING_CACHE["at"]
+    if at is not None and (now - at).total_seconds() < APPROACHING_CACHE_SECONDS:
+        return _APPROACHING_CACHE["data"]
+    data = await _approaching_by_lock(now)
+    _APPROACHING_CACHE.update(at=now, data=data)
+    return data
+
+
+async def _approaching_by_lock(now: datetime) -> Dict[str, list]:
     stats = await get_transit_stats()
     if not stats:
         return {}
@@ -6802,6 +6820,43 @@ async def get_session_trip_plan(
 
     chain = chain[:max_locks]
 
+    # Time at each lock (wait when you get there + your lockage) pushes every
+    # later lock back; services/trip_timeline.py.
+    user_barges = user_vessel.get('barge_count')
+    user_is_tow = bool(user_vessel.get('is_tow') or (user_barges or 0) > 0)
+    board_direction = {'northbound': 'upbound', 'southbound': 'downbound'}.get(user_heading)
+
+    async def _wait_when_there(lid: str, arrive_in: float) -> Optional[float]:
+        try:
+            board = await get_lock_board(from_rm=None, direction=board_direction, scope="all", sort="river",
+                                         limit=None, lock_id=lid,
+                                         arrive_in=arrive_in if arrive_in <= 24 * 60 else None,
+                                         mmsi=session_mmsi)
+        except Exception as e:
+            logger.warning(f"Trip plan: no wait estimate for {lid}: {e}")
+            return None
+        row = (board.get("locks") or [None])[0]
+        if not row:
+            return None
+        w = row.get("wait_at_arrival")
+        if w:
+            return w["tow"] if user_is_tow else w["recreational"]
+        return row["wait_estimate_minutes"] if user_is_tow else row["wait_estimate_recreational_minutes"]
+
+    def _own_lockage(lid: str) -> float:
+        return _lock_board.expected_lockage_minutes(lid, user_barges if user_is_tow else None,
+                                                    lock_averages.get(lid, {}))
+
+    timeline = []
+    if chain and user_rm is not None and user_heading in ('northbound', 'southbound'):
+        prev = user_rm
+        timeline_legs = []
+        for lid, ldata in chain:
+            timeline_legs.append({"lock_id": lid, "distance_mi": abs(ldata['river_mile'] - prev)})
+            prev = ldata['river_mile']
+        timeline = await _trip_timeline.schedule(timeline_legs, user_speed_mph, _wait_when_there, _own_lockage)
+    timeline_by_lock = {t["lock_id"]: t for t in timeline}
+
     # Build per-leg analysis
     legs = []
     cumulative_eta = 0.0 if user_speed_mph > 0 else None
@@ -6814,7 +6869,11 @@ async def get_session_trip_plan(
         lock_rm = ldata['river_mile']
         leg_distance = round(abs((last_rm or lock_rm) - lock_rm), 1)
 
-        user_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm) if user_rm else None
+        travel_only_eta = calculate_eta_to_lock(user_rm, user_speed_knots, user_heading, lock_rm) if user_rm else None
+        tl = timeline_by_lock.get(lid)
+        # Arrival counting the time spent at earlier locks
+        user_eta = tl["arrive_minutes"] if tl else travel_only_eta
+        at_earlier_locks = tl["time_at_earlier_locks_minutes"] if tl else 0
 
         # Find threatening competitor for THIS lock (bi-directional)
         threat = None
@@ -6872,7 +6931,9 @@ async def get_session_trip_plan(
                     )
                     threat = v_dict
                     threat_eta = eta
-                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm, eta, buffer_minutes)
+                    # Time spent at earlier locks isn't available for travel
+                    required_speed = calculate_required_speed(user_rm, user_heading, lock_rm,
+                                                              eta - at_earlier_locks, buffer_minutes)
 
         # Determine status
         if user_rm is None or user_speed_knots < 0.1 or user_heading not in ('northbound', 'southbound'):
@@ -6900,6 +6961,11 @@ async def get_session_trip_plan(
             "lock_rm": lock_rm,
             "leg_distance_mi": leg_distance,
             "user_eta_minutes": user_eta,
+            "travel_only_eta_minutes": travel_only_eta,
+            # Expected at this lock: the wait when you get there + your lockage
+            "expected_wait_minutes": tl["wait_minutes"] if tl else None,
+            "expected_lockage_minutes": tl["lockage_minutes"] if tl else None,
+            "depart_eta_minutes": tl["depart_minutes"] if tl else None,
             "threatening_vessel": threat,
             "required_speed_mph": required_speed,
             "expected_delay_minutes": (threat or {}).get('expected_delay_minutes'),
@@ -6936,7 +7002,11 @@ async def get_session_trip_plan(
         "legs": legs,
         "summary": {
             "total_distance_mi": total_distance,
-            "cumulative_eta_minutes": legs[-1]["user_eta_minutes"] if legs else None,
+            # Through the last lock: travel + waits + lockages
+            "cumulative_eta_minutes": ((legs[-1]["depart_eta_minutes"] or legs[-1]["user_eta_minutes"])
+                                       if legs else None),
+            "time_at_locks_minutes": (sum((t["wait_minutes"] + t["lockage_minutes"]) for t in timeline)
+                                      if timeline else None),
             "legs_count": len(legs),
             "cant_beat_count": cant_beat_count,
             "speed_up_count": speed_up_count,

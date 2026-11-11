@@ -17,18 +17,37 @@ def test_dashboard_websocket_cannot_repoint_the_feed(monkeypatch):
 
     monkeypatch.setattr(server.ais_manager, "configure", fake_configure)
     monkeypatch.setattr(server.ais_manager, "_config", {"ip_address": "192.168.1.104", "port": 5353})
+    monkeypatch.setattr(server.ais_manager, "_connected", True)
+    monkeypatch.delitem(server.vessel_static_cache, "338414876", raising=False)
+    owner = {"user_id": "u_chad", "vessels": [{"mmsi": "338414876"}]}
+    viewer = {"user": None}
 
-    with client.websocket_connect("/ws/ais") as ws:
-        # A stale browser config (the old Docker default) asks for another target.
-        ws.send_json({"action": "connect", "ip_address": "ais-relay", "port": 5353,
-                      "user_mmsi": "338414876", "boat_name": "REBOOT"})
-        status = ws.receive_json()
-        assert status["type"] in ("connected", "disconnected")
-        assert ws.receive_json()["type"] == "vessels"
+    async def fake_current_user(request):
+        return viewer["user"]
+
+    monkeypatch.setattr(server, "get_current_user", fake_current_user)
+
+    def connect_as(mmsi, name):
+        with client.websocket_connect("/ws/ais") as ws:
+            # A stale browser config (the old Docker default) asks for another target.
+            ws.send_json({"action": "connect", "ip_address": "ais-relay", "port": 5353,
+                          "user_mmsi": mmsi, "boat_name": name})
+            status = ws.receive_json()
+            assert status["type"] == "connected"
+            assert "192.168.1.104" not in status["message"]  # feed address is the admin's
+            assert ws.receive_json()["type"] == "vessels"
+
+    # Not signed in: can watch, but can't name a boat for everyone.
+    connect_as("338414876", "PIRATE")
+    assert "338414876" not in server.vessel_static_cache
+
+    # The boat's owner names it.
+    viewer["user"] = owner
+    connect_as("338414876", "REBOOT")
+    assert server.vessel_static_cache["338414876"]["name"] == "REBOOT"
 
     assert calls == []
     assert server.ais_manager._config["ip_address"] == "192.168.1.104"
-    assert server.vessel_static_cache["338414876"]["name"] == "REBOOT"
 
 
 def test_late_static_data_names_a_vessel_already_on_the_map(monkeypatch):

@@ -20,6 +20,7 @@ import { API } from "@/lib/api";
 import useLocks from "@/hooks/useLocks";
 import { hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, getLastSeenMs } from "@/utils/vesselDisplay";
 import LockageRow from "@/components/LockageRow";
+import { useAuth } from "@/context/AuthContext";
 
 // "At Lock" detection uses the shared lock list (GET /api/locks).
 const getVesselLockStatus = (vessel, locks) => {
@@ -84,6 +85,7 @@ const formatLastCheckIn = (vessel, nowMs) => {
 };
 
 export default function VesselDetailModal({ vessel, isOpen, onClose }) {
+  const { user: authUser } = useAuth();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState("");
   const [lockageHistory, setLockageHistory] = useState([]);
@@ -117,6 +119,9 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
   if (!vessel) return null;
 
   const isUser = vessel.is_user_vessel;
+  // Names are shared with every user: only the boat's owner or an admin may change one.
+  const canRename = !!(authUser?.is_admin || authUser?.is_super_admin
+    || (authUser?.vessels || []).some(v => String(v.mmsi) === String(vessel.mmsi)));
   const isTow = vessel.is_tow || vessel.ship_type === 31 || vessel.ship_type === 32 || vessel.barge_count > 0;
   const lockStatus = getVesselLockStatus(vessel, locks);
   const speedMph = Number.isFinite(Number(vessel.speed)) ? (Number(vessel.speed) * 1.15078).toFixed(1) : '--';
@@ -143,6 +148,10 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
         toast.success(`Saved name "${editedName.trim()}"`);
         setIsEditingName(false);
         // Note: vessel name will update on next data refresh
+      } else {
+        // 403: only the boat's owner (or an admin) may rename it for everyone
+        const body = await response.json().catch(() => null);
+        toast.error(typeof body?.detail === "string" ? body.detail : "Failed to save name");
       }
     } catch (error) {
       toast.error("Failed to save name");
@@ -185,10 +194,10 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
               </div>
             ) : (
               <span 
-                className={`${isUser ? "text-cyan-400" : "text-white"} cursor-pointer hover:underline`}
-                onClick={() => { setEditedName(vessel.name || ""); setIsEditingName(true); }}
+                className={`${isUser ? "text-cyan-400" : "text-white"} ${canRename ? "cursor-pointer hover:underline" : ""}`}
+                onClick={canRename ? () => { setEditedName(vessel.name || ""); setIsEditingName(true); } : undefined}
               >
-                {vessel.name || <span className="text-slate-500 italic">Click to name</span>}
+                {vessel.name || <span className="text-slate-500 italic">{canRename ? "Click to name" : "Unnamed"}</span>}
               </span>
             )}
             
@@ -326,15 +335,17 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
 
         {/* Quick Actions */}
         <div className="mt-3 flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1 text-xs h-8 border-slate-600"
-            onClick={() => { setEditedName(vessel.name || ""); setIsEditingName(true); }}
-          >
-            <Edit3 className="w-3 h-3 mr-1" />
-            Edit Name
-          </Button>
+          {canRename && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1 text-xs h-8 border-slate-600"
+              onClick={() => { setEditedName(vessel.name || ""); setIsEditingName(true); }}
+            >
+              <Edit3 className="w-3 h-3 mr-1" />
+              Edit Name
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"

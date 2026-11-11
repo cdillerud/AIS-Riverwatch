@@ -33,9 +33,19 @@ import { formatRiverMile, isUpbound, isDownbound, formatSpeedMph } from "@/utils
 
 import { API } from "@/lib/api";
 
+// The API's {"detail": "..."} message, or `fallback`.
+const errorDetail = async (response, fallback) => {
+  try {
+    const body = await response.json();
+    return typeof body?.detail === "string" ? body.detail : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 export default function SettingsPage({ onBack, onLiveChange, initialSettings = {} }) {
   const locks = useLocks();
-  const { user } = useAuth();
+  const { user, addVessel } = useAuth();
   
   const [settings, setSettings] = useState({
     user_mmsi: "",
@@ -602,6 +612,8 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
       if (response.ok) {
         setUserSimEnabled(enabled);
         toast.success(enabled ? "Vessel simulation started" : "Vessel simulation stopped");
+      } else {
+        toast.error(await errorDetail(response, "Failed to update simulation"));
       }
     } catch (error) {
       toast.error("Failed to update simulation");
@@ -765,6 +777,8 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
         setNewVesselMmsi("");
         setNewVesselName("");
         loadVesselCache();
+      } else {
+        toast.error(await errorDetail(response, "Failed to add vessel name"));
       }
     } catch (error) {
       toast.error("Failed to add vessel name");
@@ -972,6 +986,19 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // A boat must be on your account before you can share its position,
+      // simulate or name it. The first account to add an MMSI keeps it.
+      const mmsi = (settings.user_mmsi || "").trim();
+      const onAccount = (user?.vessels || []).some(v => String(v.mmsi) === mmsi);
+      if (mmsi && user && !onAccount) {
+        try {
+          await addVessel(mmsi, settings.boat_name || "", !(user.vessels || []).length);
+        } catch (err) {
+          toast.error(err.message || "Couldn't add this MMSI to your account");
+          return;
+        }
+      }
+
       // Save all settings
       const settingsToSave = {
         user_mmsi: settings.user_mmsi,
@@ -1404,6 +1431,8 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
                           if (response.ok) {
                             setUserSimEnabled(true);
                             toast.success("Quick Test started! Vessel at RM 820, 8 kts southbound");
+                          } else {
+                            toast.error(await errorDetail(response, "Failed to start simulation"));
                           }
                         } catch (error) {
                           toast.error("Failed to start simulation");

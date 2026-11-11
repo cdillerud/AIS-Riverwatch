@@ -24,3 +24,15 @@ def test_admin_can_read_and_adopt_legacy_unowned_docs():
     assert f["mmsi"] == "338414076"
     assert {"user_id": "u_admin"} in f["$or"] and {"user_id": {"$exists": False}} in f["$or"]
     assert U.write_filter("338414076", ADMIN) == f
+
+
+def test_only_owner_or_admin_owns_a_boat():
+    bob = {"user_id": "u_bob", "vessels": [{"mmsi": "366000002", "boat_name": "B"}]}
+    assert U.owns_mmsi(bob, "366000002")
+    assert U.owns_mmsi(bob, " 366000002 ")
+    assert not U.owns_mmsi(bob, "366000003")           # someone else's tow
+    assert not U.owns_mmsi(ALICE, "366000002")          # no vessels at all
+    assert not U.owns_mmsi(None, "366000002")           # not signed in (WebSocket)
+    assert not U.owns_mmsi(bob, "")
+    assert U.owns_mmsi(ADMIN, "366000003") and U.owns_mmsi(SUPER, "366000003")
+    assert not U.owns_mmsi({"user_id": "u_x", "vessels": ["366000002"]}, "366000002")  # malformed entry

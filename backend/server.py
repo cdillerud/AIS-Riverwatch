@@ -1822,9 +1822,10 @@ async def get_user_vessel_simulation(mmsi: str):
     }
 
 
-@api_router.post("/user-vessel/simulation/{mmsi}", dependencies=[Depends(require_user)])
-async def set_user_vessel_simulation(mmsi: str, request: Request):
-    """Enable/configure user vessel simulation."""
+@api_router.post("/user-vessel/simulation/{mmsi}")
+async def set_user_vessel_simulation(mmsi: str, request: Request, user: dict = Depends(require_user)):
+    """Enable/configure user vessel simulation (own boat, or admin)."""
+    _require_owner(user, mmsi)
     body = await request.json()
     
     sim = user_vessel_simulation.get(mmsi, {
@@ -1855,9 +1856,10 @@ async def set_user_vessel_simulation(mmsi: str, request: Request):
     return {"success": True, "simulation": sim}
 
 
-@api_router.post("/user-vessel/simulation/{mmsi}/stop", dependencies=[Depends(require_user)])
-async def stop_user_vessel_simulation(mmsi: str):
-    """Stop user vessel simulation."""
+@api_router.post("/user-vessel/simulation/{mmsi}/stop")
+async def stop_user_vessel_simulation(mmsi: str, user: dict = Depends(require_user)):
+    """Stop user vessel simulation (own boat, or admin)."""
+    _require_owner(user, mmsi)
     if mmsi in user_vessel_simulation:
         user_vessel_simulation[mmsi]['enabled'] = False
         logger.info(f"[USER SIM] {mmsi}: simulation stopped")
@@ -2413,7 +2415,8 @@ class AISConnectionManager:
             logger.info(f"✅ Connected to AIS feed at {ip}:{port}")
             
             # Notify all subscribers
-            await self._broadcast_status("connected", f"Connected to {ip}:{port}")
+            # Broadcast goes to every viewer: no feed address (it's the admin's phone/receiver).
+            await self._broadcast_status("connected", "Connected to AIS feed")
             
             # One read loop per connection. Stop the previous connection's loop
             # so it can't mistake our own close for a remote hang-up and
@@ -2426,25 +2429,25 @@ class AISConnectionManager:
         except asyncio.TimeoutError:
             logger.error(f"Connection timeout to {ip}:{port}")
             self._connected = False
-            await self._broadcast_status("error", f"Connection timeout to {ip}:{port}")
+            await self._broadcast_status("error", "AIS feed: connection timed out")
             await self._schedule_reconnect()
             
         except ConnectionRefusedError:
             logger.error(f"Connection refused by {ip}:{port}")
             self._connected = False
-            await self._broadcast_status("error", f"Connection refused by {ip}:{port}")
+            await self._broadcast_status("error", "AIS feed: connection refused")
             await self._schedule_reconnect()
             
         except OSError as e:
             logger.error(f"OS error connecting to AIS feed: {e}")
             self._connected = False
-            await self._broadcast_status("error", f"Connection failed: {str(e)}")
+            await self._broadcast_status("error", "AIS feed: connection failed")
             await self._schedule_reconnect()
             
         except Exception as e:
             logger.error(f"Failed to connect to AIS feed: {e}")
             self._connected = False
-            await self._broadcast_status("error", f"Connection failed: {str(e)}")
+            await self._broadcast_status("error", "AIS feed: connection failed")
             await self._schedule_reconnect()
     
     async def _close_connection(self):
@@ -2541,7 +2544,7 @@ class AISConnectionManager:
                     break  # our own close of a superseded connection
                 logger.error(f"Error in AIS read loop: {e}")
                 self._connected = False
-                await self._broadcast_status("error", f"Read error: {str(e)}")
+                await self._broadcast_status("error", "AIS feed: read error")
                 await self._schedule_reconnect()
                 break
         
@@ -2807,16 +2810,19 @@ class AISConnectionManager:
         for ws in disconnected:
             self._subscribers.pop(ws, None)
     
-    async def subscribe(self, websocket: WebSocket, user_mmsi: str = "", boat_name: str = ""):
-        """Add a WebSocket client as a subscriber with their MMSI."""
+    async def subscribe(self, websocket: WebSocket, user_mmsi: str = "", boat_name: str = "",
+                        show_feed_address: bool = False):
+        """Add a WebSocket client as a subscriber with their MMSI. The feed's
+        IP:port (the admin's phone/receiver) is only shown to admins."""
         self._subscribers[websocket] = {"mmsi": user_mmsi, "boat_name": boat_name}
         logger.info(f"WebSocket subscribed (MMSI: {user_mmsi}). Total subscribers: {len(self._subscribers)}")
-        
+
         # Send current status
         if self._connected:
             await websocket.send_json({
                 "type": "connected",
-                "message": f"Connected to {self._config['ip_address']}:{self._config['port']}" if self._config else "Connected"
+                "message": (f"Connected to {self._config['ip_address']}:{self._config['port']}"
+                            if self._config and show_feed_address else "Connected to AIS feed")
             })
         else:
             await websocket.send_json({
@@ -6458,12 +6464,14 @@ async def convert_rm_to_coords(rm: float):
         "downbound_course": None if up is None else round((up + 180) % 360, 1),
     }
 
-@api_router.post("/vessel-cache/{mmsi}", dependencies=[Depends(require_user)])
-async def set_vessel_name(mmsi: str, data: dict):
+@api_router.post("/vessel-cache/{mmsi}")
+async def set_vessel_name(mmsi: str, data: dict, user: dict = Depends(require_user)):
     """
     Manually set a vessel name in the cache.
-    This persists to MongoDB and is shared across all users/sessions.
+    This persists to MongoDB and is shared across all users/sessions, so
+    only the boat's owner (or an admin) may name it.
     """
+    _require_owner(user, mmsi)
     global vessel_static_cache
     
     if mmsi not in vessel_static_cache:
@@ -7018,8 +7026,8 @@ async def get_session_trip_plan(
     }
 
 
-@api_router.post("/set-user-mmsi", dependencies=[Depends(require_user)])
-async def set_user_mmsi_legacy(data: dict):
+@api_router.post("/set-user-mmsi")
+async def set_user_mmsi_legacy(data: dict, user: dict = Depends(require_user)):
     """
     LEGACY: Set the user's MMSI number.
     
@@ -7029,7 +7037,9 @@ async def set_user_mmsi_legacy(data: dict):
     mmsi = data.get("mmsi", "")
     if not mmsi:
         raise HTTPException(status_code=400, detail="mmsi required")
-    
+    # Marks the live vessel as a user boat for everyone, so owner/admin only.
+    _require_owner(user, mmsi)
+
     # Create session for this MMSI
     session_manager.create_session(mmsi)
     
@@ -7080,10 +7090,13 @@ async def get_vessels_for_session(session_mmsi: str):
     return vessels
 
 
-def _user_owns_mmsi(user: dict, mmsi: str) -> bool:
-    if user.get("is_admin") or user.get("is_super_admin"):
-        return True
-    return any(str(v.get("mmsi")) == str(mmsi) for v in (user.get("vessels") or []) if isinstance(v, dict))
+_user_owns_mmsi = _user_settings.owns_mmsi
+_NOT_YOUR_BOAT = "Add this MMSI to your account (Settings > Your Vessel) first"
+
+
+def _require_owner(user: dict, mmsi: str) -> None:
+    if not _user_owns_mmsi(user, mmsi):
+        raise HTTPException(status_code=403, detail=_NOT_YOUR_BOAT)
 
 
 @api_router.post("/session/{session_mmsi}/position")
@@ -7359,6 +7372,12 @@ async def websocket_ais(websocket: WebSocket):
     """
     await websocket.accept()
     logger.info("WebSocket client connected to /ws/ais")
+    # Same session cookie/Bearer token as the REST API. Who is asking decides
+    # whether their "this is my boat, named X" is written for everyone.
+    try:
+        ws_user = await get_current_user(websocket)
+    except Exception:
+        ws_user = None
     subscribed = False
     client_mmsi = ""  # Track this client's MMSI
     client_boat_name = ""
@@ -7387,14 +7406,19 @@ async def websocket_ais(websocket: WebSocket):
                         f"WebSocket connect asked for {ip}:{port}; keeping server feed "
                         f"{current.get('ip_address')}:{current.get('port')} (change it in Settings)"
                     )
-                if client_mmsi:
+                if client_mmsi and _user_owns_mmsi(ws_user, client_mmsi):
                     session_manager.create_session(client_mmsi)
                     if client_boat_name:
                         vessel_static_cache[client_mmsi] = {"name": client_boat_name, "is_user": True}
+                elif client_mmsi and client_boat_name:
+                    # Highlighting still follows client_mmsi (only this viewer
+                    # sees it); the shared name cache does not.
+                    logger.info(f"WebSocket: not naming {client_mmsi} - not on this viewer's account")
 
                 # Subscribe this WebSocket with user's MMSI for per-user vessel tracking
                 if not subscribed:
-                    await ais_manager.subscribe(websocket, client_mmsi, client_boat_name)
+                    await ais_manager.subscribe(websocket, client_mmsi, client_boat_name,
+                                                show_feed_address=_user_settings.is_admin(ws_user))
                     subscribed = True
                     logger.info(f"WebSocket subscribed to AIS updates (MMSI: {client_mmsi})")
                 else:

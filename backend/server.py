@@ -64,6 +64,7 @@ from services import user_settings as _user_settings
 from services import live_ais as _live_ais
 from services import api_access as _api_access
 from services import user_sim as _user_sim
+from services import home_berth as _home_berth
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -682,11 +683,13 @@ async def restore_user_vessels(request: Request):
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     restored = []
+    now = datetime.now(timezone.utc)
     for vessel_info in user.get("vessels", []):
         mmsi = vessel_info.get("mmsi")
         boat_name = vessel_info.get("boat_name", "Your Vessel")
-        last_pos = vessel_info.get("last_position")
-        
+        # Recent real fix as reported, else parked at its home berth (stopped).
+        last_pos, pos_source = _home_berth.position_to_show(vessel_info, now)
+
         if mmsi and _live_ais.on_live_ais(mmsi):
             continue  # live AIS position already on the map; don't put an old one over it
         if mmsi and (user_vessel_simulation.get(mmsi) or {}).get('enabled'):
@@ -719,12 +722,75 @@ async def restore_user_vessels(request: Request):
                 "name": boat_name,
                 "river_mile": rm,
                 "lat": lat,
-                "lon": lon
+                "lon": lon,
+                "source": pos_source,
             })
-            
-            logger.info(f"[AUTH] Restored vessel {mmsi} ({boat_name}) at RM {rm}")
+
+            logger.info(f"[AUTH] Restored vessel {mmsi} ({boat_name}) at RM {rm} ({pos_source})")
     
     return {"success": True, "restored": restored, "count": len(restored)}
+
+
+async def _park_at_home(mmsi: str) -> bool:
+    """Show the boat stopped at its home berth (when its simulation ends).
+    Not over live AIS. Saved as its last position so reloads agree."""
+    if not mmsi or _live_ais.on_live_ais(mmsi):
+        return False
+    owner = await db.users.find_one({"vessels.mmsi": mmsi}, {"_id": 0, "vessels": 1})
+    info = next((v for v in (owner or {}).get("vessels", []) if v.get("mmsi") == mmsi), None)
+    home = (info or {}).get("home_berth") or {}
+    if home.get("lat") is None or home.get("lon") is None:
+        return False
+    rm = home.get("river_mile") or estimate_river_mile(home["lat"], home["lon"])
+    vessel = VesselPosition(mmsi=mmsi, name=info.get("boat_name") or "Your Vessel",
+                            lat=home["lat"], lon=home["lon"], speed=0.0, course=0.0,
+                            river_mile=rm, heading="stationary", is_user_vessel=True,
+                            timestamp=datetime.now(timezone.utc))
+    active_vessels[mmsi] = vessel
+    v_dict = prepare_vessel_for_output(vessel, mmsi)
+    v_dict['source'] = 'home_berth'
+    await ais_manager._broadcast_vessel_update(v_dict)
+    # Parked, not a live fix: no last_position_update, so it never outranks
+    # a real position later.
+    await persist_vessel_position_to_user(mmsi, {"lat": home["lat"], "lon": home["lon"], "speed": 0.0,
+                                                 "course": 0.0, "river_mile": rm,
+                                                 "heading_direction": "stationary"})
+    logger.info(f"[HOME] {mmsi} parked at its home berth, RM {rm}")
+    return True
+
+
+class HomeBerth(BaseModel):
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    use_current: bool = False   # the boat's position on the map right now
+
+
+@api_router.put("/user/vessels/{mmsi}/home-berth")
+async def set_home_berth(mmsi: str, body: HomeBerth, request: Request):
+    """Set a boat's home berth (its slip): where it is shown, stopped, when it
+    isn't being simulated and has no recent real position."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    _require_owner(user, mmsi)
+    lat, lon = body.lat, body.lon
+    if body.use_current:
+        v = active_vessels.get(mmsi)
+        g = v.get if isinstance(v, dict) else (lambda k, d=None: getattr(v, k, d))
+        lat, lon = (g("lat"), g("lon")) if v is not None else (None, None)
+    if lat is None or lon is None:
+        raise HTTPException(status_code=400, detail="Give lat and lon, or use_current with the boat on the map")
+    rm = estimate_river_mile(lat, lon)
+    if rm is None:
+        raise HTTPException(status_code=400, detail="That spot isn't on the Upper Mississippi")
+    home = {"lat": round(float(lat), 6), "lon": round(float(lon), 6), "river_mile": round(rm, 1),
+            "set_at": datetime.now(timezone.utc).isoformat()}
+    res = await db.users.update_one({"vessels.mmsi": mmsi}, {"$set": {"vessels.$.home_berth": home}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="That boat isn't on an account")
+    sim = user_vessel_simulation.get(mmsi) or {}
+    parked = False if sim.get('enabled') else await _park_at_home(mmsi)
+    return {"success": True, "home_berth": home, "parked": parked}
 
 
 @api_router.post("/user/vessels")
@@ -1856,6 +1922,7 @@ async def set_user_vessel_simulation(mmsi: str, request: Request, user: dict = D
         'heading': 'southbound'
     })
     
+    was_on = bool(sim.get('enabled'))
     # Update simulation config
     if 'enabled' in body:
         sim['enabled'] = body['enabled']
@@ -1877,7 +1944,9 @@ async def set_user_vessel_simulation(mmsi: str, request: Request, user: dict = D
     # If enabling, create/update the vessel in active_vessels
     if sim['enabled']:
         await _update_simulated_user_vessel(mmsi, sim)
-    
+    elif was_on:
+        await _park_at_home(mmsi)  # simulation turned off: back to its slip
+
     logger.info(f"[USER SIM] {mmsi}: enabled={sim['enabled']}, RM={sim['river_mile']}, speed={sim['speed_knots']}, heading={sim['heading']}")
     
     return {"success": True, "simulation": sim}
@@ -1887,8 +1956,11 @@ async def set_user_vessel_simulation(mmsi: str, request: Request, user: dict = D
 async def stop_user_vessel_simulation(mmsi: str, user: dict = Depends(require_user)):
     """Stop user vessel simulation (own boat, or admin)."""
     _require_owner(user, mmsi)
+    was_on = (user_vessel_simulation.get(mmsi) or {}).get('enabled')
     if mmsi in user_vessel_simulation:
         user_vessel_simulation[mmsi]['enabled'] = False
+    if was_on:
+        await _park_at_home(mmsi)  # back to its slip, if it has one
         logger.info(f"[USER SIM] {mmsi}: simulation stopped")
     return {"success": True, "mmsi": mmsi, "enabled": False}
 

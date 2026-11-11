@@ -45,7 +45,7 @@ const errorDetail = async (response, fallback) => {
 
 export default function SettingsPage({ onBack, onLiveChange, initialSettings = {} }) {
   const locks = useLocks();
-  const { user, addVessel } = useAuth();
+  const { user, addVessel, refreshUser } = useAuth();
   
   const [settings, setSettings] = useState({
     user_mmsi: "",
@@ -572,6 +572,31 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
       }
     } catch (error) {
       console.error("Failed to load blocked MMSIs:", error);
+    }
+  };
+
+  // Home berth (on the account's vessel record)
+  const [savingBerth, setSavingBerth] = useState(false);
+  const homeBerth = (user?.vessels || []).find(v => String(v.mmsi) === String(settings.user_mmsi))?.home_berth || null;
+  const setHomeBerthHere = async () => {
+    setSavingBerth(true);
+    try {
+      const response = await fetch(`${API}/user/vessels/${settings.user_mmsi}/home-berth`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ use_current: true }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(`Home berth set at RM ${Number(data.home_berth.river_mile).toFixed(1)}`);
+        await refreshUser();
+      } else {
+        toast.error(await errorDetail(response, "Couldn't set the home berth"));
+      }
+    } catch {
+      toast.error("Couldn't set the home berth");
+    } finally {
+      setSavingBerth(false);
     }
   };
 
@@ -1130,6 +1155,25 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
                       className="bg-slate-950 border-slate-700 text-white"
                     />
                   </div>
+                </div>
+
+                {/* Home berth: where the boat is shown, stopped, when it isn't
+                    being simulated and has no recent real position. */}
+                <div className="flex items-center justify-between gap-3" data-testid="settings-home-berth">
+                  <div className="text-sm">
+                    <div className="text-slate-300">Home berth</div>
+                    <div className="text-xs text-slate-500">
+                      {homeBerth
+                        ? `RM ${Number(homeBerth.river_mile).toFixed(1)} · shown here when you're not out on the river or simulating`
+                        : "Not set · the boat stays at its last position when you're not out"}
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={setHomeBerthHere}
+                          disabled={!settings.user_mmsi || savingBerth}
+                          className="border-slate-600 text-slate-300 shrink-0"
+                          data-testid="settings-home-berth-set">
+                    Set to boat's position now
+                  </Button>
                 </div>
 
                 <div className="space-y-2">

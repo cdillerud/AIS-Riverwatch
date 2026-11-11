@@ -337,7 +337,7 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
           </>
         )}
 
-        {userMmsi && plan && legs.length === 0 && summary?.overall_status !== "no_user" && (
+        {userMmsi && plan && legs.length === 0 && !["no_user", "no_data"].includes(summary?.overall_status) && (
           <div className="text-center py-6 text-sm text-slate-400" data-testid="trip-plan-no-legs">
             No locks ahead in your direction of travel.
           </div>

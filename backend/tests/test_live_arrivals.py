@@ -77,3 +77,10 @@ def test_ais_arrival_ahead_counts_even_close_in():
     assert busy["recreational"] > empty["recreational"]
     assert busy["tow"] > empty["tow"]
     assert busy["ahead"][0]["source"] == "ais" and busy["ahead"][0]["eta"].startswith("2026-11-10T20:50")
+
+
+def test_boat_at_lock_matched_by_name_when_usace_mmsi_differs():
+    # USACE lists MARGIT B under an old MMSI; AIS broadcasts another
+    boats = [live("366975420", 820.0, speed=4, heading="southbound", name="MARGIT B")]
+    out = merge_live_arrivals("lock_2", LOCKS, [], boats, NOW, at_lock=["368371860", "MARGIT B"])
+    assert out == []

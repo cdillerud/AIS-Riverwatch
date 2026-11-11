@@ -122,6 +122,10 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
   const speedMph = Number.isFinite(Number(vessel.speed)) ? (Number(vessel.speed) * 1.15078).toFixed(1) : '--';
   const stale = isVesselStale(vessel, nowTick);
   const direction = vessel.direction || vessel.heading_direction || vessel.heading;
+  // Known only from the USACE lock queue (no live AIS position): show the
+  // last AIS sighting we have, if any
+  const noAis = !!vessel.no_ais_position;
+  const lastSighting = noAis ? vesselData?.current : null;
   const lastCheckInDisplay = formatLastCheckIn(vessel, nowTick);
 
   const saveVesselName = async () => {
@@ -202,12 +206,29 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
           {/* Position */}
           <div className="col-span-2 bg-slate-800/50 rounded p-2">
             <div className="flex items-center gap-1 text-slate-400 text-xs mb-1">
-              <MapPin className="w-3 h-3" /> {stale ? "Last known position" : "Position"}
+              <MapPin className="w-3 h-3" /> {noAis ? "Position" : stale ? "Last known position" : "Position"}
             </div>
-            <div className="font-mono text-lg text-white">RM {formatRiverMile(vessel.river_mile)}</div>
-            <div className="text-[10px] text-slate-500">
-              {vessel.lat?.toFixed(4)}°N, {vessel.lon?.toFixed(4)}°W
-            </div>
+            {noAis ? (
+              <>
+                <div className="text-sm text-white" data-testid="usace-only-position">
+                  {vessel.usace_lock ? `At ${vessel.usace_lock}` : "At the lock"} <span className="text-slate-400">(USACE)</span>
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  {lastSighting?.river_mile != null
+                    ? `Not on AIS now · last seen RM ${formatRiverMile(lastSighting.river_mile)}${lastSighting.timestamp ? ` ${formatLastCheckIn({ timestamp: lastSighting.timestamp }, nowTick)}` : ""}`
+                    : "Not on AIS - USACE reports it at the lock"}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="font-mono text-lg text-white">RM {formatRiverMile(vessel.river_mile)}</div>
+                <div className="text-[10px] text-slate-500">
+                  {vessel.lat != null && vessel.lon != null
+                    ? `${Math.abs(vessel.lat).toFixed(4)}°${vessel.lat >= 0 ? 'N' : 'S'}, ${Math.abs(vessel.lon).toFixed(4)}°${vessel.lon >= 0 ? 'E' : 'W'}`
+                    : ''}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Speed & Direction */}
@@ -224,8 +245,8 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
             <div className="flex items-center gap-1 text-slate-400 text-xs mb-1">
               <Clock className="w-3 h-3" /> Check-In
             </div>
-            <div className={`font-mono text-sm ${stale ? 'text-amber-400' : 'text-white'}`}>{lastCheckInDisplay}</div>
-            <div className="text-[10px] text-slate-500">{stale ? 'stale — not live' : 'last AIS'}</div>
+            <div className={`font-mono text-sm ${stale ? 'text-amber-400' : 'text-white'}`}>{noAis ? '--' : lastCheckInDisplay}</div>
+            <div className="text-[10px] text-slate-500">{noAis ? 'not on AIS' : stale ? 'stale — not live' : 'last AIS'}</div>
           </div>
 
           {/* Direction */}
@@ -281,9 +302,9 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
               <Hash className="w-3 h-3" /> USACE Data
             </div>
             <div className="grid grid-cols-2 gap-x-4 text-slate-300">
-              {vessel.usace_source && <div>Source: <span className="text-white">{vessel.usace_source}</span></div>}
+              {vessel.usace_source && <div>Source: <span className="text-white">{vessel.usace_source === true ? 'USACE lock queue' : vessel.usace_source}</span></div>}
               {vessel.usace_status && <div>Status: <span className="text-white">{vessel.usace_status}</span></div>}
-              {vessel.usace_lock && <div>Lock: <span className="text-white">{vessel.usace_lock}</span></div>}
+              {vessel.usace_lock && <div>Lock: <span className="text-white">{locks.find(l => l.id === vessel.usace_lock)?.name || vessel.usace_lock}</span></div>}
               {vessel.estimated_lockage_time && <div>Lock time: <span className="text-white">{vessel.estimated_lockage_time}min</span></div>}
             </div>
           </div>

@@ -856,8 +856,15 @@ const RiverVisualizationComponent = ({
           as "reported at this lock" rather than a live AIS position. Boats that
           also have a live AIS position are left to their live marker. */}
       {visibleLocks.map(lock => {
+        // Match by MMSI, or by name for a boat near this lock: USACE sometimes
+        // has an old MMSI (MARGIT B: 368371860 in USACE, 366975420 on AIS).
+        const norm = (x) => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
         const liveMmsis = new Set(vessels.map(v => String(v.mmsi)));
-        const entries = (lockQueues[lock.id] || []).filter(e => !e.mmsi || !liveMmsis.has(String(e.mmsi)));
+        const liveNamesHere = new Set(vessels
+          .filter(v => v.river_mile != null && Math.abs(Number(v.river_mile) - lock.river_mile) <= 3)
+          .map(v => norm(v.name)).filter(Boolean));
+        const entries = (lockQueues[lock.id] || []).filter(e =>
+          !(e.mmsi && liveMmsis.has(String(e.mmsi))) && !liveNamesHere.has(norm(e.vessel_name)));
         if (!entries.length) return null;
         const shown = entries.slice(0, compact ? 2 : 3);
         return (
@@ -866,13 +873,16 @@ const RiverVisualizationComponent = ({
             className="absolute z-20 flex flex-col items-end gap-0.5 cursor-pointer"
             style={{ top: `${getRiverPosition(lock.river_mile)}%`, right: 'calc(50% + 40px)', transform: 'translateY(-50%)' }}
             onClick={() => onLockClick(lock.id)}
-            title={`Reported by USACE at ${lock.name} - click for lock details`}
+            title={`Reported by USACE at ${lock.name} - click a boat for its details`}
             data-testid={`lock-queue-${lock.id}`}
           >
             {shown.map((e, i) => {
               const up = e.direction === 'upbound';
               return (
-                <div key={i} className="border border-dashed border-amber-500/60 bg-slate-950/90 rounded px-1.5 py-0.5 text-[9px] md:text-[10px] whitespace-nowrap">
+                <div key={i} className="border border-dashed border-amber-500/60 bg-slate-950/90 rounded px-1.5 py-0.5 text-[9px] md:text-[10px] whitespace-nowrap hover:border-amber-300 hover:bg-slate-900"
+                     onClick={(ev) => { ev.stopPropagation(); onVesselDetails(e, lock.name); }}
+                     title={`${e.vessel_name || 'Vessel'} - click for vessel details`}
+                     data-testid="lock-queue-vessel">
                   <span className="text-slate-500 mr-1">USACE</span>
                   <span className="text-slate-100">{e.vessel_name || 'Unknown'}</span>
                   <span className={`ml-1 ${up ? 'text-green-400' : 'text-red-400'}`}>{up ? '↑' : '↓'}</span>

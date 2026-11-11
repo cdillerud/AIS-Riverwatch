@@ -15,7 +15,7 @@ stretch, it has better information:
   about to check in, so it counts as arriving now.
 - Pleasure craft (AIS ship type 36/37) and the user's own boat never count.
 - Boats USACE already lists at the lock are in the queue itself, so they are
-  skipped here.
+  skipped here (matched by MMSI or name: USACE sometimes has an old MMSI).
 
 Predicted boats AIS hasn't seen are kept: the receiver may not cover them.
 """
@@ -28,6 +28,10 @@ MAX_RANGE_MI = 25.0       # beyond this an AIS ETA is no better than the predict
 NEAR_LOCK_MI = 3.0        # tows wait 1-3 mi off the lock
 LIVE_MAX_AGE = timedelta(minutes=10)
 PLEASURE_TYPES = (36, 37)
+
+
+def _norm_name(x) -> str:
+    return "".join(ch for ch in str(x or "").upper() if ch.isalnum())
 
 
 def _aware(t):
@@ -57,6 +61,7 @@ def merge_live_arrivals(lock_id: str, lock_rms: Dict[str, float], predicted: Lis
     lock_rm = lock_rms[lock_id]
     others = [rm for lid, rm in lock_rms.items() if lid != lock_id]
     at_lock = {str(x) for x in at_lock if x}
+    at_lock_names = {_norm_name(x) for x in at_lock} - {""}
     barges_by_mmsi = barges_by_mmsi or {}
     own = str(own_mmsi) if own_mmsi else None
 
@@ -107,7 +112,8 @@ def merge_live_arrivals(lock_id: str, lock_rms: Dict[str, float], predicted: Lis
         # else: AIS shows it isn't coming yet - drop the guess
 
     for mmsi, v in fresh.items():
-        if mmsi in used or mmsi in at_lock or v.get("ship_type") in PLEASURE_TYPES:
+        if (mmsi in used or mmsi in at_lock or _norm_name(v.get("name")) in at_lock_names
+                or v.get("ship_type") in PLEASURE_TYPES):
             continue
         h = heading_here(v)
         if not h:

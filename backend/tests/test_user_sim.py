@@ -67,3 +67,25 @@ def test_lock_board_live_positions_survive_a_simulated_boat(monkeypatch):
     live = server._live_positions(now)
     assert [v["mmsi"] for v in live if v["mmsi"] in ("338414076", "367000001")] == ["367000001"]
     server.active_vessels.pop("338414076", None)
+
+def test_race_has_no_threat_once_you_are_at_the_lock(monkeypatch):
+    """Seen live: 'Traffic Ahead: MARY J, ETA 437 min' while REBOOT sat at Lock 4."""
+    import server
+    now = datetime.now(timezone.utc)
+    me = sim(river_mile=752.8, holding=True)
+    monkeypatch.delitem(server.active_vessels, "338414076", raising=False)
+    asyncio.run(server._update_simulated_user_vessel("338414076", me))
+    tow = server.VesselPosition(mmsi="367000001", name="MARY J", lat=44.6, lon=-92.6, speed=5.0, course=150.0,
+                                river_mile=760.0, heading="southbound", timestamp=now)
+    monkeypatch.setitem(server.active_vessels, "367000001", tow)
+    r = asyncio.run(server.get_session_race_analysis("338414076", "lock_4"))
+    a = r.analysis if hasattr(r, "analysis") else r["analysis"]
+    assert a["user_at_lock"] is True and a["threatening_vessel"] is None
+
+    # Still under way 7 mi out: the same tow is a threat again.
+    me = sim(river_mile=759.8)
+    asyncio.run(server._update_simulated_user_vessel("338414076", me))
+    r = asyncio.run(server.get_session_race_analysis("338414076", "lock_4"))
+    a = r.analysis if hasattr(r, "analysis") else r["analysis"]
+    assert a["user_at_lock"] is False
+    server.active_vessels.pop("338414076", None)

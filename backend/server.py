@@ -6712,7 +6712,12 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             or user_heading == "stationary"
             or user_eta is None
         )
-        
+        # Already at the lock (approach wall / chamber): nobody still on the
+        # way can get there first - they queue behind you. Boats already
+        # waiting are in the wait estimate. (Seen: "Traffic Ahead: MARY J,
+        # ETA 437 min" while REBOOT sat at Lock 4.)
+        user_at_lock = user_distance <= _lock_board.AT_LOCK_MI and user_speed_knots < _lock_board.SLOW_KNOTS
+
         # Find most threatening competitor
         # LOGIC: Any vessel heading TOWARD the lock is a potential competitor,
         # regardless of which side of the lock they're on (bi-directional).
@@ -6722,7 +6727,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         required_speed = None
         can_beat = True
         
-        for comp in competitors:
+        for comp in ([] if user_at_lock else competitors):
             comp_eta = comp.get('eta_minutes')
             comp_distance_to_lock = comp.get('distance_to_lock')
             
@@ -6758,7 +6763,8 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             "max_speed_mph": max_speed_mph,
             "buffer_minutes": buffer_minutes,
             "timing_paused": user_stopped_for_timing,
-            "timing_paused_reason": "stopped" if user_stopped_for_timing else None
+            "timing_paused_reason": ("at_lock" if user_at_lock else "stopped") if user_stopped_for_timing else None,
+            "user_at_lock": user_at_lock,
         }
     
     return RaceAnalysis(
@@ -6856,17 +6862,18 @@ async def get_session_trip_plan(
     # lock when the user arrives isn't flagged as a threat.
     lock_averages = await get_lockage_averages()
     chain: List[tuple] = []  # list of (lock_id, lock_dict)
+    # A boat stopped at a lock still has that lock ahead (lock_is_ahead).
     if user_heading == 'northbound':
-        # River miles increase northbound. Take locks with RM > user_rm in ascending order.
+        # River miles increase northbound: locks ahead in ascending order.
         for lid, ldata in locks_sorted:
-            if ldata['river_mile'] > (user_rm or 0):
+            if _lock_board.lock_is_ahead(ldata['river_mile'], user_rm or 0, user_heading, user_speed_knots):
                 if destination_rm is not None and ldata['river_mile'] > destination_rm:
                     break
                 chain.append((lid, ldata))
     elif user_heading == 'southbound':
-        # River miles decrease southbound. Take locks with RM < user_rm in descending order.
+        # River miles decrease southbound: locks ahead in descending order.
         for lid, ldata in reversed(locks_sorted):
-            if ldata['river_mile'] < (user_rm or 0):
+            if _lock_board.lock_is_ahead(ldata['river_mile'], user_rm or 0, user_heading, user_speed_knots):
                 if destination_rm is not None and ldata['river_mile'] < destination_rm:
                     break
                 chain.append((lid, ldata))
@@ -6931,11 +6938,14 @@ async def get_session_trip_plan(
         user_eta = tl["arrive_minutes"] if tl else travel_only_eta
         at_earlier_locks = tl["time_at_earlier_locks_minutes"] if tl else 0
 
-        # Find threatening competitor for THIS lock (bi-directional)
+        # Find threatening competitor for THIS lock (bi-directional). None if
+        # the boat is already at this lock: later arrivals queue behind it.
+        at_this_lock = (user_rm is not None and abs(user_rm - lock_rm) <= _lock_board.AT_LOCK_MI
+                        and user_speed_knots < _lock_board.SLOW_KNOTS)
         threat = None
         threat_eta = None
         required_speed = None
-        for mmsi, vessel in active_vessels.items():
+        for mmsi, vessel in ([] if at_this_lock else list(active_vessels.items())):
             if mmsi == session_mmsi:
                 continue
             # Skip other users' simulated vessels (they are not real commercial traffic).

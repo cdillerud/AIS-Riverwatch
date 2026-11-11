@@ -42,6 +42,7 @@ import LockageRow, { fmtDuration } from "@/components/LockageRow";
 import LockBoard, { WAIT_TOOLTIP } from "@/components/LockBoard";
 import { fmtRiverTime } from "@/lib/riverTime";
 import { toDetailVessel } from "@/lib/detailVessel";
+import { nextLockAhead, directionOf } from "@/lib/timingLock";
 
 // Map (vessel positions) or Locks (lock-first board from USACE data).
 const VIEW_KEY = "riverwatch_main_view";
@@ -245,27 +246,12 @@ export default function Dashboard({
     if (!userVessel || !hasRiverMile(userVessel) || !locks.length) return null;
 
     const userRM = Number(userVessel.river_mile);
-    const heading = userVessel.heading;
-    
-    // Sort locks by river mile
     const sortedLocks = [...locks].sort((a, b) => a.river_mile - b.river_mile);
-    
-    if (heading === 'southbound') {
-      // Going downriver (decreasing RM) - find nearest lock with RM < user's RM
-      for (let i = sortedLocks.length - 1; i >= 0; i--) {
-        if (sortedLocks[i].river_mile < userRM) {
-          return sortedLocks[i];
-        }
-      }
-    } else if (heading === 'northbound') {
-      // Going upriver (increasing RM) - find nearest lock with RM > user's RM
-      for (let i = 0; i < sortedLocks.length; i++) {
-        if (sortedLocks[i].river_mile > userRM) {
-          return sortedLocks[i];
-        }
-      }
-    }
-    
+
+    // Next lock in the direction of travel (a boat stopped at a lock keeps it)
+    const ahead = nextLockAhead(locks, userRM, directionOf(userVessel), Number(userVessel.speed));
+    if (ahead) return ahead;
+
     // If no lock found in heading direction, return closest lock
     let closest = sortedLocks[0];
     let minDist = Math.abs(sortedLocks[0].river_mile - userRM);
@@ -307,6 +293,9 @@ export default function Dashboard({
                             !hasRequiredSpeed &&
                             !!raceAnalysis?.analysis?.threatening_vessel &&
                             raceAnalysis?.analysis?.can_beat_at_max_speed === false;
+  // Waiting at / locking through the target lock (API: user_at_lock).
+  const atLock = !isTrafficWatch && !!raceAnalysis?.analysis?.user_at_lock;
+
   // Lost the race to the lock: a tow gets there first at any allowed speed.
   // Whether that's a DELAY depends on the expected wait (isDangerous, below).
   const raceLost = !isTimingPaused && (
@@ -818,7 +807,7 @@ export default function Dashboard({
                     ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
                     : 'bg-green-500/20 text-green-400 border-green-500/50'
             }`}>
-              {isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
+              {atLock ? 'AT LOCK' : isTimingPaused ? 'STOPPED' : isDangerous ? 'DELAY' : raceAnalysis?.analysis?.threatening_vessel ? 'TRAFFIC' : 'CLEAR'}
             </Badge>
           </div>
           <div className="p-3 space-y-3">
@@ -955,10 +944,13 @@ export default function Dashboard({
                   <Check className="w-4 h-4 text-green-400" />
                 </div>
                 <div className="text-green-400 font-semibold text-sm">
-                  {lockTravelInfo?.aheadList?.length ? 'No traffic on AIS' : 'No Traffic'}
+                  {atLock ? "You're at the lock" : lockTravelInfo?.aheadList?.length ? 'No traffic on AIS' : 'No Traffic'}
                 </div>
                 <div className="text-[10px] text-slate-400" data-testid="no-traffic-note">
-                  {!isConnected ? 'None seen - AIS offline, vessels on the way may not show'
+                  {atLock ? (lockTravelInfo.estimatedWait != null
+                      ? `Expected wait ~${fmtDuration(lockTravelInfo.estimatedWait)} · boats arriving now queue behind you`
+                      : 'Boats arriving now queue behind you')
+                    : !isConnected ? 'None seen - AIS offline, vessels on the way may not show'
                     : lockTravelInfo?.aheadList?.length ? 'No boat in sight to race to the lock' : 'Clear path to lock'}
                 </div>
               </div>

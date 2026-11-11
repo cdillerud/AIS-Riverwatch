@@ -23,6 +23,7 @@ import useLocks from "@/hooks/useLocks";
 import Disclaimer from "@/components/Disclaimer";
 
 import { API, WS_BASE_URL, AIS_WS_PATH } from "@/lib/api";
+import { nextLockAhead, directionOf } from "@/lib/timingLock";
 
 // Backend URL defaults to same-origin when REACT_APP_BACKEND_URL is unset.
 const WS_URL = WS_BASE_URL;
@@ -1017,39 +1018,11 @@ function MainApp() {
       return selectedLock;
     }
 
-    const rawHeading = (
-      userVessel?.heading ||
-      userVessel?.heading_direction ||
-      userVessel?.direction ||
-      ""
-    ).toString().toLowerCase();
-
-    const isDownbound = ["southbound", "downriver", "downbound", "sb"].some(term => rawHeading.includes(term));
-    const isUpbound = ["northbound", "upriver", "upbound", "nb"].some(term => rawHeading.includes(term));
-
-    const sortedLocks = [...locks]
-      .filter(lock => Number.isFinite(Number(lock.river_mile)))
-      .sort((a, b) => Number(a.river_mile) - Number(b.river_mile));
-
-    const epsilon = 0.05;
-
-    if (isDownbound) {
-      const nextDownboundLock = [...sortedLocks]
-        .reverse()
-        .find(lock => Number(lock.river_mile) < userRM - epsilon);
-
-      return nextDownboundLock?.id || selectedLock;
-    }
-
-    if (isUpbound) {
-      const nextUpboundLock = sortedLocks
-        .find(lock => Number(lock.river_mile) > userRM + epsilon);
-
-      return nextUpboundLock?.id || selectedLock;
-    }
-
-    // If heading is unknown/stationary, keep the user's selected lock.
-    return selectedLock;
+    // Next lock in the direction of travel; a boat stopped at a lock keeps
+    // that lock (lib/timingLock.js). Unknown/stationary heading: the user's pick.
+    const direction = directionOf(userVessel);
+    if (!direction) return selectedLock;
+    return nextLockAhead(locks, userRM, direction, Number(userVessel?.speed))?.id || selectedLock;
   }, [dashboardVessels, locks, selectedLock, user?.account_type, userMmsi]);
 
   // Fetch arrival (race) analysis periodically, scoped to session MMSI. Declared

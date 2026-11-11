@@ -66,6 +66,8 @@ from services import api_access as _api_access
 from services import user_sim as _user_sim
 from services import home_berth as _home_berth
 from services import arrival_learning as _arrival_learning
+from services import traffic_report as _traffic_report
+from services import report_mailer as _report_mailer
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -5169,6 +5171,196 @@ async def admin_relearn_arrivals(request: Request):
     return _jsonable(await relearn_arrivals())
 
 
+# ---------------------------------------------------------------------------
+# Daily Traffic Report (services/traffic_report.py): a Central-time day of lock
+# traffic from USACE lockage records, as JSON / HTML / CSV / ready-to-send .eml,
+# and optionally emailed each morning (services/report_mailer.py).
+# ---------------------------------------------------------------------------
+REPORT_MAX_AGE_DAYS = 30  # lockage_history keeps about 30 days of USACE rows
+_report_email_me_last: Dict[str, datetime] = {}
+_long_single_cache: Dict[str, object] = {"at": None, "value": {}}
+
+
+async def _long_single_thresholds() -> Dict[str, float]:
+    """Per-lock 'unusually long single' cut-off, learned from the last 30 days
+    of one-cut tow lockages at that lock; refreshed every 6 h."""
+    now = datetime.now(timezone.utc)
+    if _long_single_cache["at"] and now - _long_single_cache["at"] < timedelta(hours=6):
+        return _long_single_cache["value"]
+    history = await db.lockage_history.find(
+        {"source": "usace_lpms", "is_tow": True, "cuts": 1,
+         "exit_time": {"$gte": (now - timedelta(days=30)).replace(tzinfo=None)}},
+        {"_id": 0, "lock_id": 1, "is_tow": 1, "cuts": 1, "lockage_duration_minutes": 1, "in_progress": 1}
+    ).to_list(None)
+    value = _traffic_report.long_single_thresholds(history)
+    _long_single_cache.update(at=now, value=value)
+    return value
+
+
+async def build_traffic_report(day) -> dict:
+    start, end = _traffic_report.day_bounds_utc(day)
+    prior_days = 7
+    fields = {"_id": 0, "lock_id": 1, "vessel_name": 1, "mmsi": 1, "direction": 1, "barge_count": 1,
+              "is_tow": 1, "is_recreational": 1, "arrival_time": 1, "entry_time": 1, "exit_time": 1,
+              "wait_time_minutes": 1, "lockage_duration_minutes": 1, "in_progress": 1, "cuts": 1,
+              "cut_times": 1}
+    naive = lambda t: t.astimezone(timezone.utc).replace(tzinfo=None)
+    rows = await db.lockage_history.find(
+        {"source": "usace_lpms", "exit_time": {"$gte": naive(start), "$lt": naive(end)}}, fields).to_list(None)
+    prior = await db.lockage_history.find(
+        {"source": "usace_lpms",
+         "exit_time": {"$gte": naive(start - timedelta(days=prior_days)), "$lt": naive(start)}},
+        {"_id": 0, "lock_id": 1, "in_progress": 1}).to_list(None)
+    now = datetime.now(timezone.utc)
+    statuses = None
+    if (_traffic_report.central_today(now) - day).days <= 1:  # status is "now": only beside recent days
+        statuses = {s["lock_id"]: s for s in await db.lock_status.find(
+            {}, {"_id": 0, "lock_id": 1, "status": 1, "closure_info": 1}).to_list(100) if s.get("lock_id")}
+    return _traffic_report.build_report(day, rows, prior, LOCKS, statuses, prior_days=prior_days, now=now,
+                                        long_single_min=await _long_single_thresholds())
+
+
+def _report_day(date_str: Optional[str]):
+    today = _traffic_report.central_today()
+    if not date_str:
+        return today - timedelta(days=1)
+    try:
+        day = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    if day > today or (today - day).days > REPORT_MAX_AGE_DAYS:
+        raise HTTPException(status_code=400, detail=f"Reports cover the last {REPORT_MAX_AGE_DAYS} days")
+    return day
+
+
+@api_router.get("/reports/traffic")
+async def get_traffic_report(date: Optional[str] = None, format: str = "json", download: bool = False):
+    """Daily Traffic Report for a Central-time day (default: yesterday).
+    format=json|html|csv|eml; download=true sends it as a file."""
+    report = await build_traffic_report(_report_day(date))
+    fmt = (format or "json").lower()
+    if fmt == "json":
+        return report
+    if fmt == "html":
+        body, media = _traffic_report.render_html(report, app_url=_report_mailer.app_url()), "text/html; charset=utf-8"
+    elif fmt == "csv":
+        body, media = _traffic_report.render_csv(report), "text/csv; charset=utf-8"
+    elif fmt == "tows":  # every tow and light boat: one row per lockage
+        body, media = _traffic_report.render_tows_csv(report), "text/csv; charset=utf-8"
+    elif fmt == "eml":
+        body, media = _traffic_report.render_eml(report, app_url=_report_mailer.app_url()), "message/rfc822"
+        download = True
+    else:
+        raise HTTPException(status_code=400, detail="format must be json, html, csv, tows or eml")
+    headers = {"Cache-Control": "no-store"}
+    if download:
+        name = (f"riverwatch-tows-{report['date']}.csv" if fmt == "tows"
+                else _traffic_report.filename(report, fmt))
+        headers["Content-Disposition"] = f'attachment; filename="{name}"'
+    return Response(content=body, media_type=media, headers=headers)
+
+
+@api_router.get("/reports/traffic/subscription")
+async def get_report_subscription(request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    sub = user.get("report_subscription") or {}
+    return {"daily_email": bool(sub.get("daily_email")), "email": user.get("email"),
+            "email_available": _report_mailer.configured(), "send_hour_central": _report_mailer.send_hour()}
+
+
+@api_router.put("/reports/traffic/subscription")
+async def set_report_subscription(request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    body = await request.json()
+    daily = bool((body or {}).get("daily_email"))
+    await db.users.update_one({"user_id": user["user_id"]},
+                              {"$set": {"report_subscription": {"daily_email": daily,
+                                                                "updated_at": datetime.now(timezone.utc)}}})
+    return {"daily_email": daily, "email_available": _report_mailer.configured()}
+
+
+async def _email_report(report: dict, to: str) -> None:
+    msg = _traffic_report.build_email(report, to=to, sender=_report_mailer.sender(),
+                                      app_url=_report_mailer.app_url())
+    await asyncio.to_thread(_report_mailer.send, msg)
+
+
+@api_router.post("/reports/traffic/email-me")
+async def email_me_traffic_report(request: Request, date: Optional[str] = None):
+    """Email a report to the signed-in user's own address (needs SMTP set up)."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not _report_mailer.configured():
+        raise HTTPException(status_code=503, detail="Email isn't set up on this server. Download the report instead.")
+    if not user.get("email"):
+        raise HTTPException(status_code=400, detail="Your account has no email address")
+    last = _report_email_me_last.get(user["user_id"])
+    now = datetime.now(timezone.utc)
+    if last and now - last < timedelta(minutes=1):
+        raise HTTPException(status_code=429, detail="Just sent one - try again in a minute")
+    _report_email_me_last[user["user_id"]] = now
+    report = await build_traffic_report(_report_day(date))
+    try:
+        await _email_report(report, user["email"])
+    except Exception as e:
+        logger.error(f"[REPORT] email to {user['user_id']} failed: {e}")
+        raise HTTPException(status_code=502, detail="The mail server refused the message")
+    return {"sent_to": user["email"], "date": report["date"]}
+
+
+async def send_daily_reports(now: Optional[datetime] = None) -> int:
+    """Email yesterday's report to subscribers who haven't had it yet."""
+    if not _report_mailer.configured():
+        return 0
+    now = now or datetime.now(timezone.utc)
+    local = _traffic_report.to_central(now)
+    if local.hour < _report_mailer.send_hour():
+        return 0
+    day = local.date() - timedelta(days=1)
+    subs = await db.users.find({"report_subscription.daily_email": True},
+                               {"_id": 0, "user_id": 1, "email": 1}).to_list(None)
+    report, sent = None, 0
+    for u in subs:
+        if not u.get("email"):
+            continue
+        key = {"date": day.isoformat(), "user_id": u["user_id"]}
+        if await db.report_sends.find_one(key):
+            continue
+        report = report or await build_traffic_report(day)
+        try:
+            await _email_report(report, u["email"])
+        except Exception as e:
+            logger.error(f"[REPORT] daily email to {u['user_id']} failed: {e}")
+            continue
+        await db.report_sends.insert_one({**key, "sent_at": now})
+        sent += 1
+    if sent:
+        logger.info(f"[REPORT] emailed the {day} traffic report to {sent} subscriber(s)")
+    return sent
+
+
+async def daily_report_task():
+    if not _report_mailer.configured():
+        logger.info("Daily traffic report email off (REPORT_SMTP_HOST / REPORT_EMAIL_FROM not set)")
+        return
+    while True:
+        try:
+            await send_daily_reports()
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.error(f"Daily report task failed: {e}")
+        try:
+            await asyncio.sleep(600)
+        except asyncio.CancelledError:
+            return
+
+
 @api_router.post("/admin/wait-model/recalibrate")
 async def admin_recalibrate(request: Request):
     """Run a recalibration now (admin). Adopts only if more accurate."""
@@ -8418,6 +8610,7 @@ async def startup_event():
     # Arrival predictions: log, score against USACE, learn the AIS ETA correction
     await load_adopted_arrival_factor()
     asyncio.create_task(arrival_learning_task())
+    asyncio.create_task(daily_report_task())
 
     restored = await load_usace_queue_snapshot()
     if restored:

@@ -13,6 +13,7 @@ const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
 const TrafficPlanner = lazy(() => import("@/pages/TrafficPlanner"));
 const TripsPage = lazy(() => import("@/pages/TripsPage"));
+const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 
 function PageLoading() {
   return <div className="min-h-screen bg-[#020617] flex items-center justify-center text-sm text-slate-500">Loading...</div>;
@@ -85,6 +86,11 @@ function AppRouter() {
       <Route path="/trips" element={
         <ProtectedRoute>
           <TripsPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/reports" element={
+        <ProtectedRoute>
+          <ReportsPage />
         </ProtectedRoute>
       } />
       {/* Catch-all redirect to landing or dashboard */}

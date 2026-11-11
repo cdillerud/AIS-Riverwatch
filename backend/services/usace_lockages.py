@@ -83,13 +83,19 @@ def completed_lockages(rows: Iterable, lock_id: str, lock_name: Optional[str] = 
         g["ends"].append(eol)
         g["cuts"] += 1
         try:
-            g["barges"] += int(_row_value(row, "NUM_BARGES") or 0)
+            cut_barges = int(_row_value(row, "NUM_BARGES") or 0)
         except ValueError:
-            pass
+            cut_barges = 0
+        g["barges"] += cut_barges
+        g.setdefault("cut_list", []).append({"start": sol, "end": eol, "barges": cut_barges})
 
     records = []
     for g in groups.values():
         entry, exit_ = min(g["starts"]), max(g["ends"])
+        # Each cut's own start/end and barges (a double shows as two), in order.
+        # A cut with 0 barges after one with all of them is the towboat
+        # locking through on its own.
+        cut_times = sorted(g["cut_list"], key=lambda c: c["start"])
         arrival = g["arrival"] or entry
         if exit_ < entry:
             continue
@@ -112,6 +118,7 @@ def completed_lockages(rows: Iterable, lock_id: str, lock_name: Optional[str] = 
             "is_tow": g["barges"] > 0,
             "is_recreational": g["recreational"],
             "cuts": g["cuts"],
+            "cut_times": cut_times,
             # More cuts still to come: duration so far, not the full lockage.
             "in_progress": g["in_progress"],
             "is_double_lockage": g["cuts"] > 1,

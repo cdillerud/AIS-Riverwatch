@@ -53,6 +53,9 @@ INDEXES = [
     # Arrival predictions logged for scoring (services/arrival_learning.py)
     ("arrival_predictions", [("made_at", ASC)], {"expireAfterSeconds": 45 * 24 * 3600}),
     ("arrival_predictions", [("lock_id", ASC), ("made_at", ASC)], {}),
+    # One daily Traffic Report email per subscriber per day.
+    ("report_sends", [("date", ASC), ("user_id", ASC)], {"unique": True}),
+    ("report_sends", [("sent_at", ASC)], {"expireAfterSeconds": 120 * 24 * 3600}),
     ("arrival_calibration", [("ran_at", DESC)], {}),
     ("lock_status", [("lock_id", ASC)], {}),
 ]

@@ -21,7 +21,7 @@ import {
   Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
   Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info,
   LogOut, Radio, User, Eye, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
-  Search
+  Search, FileText
 } from "lucide-react";
 import { toast } from "sonner";
 import RiverVisualization from "@/components/RiverVisualization";
@@ -1082,6 +1082,17 @@ export default function Dashboard({
                 title="My Trips"
               >
                 <MapIcon className="w-4 h-4" />
+              </Button>
+              {/* Daily Traffic Report */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.location.assign('/reports')}
+                className="text-slate-400 hover:text-white hover:bg-white/5 w-8 h-8 sm:w-9 sm:h-9"
+                data-testid="reports-nav-btn"
+                title="Traffic Report"
+              >
+                <FileText className="w-4 h-4" />
               </Button>
 
               {/* Settings - Icon only */}

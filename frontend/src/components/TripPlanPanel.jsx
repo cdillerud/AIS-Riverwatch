@@ -215,8 +215,16 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                 </div>
               </div>
               <div className="p-2 rounded bg-slate-900/50 border border-slate-700">
-                <div className="text-[10px] text-slate-500 uppercase">Final ETA</div>
+                <div className="text-[10px] text-slate-500 uppercase"
+                     title="Through the last lock: travel at your current speed plus the expected wait and lockage at each lock">
+                  Final ETA
+                </div>
                 <div className="text-lg font-mono text-white">{fmtMinutes(summary.cumulative_eta_minutes)}</div>
+                {summary.time_at_locks_minutes > 0 && (
+                  <div className="text-[10px] text-slate-500" data-testid="trip-plan-lock-time">
+                    incl. {fmtMinutes(summary.time_at_locks_minutes)} at locks
+                  </div>
+                )}
               </div>
             </div>
 
@@ -284,6 +292,14 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                           </div>
                         </div>
                       </div>
+
+                      {leg.expected_wait_minutes != null && (
+                        <div className="mt-1.5 text-[11px] text-slate-500" data-testid="trip-plan-leg-lock-time"
+                             title="Expected wait when you get there (same estimate as Lock Timing) plus your own lockage">
+                          At lock: wait ~{fmtMinutes(leg.expected_wait_minutes)} · lockage ~{fmtMinutes(leg.expected_lockage_minutes)}
+                          {leg.depart_eta_minutes != null && <> · through in {fmtMinutes(leg.depart_eta_minutes)}</>}
+                        </div>
+                      )}
 
                       {leg.threatening_vessel && (
                         <div className="mt-2 pt-2 border-t border-slate-700/50 text-xs flex items-center justify-between flex-wrap gap-1">

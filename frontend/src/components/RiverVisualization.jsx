@@ -364,9 +364,7 @@ const RiverVisualizationComponent = ({
   onFocusClear = () => {},
   // USACE lock queues {lock_id: [{vessel_name, mmsi, direction, barges, ...}]}:
   // boats known to be at a lock even when no AIS position is available.
-  lockQueues = {},
-  // Vessels predicted between locks: {vessel_name, mmsi, direction, est_river_mile, eta, to_lock_name, ...}
-  predictedVessels = []
+  lockQueues = {}
 }) => {
   // Scroll offset in river miles (positive = shifted north/up)
   const [scrollOffset, setScrollOffset] = useState(0);
@@ -894,34 +892,6 @@ const RiverVisualizationComponent = ({
         );
       })}
 
-      {/* Predicted positions between locks (no AIS position): hollow dashed
-          markers labelled "est.", right of the channel. Live AIS wins. */}
-      {(() => {
-        const liveMmsis = new Set(vessels.map(v => String(v.mmsi)));
-        return predictedVessels
-          .filter(p => isInView(p.est_river_mile) && !(p.mmsi && liveMmsis.has(String(p.mmsi))))
-          .map((p, i) => {
-            const up = p.direction === 'upbound';
-            const eta = p.eta ? fmtRiverTime(p.eta) : '';
-            return (
-              <div
-                key={`pred-${p.mmsi || p.vessel_name}-${i}`}
-                className="absolute z-10 flex items-center gap-1 pointer-events-auto cursor-default"
-                style={{ top: `${getRiverPosition(p.est_river_mile)}%`, left: 'calc(50% + 14px)', transform: 'translateY(-50%)',
-                         opacity: p.probability != null ? 0.45 + 0.55 * p.probability : 1 }}
-                title={`Estimated position from USACE lockages: left ${p.from_lock_name || p.from_lock}, expected at ${p.to_lock_name} around ${eta}${p.overdue ? ' (overdue)' : ''}${p.probability != null && p.probability < 0.8 ? ` - ${Math.round(p.probability * 100)}% of tows here continue to that lock` : ''}`}
-                data-testid="predicted-vessel"
-              >
-                <div className="w-2.5 h-2.5 rotate-45 border border-dashed border-slate-400 bg-transparent" />
-                <span className="text-[9px] md:text-[10px] whitespace-nowrap bg-slate-950/80 px-1 rounded text-slate-400">
-                  {p.vessel_name || 'Unknown'} <span className={up ? 'text-green-400' : 'text-red-400'}>{up ? '↑' : '↓'}</span>
-                  {!compact && <span> est. · {p.to_lock_name ? p.to_lock_name.replace(/^Lock & Dam #/, 'L').replace(/ \(.*\)$/, '') : ''} {eta}</span>}
-                </span>
-              </div>
-            );
-          });
-      })()}
-
       {/* Vessels - dots spread horizontally when close together */}
       {vessels.filter(v => isInView(v.river_mile)).map((vessel, index) => {
         // ONLY match by MMSI
@@ -1061,10 +1031,6 @@ const RiverVisualizationComponent = ({
               <div className="w-3 h-2 md:w-4 md:h-2.5 border border-dashed border-amber-500/70 rounded-sm" />
               <span className="text-[10px] md:text-xs text-slate-300">At lock (USACE)</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 md:w-2.5 md:h-2.5 rotate-45 border border-dashed border-slate-400" />
-              <span className="text-[10px] md:text-xs text-slate-300">Estimated (between locks)</span>
-            </div>
           </div>
         </div>
       )}
@@ -1135,7 +1101,6 @@ export const RiverVisualization = memo(RiverVisualizationComponent, (prevProps, 
   if (prevProps.locks !== nextProps.locks) return false;
   if (prevProps.maxSpeedMph !== nextProps.maxSpeedMph) return false;
   if (prevProps.lockQueues !== nextProps.lockQueues) return false;   // USACE queue refresh
-  if (prevProps.predictedVessels !== nextProps.predictedVessels) return false;
   
   // Check if focused vessel changed - important for centering from list clicks
   if (prevProps.focusedVessel?.mmsi !== nextProps.focusedVessel?.mmsi) return false;

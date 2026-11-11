@@ -55,6 +55,7 @@ OUTBOUND_HEADERS = {"User-Agent": RIVERWATCH_UA}
 from services import usace_lockages as _usace_lockages
 from services import lock_board as _lock_board
 from services import transits as _transits
+from services import live_arrivals as _live_arrivals
 from services import calibration as _calibration
 from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
@@ -4923,9 +4924,15 @@ async def admin_recalibrate(request: Request):
 @api_router.get("/locks/board")
 async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[str] = None,
                          scope: str = "all", sort: str = "river", limit: Optional[int] = None,
-                         lock_id: Optional[str] = None, arrive_in: Optional[float] = None):
+                         lock_id: Optional[str] = None, arrive_in: Optional[float] = None,
+                         mmsi: Optional[str] = None):
     """Lock-first view: every lock's status, queue, estimated wait and typical
-    lockage times, from USACE data only (works without any AIS feed).
+    lockage times, from USACE data (works without any AIS feed).
+
+    arrive_in (minutes) adds wait_at_arrival: the wait for a boat getting there
+    then, counting boats expected first - USACE-based predictions corrected by
+    live AIS (services/live_arrivals.py). mmsi is the asking boat, never
+    counted ahead of itself.
 
     from_rm + direction (upbound|downbound) + scope=ahead: only the locks in
     front of the boat, nearest first. sort=delay: longest estimated wait first.
@@ -5010,6 +5017,11 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
                     appr.append({**a, "eta": datetime.fromisoformat(a["eta"])})
                 except (KeyError, TypeError, ValueError):
                     continue
+            live = _live_positions(now)
+            appr = _live_arrivals.merge_live_arrivals(
+                lid, _LOCK_RMS, appr, live, now, own_mmsi=mmsi,
+                at_lock=[e.get("mmsi") for e in locking + waiting],
+                barges_by_mmsi=await _recent_barges([v["mmsi"] for v in live]))
             wait_at_arrival = _lock_board.predict_waits_at(
                 lid, locking, waiting, appr, typical, now + timedelta(minutes=arrive_in), now, direction=direction)
             wait_at_arrival["arrive_in_minutes"] = round(arrive_in)
@@ -5074,6 +5086,37 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
         "usace": _health.usace_summary(fetched_by_lock, LOCKS, now, USACE_NO_DATA_LOCKS),
         "locks": board,
     }
+
+
+_LOCK_RMS = {lid: info["river_mile"] for lid, info in LOCKS.items()}
+
+
+def _live_positions(now: datetime) -> List[dict]:
+    """Live AIS boats (no demo boats) for services/live_arrivals.py."""
+    out = []
+    for mmsi, v in list(active_vessels.items()):
+        if _is_demo_vessel(v, str(mmsi)) or v.river_mile is None:
+            continue
+        out.append({"mmsi": str(mmsi), "name": v.name, "river_mile": v.river_mile, "speed": v.speed,
+                    "heading": v.heading, "ship_type": v.ship_type,
+                    "timestamp": v.last_ais_checkin or v.timestamp})
+    return out
+
+
+async def _recent_barges(mmsis: List[str]) -> Dict[str, int]:
+    """Barge count from each boat's latest USACE lockage (AIS doesn't carry it)."""
+    if not mmsis:
+        return {}
+    try:
+        rows = await db.lockage_history.aggregate([
+            {"$match": {"mmsi": {"$in": mmsis}, "source": "usace_lpms", "barge_count": {"$ne": None}}},
+            {"$sort": {"recorded_at": -1}},
+            {"$group": {"_id": "$mmsi", "barges": {"$first": "$barge_count"}}},
+        ]).to_list(None)
+        return {r["_id"]: r["barges"] for r in rows}
+    except Exception as e:
+        logger.warning(f"Could not read barge counts: {e}")
+        return {}
 
 
 # USACE publishes no lock queue for these (5A returns nothing as "5A" or "05A")

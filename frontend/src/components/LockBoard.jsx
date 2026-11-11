@@ -24,12 +24,6 @@ function headingToDirection(heading) {
   return null;
 }
 
-function lockLabel(lockId) {
-  if (lockId === "melvin_price") return "Mel Price";
-  if (lockId === "chain_of_rocks") return "L27";
-  return (lockId || "").replace("lock_", "L").toUpperCase();
-}
-
 function fmtTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -123,15 +117,12 @@ function AisRow({ a, inUsace }) {
   );
 }
 
-function LockCard({ lock, selected, onSelectLock, onLockDetails, ais = [], liveIds }) {
+function LockCard({ lock, selected, onSelectLock, onLockDetails, ais = [] }) {
   const t = lock.typical || {};
   const wait = lock.wait_estimate_minutes;
   const busy = wait >= 60;
   const usaceIds = new Set([...(lock.locking || []), ...(lock.waiting || [])]
     .flatMap(e => [e.mmsi && String(e.mmsi), normName(e.vessel_name)]).filter(Boolean));
-  // A predicted boat that is live on AIS is shown from AIS instead.
-  const approaching = (lock.approaching || []).filter(a =>
-    !(liveIds && ((a.mmsi && liveIds.has(String(a.mmsi))) || liveIds.has(normName(a.vessel_name)))));
   return (
     <div
       className={`rounded border p-3 cursor-pointer ${selected ? "border-cyan-500/70 bg-cyan-500/5" : "border-slate-700 bg-slate-900/40 hover:border-slate-500"}`}
@@ -193,39 +184,6 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails, ais = [], liveI
         </div>
       )}
 
-      {approaching.length > 0 && (
-        <div className="mt-2 border-t border-slate-800 pt-1.5" data-testid="lock-approaching">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
-               title="Predicted from each vessel's last USACE lockage and typical transit times between these locks (typically within ~45 min)">
-            Approaching · predicted
-          </div>
-          {approaching.slice(0, 4).map((a, i) => {
-            const up = a.direction === "upbound";
-            return (
-              <div key={i} className="flex justify-between gap-2 text-xs py-0.5 text-slate-300">
-                <span className="truncate">
-                  {a.vessel_name || "Unknown"} <span className={up ? "text-green-400" : "text-red-400"}>{up ? "↑" : "↓"}</span>
-                  <span className="text-slate-500"> {a.barges ? `${a.barges}b` : "light"} · from {lockLabel(a.from_lock)}{a.via_lock ? ` via ${lockLabel(a.via_lock)}` : ""}</span>
-                </span>
-                {a.probability != null && a.probability < 0.8 && (
-                  <span className="shrink-0 text-[10px] text-slate-500"
-                        title="Share of tows on this stretch that continue to this lock (others stop at harbors or fleeting areas)">
-                    likely {Math.round(a.probability * 100)}%
-                  </span>
-                )}
-                <span className={`shrink-0 font-mono ${a.overdue ? "text-slate-500" : "text-slate-300"}`}
-                      title={`Expected ${fmtTime(a.eta_earliest)}–${fmtTime(a.eta_latest)}`}>
-                  {a.overdue ? `due ${fmtTime(a.eta)}` : `≈ ${fmtTime(a.eta)}`}
-                </span>
-              </div>
-            );
-          })}
-          {approaching.length > 4 && (
-            <div className="text-[11px] text-slate-500">+{approaching.length - 4} more</div>
-          )}
-        </div>
-      )}
-
       <div className="mt-2 flex flex-wrap gap-x-3 text-[11px] text-slate-500">
         {t.sample_count > 0 && !t.is_baseline ? (
           <>
@@ -259,8 +217,6 @@ export default function LockBoard({ userVessel, selectedLockId, onSelectLock, on
                                     aisVessels = [], allLocks = [] }) {
   // Live AIS boats (already filtered to fresh positions, not our own boat)
   const aisByLock = useMemo(() => aisNearLocks(aisVessels, allLocks), [aisVessels, allLocks]);
-  const liveIds = useMemo(() => new Set(aisVessels.flatMap(v => [v.mmsi && String(v.mmsi), normName(v.name)]).filter(Boolean)),
-    [aisVessels]);
   const autoDirection = headingToDirection(userVessel?.heading || userVessel?.heading_direction);
   const position = Number.isFinite(Number(userVessel?.river_mile)) ? Number(userVessel.river_mile) : null;
 
@@ -359,7 +315,7 @@ export default function LockBoard({ userVessel, selectedLockId, onSelectLock, on
         {locks.map((lock) => (
           <LockCard key={lock.lock_id} lock={lock} selected={lock.lock_id === selectedLockId}
                     onSelectLock={onSelectLock} onLockDetails={onLockDetails}
-                    ais={aisByLock[lock.lock_id] || []} liveIds={liveIds} />
+                    ais={aisByLock[lock.lock_id] || []} />
         ))}
         {!loading && !error && locks.length === 0 && (
           <div className="text-xs text-slate-500 py-4 text-center">No locks in that direction from your position.</div>

@@ -28,6 +28,9 @@ MAX_RANGE_MI = 25.0       # beyond this an AIS ETA is no better than the predict
 NEAR_LOCK_MI = 3.0        # tows wait 1-3 mi off the lock
 LIVE_MAX_AGE = timedelta(minutes=10)
 PLEASURE_TYPES = (36, 37)
+# Learned correction for AIS ETAs (actual ~= factor * distance/speed), set by
+# the server from services/arrival_learning.py. 1.0 until a fit beats it.
+AIS_ETA_FACTOR = 1.0
 
 
 def _norm_name(x) -> str:
@@ -92,7 +95,7 @@ def merge_live_arrivals(lock_id: str, lock_rms: Dict[str, float], predicted: Lis
         if dist > MAX_RANGE_MI:
             return None
         return {"direction": d, "distance_mi": round(dist, 1),
-                "eta": now + timedelta(hours=dist / (knots * KNOTS_TO_MPH))}
+                "eta": now + timedelta(hours=AIS_ETA_FACTOR * dist / (knots * KNOTS_TO_MPH))}
 
     out: List[dict] = []
     used = set()

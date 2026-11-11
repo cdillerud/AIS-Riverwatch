@@ -65,6 +65,7 @@ from services import live_ais as _live_ais
 from services import api_access as _api_access
 from services import user_sim as _user_sim
 from services import home_berth as _home_berth
+from services import arrival_learning as _arrival_learning
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -5052,6 +5053,122 @@ async def admin_wait_model(request: Request, runs: int = 10):
     return {"current": _lock_board.CALIBRATION, "runs": docs}
 
 
+# ---------------------------------------------------------------------------
+# Arrival predictions that keep learning (services/arrival_learning.py).
+# Every few minutes each lock's predicted arrivals are logged; every few hours
+# they are scored against USACE arrivals and the AIS ETA correction refit
+# (adopted only if it beats the current one on held-out boat trips).
+# ---------------------------------------------------------------------------
+ARRIVAL_SNAPSHOT_EVERY = timedelta(minutes=5)
+ARRIVAL_RELEARN_EVERY = timedelta(hours=6)
+
+
+async def snapshot_arrival_predictions(now: Optional[datetime] = None) -> int:
+    now = now or datetime.now(timezone.utc)
+    approaching = await approaching_by_lock(now)
+    live = _live_positions(now)
+    barges = await _recent_barges([v["mmsi"] for v in live])
+    docs = []
+    for lid in LOCKS:
+        appr = []
+        for a in approaching.get(lid, []):
+            try:
+                appr.append({**a, "eta": datetime.fromisoformat(a["eta"])})
+            except (KeyError, TypeError, ValueError):
+                continue
+        at_lock = [x for lock_no, rows in usace_lock_rows.items() if usace_lock_id(lock_no) == lid
+                   for v in rows for x in (v.get("mmsi"), v.get("vessel_name"))]
+        merged = _live_arrivals.merge_live_arrivals(lid, _LOCK_RMS, appr, live, now,
+                                                    at_lock=at_lock, barges_by_mmsi=barges)
+        docs.extend(_arrival_learning.snapshot_docs(lid, merged, now))
+    if docs:
+        await db.arrival_predictions.insert_many(docs)
+    return len(docs)
+
+
+async def load_adopted_arrival_factor() -> None:
+    try:
+        doc = await db.arrival_calibration.find_one({"adopted": True}, sort=[("ran_at", -1)])
+    except Exception as e:
+        logger.warning(f"Could not load arrival calibration: {e}")
+        return
+    if doc and doc.get("fitted_factor"):
+        _live_arrivals.AIS_ETA_FACTOR = float(doc["fitted_factor"])
+        logger.info(f"AIS arrival ETAs: factor {_live_arrivals.AIS_ETA_FACTOR} learned {doc.get('ran_at')}")
+
+
+async def relearn_arrivals() -> dict:
+    now = datetime.now(timezone.utc)
+    preds = await db.arrival_predictions.find({"made_at": {"$gte": now - timedelta(days=30)}},
+                                              {"_id": 0}).to_list(None)
+    for p in preds:
+        for k in ("made_at", "predicted_eta"):
+            if isinstance(p.get(k), datetime) and p[k].tzinfo is None:
+                p[k] = p[k].replace(tzinfo=timezone.utc)
+    since = min((p["made_at"] for p in preds), default=now) - timedelta(hours=1)
+    arrivals = await db.lockage_history.find(
+        {"source": "usace_lpms", "arrival_time": {"$gte": since.replace(tzinfo=None)}},
+        {"_id": 0, "lock_id": 1, "mmsi": 1, "vessel_name": 1, "arrival_time": 1}).to_list(None)
+    for a in arrivals:
+        if isinstance(a.get("arrival_time"), datetime) and a["arrival_time"].tzinfo is None:
+            a["arrival_time"] = a["arrival_time"].replace(tzinfo=timezone.utc)
+    scored = _arrival_learning.score(preds, arrivals, now)
+    report = _arrival_learning.fit_ais_factor(scored, _live_arrivals.AIS_ETA_FACTOR)
+    doc = {"ran_at": now, "logged_predictions": len(preds), "scored": len(scored),
+           "accuracy": _arrival_learning.summarize(scored),
+           "adopted": bool(report.pop("adopt")), **report}
+    if doc["adopted"]:
+        _live_arrivals.AIS_ETA_FACTOR = float(report["fitted_factor"])
+    try:
+        await db.arrival_calibration.insert_one(dict(doc))
+    except Exception as e:
+        logger.warning(f"Could not record arrival calibration run: {e}")
+    logger.info(f"Arrival learning: {'ADOPTED' if doc['adopted'] else 'kept current'} - {doc.get('reason')}")
+    return doc
+
+
+async def arrival_learning_task():
+    await asyncio.sleep(90)  # let the USACE worker and the AIS feed fill in
+    last_learn = None
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            await snapshot_arrival_predictions(now)
+            if last_learn is None or now - last_learn >= ARRIVAL_RELEARN_EVERY:
+                await relearn_arrivals()
+                last_learn = now
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.error(f"Arrival learning failed: {e}")
+        try:
+            await asyncio.sleep(ARRIVAL_SNAPSHOT_EVERY.total_seconds())
+        except asyncio.CancelledError:
+            return
+
+
+def _jsonable(d: dict) -> dict:
+    return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in d.items() if k != "_id"}
+
+
+@api_router.get("/admin/arrival-model")
+async def admin_arrival_model(request: Request, runs: int = 10):
+    """How accurate arrival predictions have been, and the learned AIS ETA
+    correction (admin)."""
+    await require_admin(request)
+    docs = await db.arrival_calibration.find({}, {"_id": 0}).sort("ran_at", -1).limit(max(1, min(runs, 50))).to_list(None)
+    return {"ais_eta_factor": _live_arrivals.AIS_ETA_FACTOR,
+            "logged_predictions": await db.arrival_predictions.estimated_document_count(),
+            "runs": [_jsonable(d) for d in docs]}
+
+
+@api_router.post("/admin/arrival-model/relearn")
+async def admin_relearn_arrivals(request: Request):
+    """Score logged predictions and refit now (admin). Adopts only if better."""
+    await require_admin(request)
+    return _jsonable(await relearn_arrivals())
+
+
 @api_router.post("/admin/wait-model/recalibrate")
 async def admin_recalibrate(request: Request):
     """Run a recalibration now (admin). Adopts only if more accurate."""
@@ -8298,6 +8415,9 @@ async def startup_event():
     
     await load_adopted_calibration()
     asyncio.create_task(wait_model_learning_task())
+    # Arrival predictions: log, score against USACE, learn the AIS ETA correction
+    await load_adopted_arrival_factor()
+    asyncio.create_task(arrival_learning_task())
 
     restored = await load_usace_queue_snapshot()
     if restored:

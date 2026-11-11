@@ -50,6 +50,10 @@ INDEXES = [
     # Small operational collections
     ("usace_queue", [("lock_no", ASC)], {"unique": True}),
     ("wait_calibration", [("ran_at", DESC)], {}),
+    # Arrival predictions logged for scoring (services/arrival_learning.py)
+    ("arrival_predictions", [("made_at", ASC)], {"expireAfterSeconds": 45 * 24 * 3600}),
+    ("arrival_predictions", [("lock_id", ASC), ("made_at", ASC)], {}),
+    ("arrival_calibration", [("ran_at", DESC)], {}),
     ("lock_status", [("lock_id", ASC)], {}),
 ]
 

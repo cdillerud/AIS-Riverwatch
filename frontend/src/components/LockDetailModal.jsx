@@ -27,7 +27,7 @@ const getStatusLabel = (status) => {
   return 'Status unknown';
 };
 
-export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap }) {
+export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap, onVesselDetails }) {
   const [lockDetails, setLockDetails] = useState(null);
   const [waterConditions, setWaterConditions] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -414,7 +414,8 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                         Currently Locking
                       </h4>
                       {lockDetails.vessels_locking.map((v, i) => (
-                        <div key={i} className="flex items-center justify-between bg-slate-800/50 rounded p-2">
+                        <div key={i} className="flex items-center justify-between bg-slate-800/50 rounded p-2 cursor-pointer hover:bg-slate-700/60"
+                             onClick={() => onVesselDetails?.({ ...v, status: "locking" }, lockDetails.name)} title="Vessel details">
                           <div className="flex items-center gap-2">
                             <Ship className="w-4 h-4 text-amber-400" />
                             <span className="font-medium text-white">{v.name}</span>
@@ -444,7 +445,8 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                       </h4>
                       <div className="space-y-1.5 max-h-40 overflow-y-auto">
                         {lockDetails.vessels_waiting.map((v, i) => (
-                          <div key={i} className="flex items-center justify-between bg-slate-900/50 rounded p-2 text-sm">
+                          <div key={i} className="flex items-center justify-between bg-slate-900/50 rounded p-2 text-sm cursor-pointer hover:bg-slate-800"
+                               onClick={() => onVesselDetails?.({ ...v, status: "waiting" }, lockDetails.name)} title="Vessel details">
                             <div className="flex items-center gap-2">
                               <span className="w-5 h-5 flex items-center justify-center bg-slate-700 rounded text-xs font-mono">
                                 {v.position}

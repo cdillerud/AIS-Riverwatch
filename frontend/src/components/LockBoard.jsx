@@ -56,7 +56,7 @@ function minutesSince(iso) {
   return Number.isNaN(t) ? null : Math.max(0, Math.round((Date.now() - t) / 60000));
 }
 
-function Vessel({ v, locking }) {
+function Vessel({ v, locking, onOpen, aisMatch }) {
   const arrow = v.direction === "upbound" ? "↑" : v.direction === "downbound" ? "↓" : "";
   const arrowCls = v.direction === "upbound" ? "text-green-400" : "text-red-400";
   const barges = v.barges ? `${v.barges} ${v.barges === 1 ? "barge" : "barges"}` : "light boat";
@@ -79,9 +79,10 @@ function Vessel({ v, locking }) {
     );
   }
   return (
-    <div className="text-xs py-1">
+    <div className="text-xs py-1 cursor-pointer hover:bg-slate-800/50 rounded" data-testid="lock-queue-row"
+         onClick={(e) => { e.stopPropagation(); onOpen?.(); }} title="Vessel details">
       <div className="flex justify-between gap-2">
-        <span className="truncate text-slate-200">
+        <span className="truncate text-slate-200 underline decoration-slate-600 underline-offset-2">
           {!locking && <span className="text-slate-500 mr-1">{v.position}.</span>}
           {v.vessel_name || "Unknown"} <span className={arrowCls}>{arrow}</span>
         </span>
@@ -90,25 +91,33 @@ function Vessel({ v, locking }) {
         </span>
       </div>
       <div className="text-[11px] text-slate-500 pl-3">{state}</div>
+      {aisMatch && (
+        <div className="text-[11px] text-slate-500 pl-3" data-testid="lock-queue-ais">
+          <span className="text-cyan-400/80">On AIS</span>
+          {` · ${aisMatch.distance_mi < 0.3 ? "at the lock" : `${aisMatch.distance_mi} mi ${aisMatch.side}`}`}
+          {aisMatch.moving ? ` · ${((Number(aisMatch.vessel.speed) || 0) * 1.15078).toFixed(1)} mph` : " · stopped"}
+        </div>
+      )}
     </div>
   );
 }
 
-const normName = (x) => String(x || "").trim().toUpperCase();
+// "C. MICHAEL REEVES" (AIS) and "C MICHAEL REEVES" (USACE) are the same boat
+const normName = (x) => String(x || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 // Live AIS boats at or heading for this lock - the boats Boat Beacon shows.
-function AisRow({ a, inUsace }) {
+function AisRow({ a, onOpen }) {
   const v = a.vessel;
   const up = a.direction === "upbound";
   const arrow = a.direction ? (up ? "↑" : "↓") : "";
   const mph = (Number(v.speed) || 0) * 1.15078;
   const where = a.distance_mi < 0.3 ? "at the lock" : `${a.distance_mi} mi ${a.side}`;
   return (
-    <div className="flex justify-between gap-2 text-xs py-0.5 text-slate-300" data-testid="lock-ais-row">
+    <div className="flex justify-between gap-2 text-xs py-0.5 text-slate-300 cursor-pointer hover:bg-slate-800/50 rounded"
+         data-testid="lock-ais-row" onClick={(e) => { e.stopPropagation(); onOpen?.(); }} title="Vessel details">
       <span className="truncate">
-        {getVesselDisplayName(v)} <span className={up ? "text-green-400" : "text-red-400"}>{arrow}</span>
+        <span className="underline decoration-slate-600 underline-offset-2">{getVesselDisplayName(v)}</span> <span className={up ? "text-green-400" : "text-red-400"}>{arrow}</span>
         <span className="text-slate-500"> · {where}{a.moving ? ` · ${mph.toFixed(1)} mph` : " · stopped"}</span>
-        {inUsace && <span className="text-cyan-400/80"> · in USACE queue</span>}
       </span>
       {a.moving && a.eta_minutes != null && (
         <span className="shrink-0 font-mono text-slate-300" title="At its current speed">≈ {fmtDuration(a.eta_minutes)}</span>
@@ -117,12 +126,17 @@ function AisRow({ a, inUsace }) {
   );
 }
 
-function LockCard({ lock, selected, onSelectLock, onLockDetails, ais = [] }) {
+function LockCard({ lock, selected, onSelectLock, onLockDetails, onVesselDetails, ais = [] }) {
   const t = lock.typical || {};
   const wait = lock.wait_estimate_minutes;
   const busy = wait >= 60;
-  const usaceIds = new Set([...(lock.locking || []), ...(lock.waiting || [])]
-    .flatMap(e => [e.mmsi && String(e.mmsi), normName(e.vessel_name)]).filter(Boolean));
+  // A boat in the USACE queue that is also on AIS is listed once, in the
+  // queue, with its AIS position; "On AIS now" lists only the others.
+  const aisMatch = (e) => ais.find(a => (e.mmsi && String(a.vessel.mmsi) === String(e.mmsi))
+    || (normName(e.vessel_name) && normName(a.vessel.name) === normName(e.vessel_name)));
+  const queued = [...(lock.locking || []), ...(lock.waiting || [])];
+  const matched = new Set(queued.map(aisMatch).filter(Boolean));
+  const aisOnly = ais.filter(a => !matched.has(a));
   return (
     <div
       className={`rounded border p-3 cursor-pointer ${selected ? "border-cyan-500/70 bg-cyan-500/5" : "border-slate-700 bg-slate-900/40 hover:border-slate-500"}`}
@@ -162,25 +176,24 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails, ais = [] }) {
 
       {(lock.locking?.length > 0 || lock.waiting?.length > 0) && (
         <div className="mt-2 border-t border-slate-800 pt-1.5">
-          {lock.locking.map((v, i) => <Vessel key={`l${i}`} v={v} locking />)}
-          {lock.waiting.slice(0, 5).map((v, i) => <Vessel key={`w${i}`} v={v} />)}
+          {lock.locking.map((v, i) => { const m = aisMatch(v); return <Vessel key={`l${i}`} v={v} locking aisMatch={m} onOpen={() => onVesselDetails?.(m ? m.vessel : v, lock.name)} />; })}
+          {lock.waiting.slice(0, 5).map((v, i) => { const m = aisMatch(v); return <Vessel key={`w${i}`} v={v} aisMatch={m} onOpen={() => onVesselDetails?.(m ? m.vessel : v, lock.name)} />; })}
           {lock.waiting.length > 5 && (
             <div className="text-[11px] text-slate-500">+{lock.waiting.length - 5} more waiting</div>
           )}
         </div>
       )}
 
-      {ais.length > 0 && (
+      {aisOnly.length > 0 && (
         <div className="mt-2 border-t border-slate-800 pt-1.5" data-testid="lock-ais">
           <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5"
                title="Live positions from your AIS feed (Boat Beacon): boats stopped within 3 mi of this lock, or under way toward it within 15 mi. A boat stopped near a lock may be moored or fleeting, not waiting.">
             On AIS now
           </div>
-          {ais.slice(0, 6).map((a, i) => (
-            <AisRow key={a.vessel.mmsi || i} a={a}
-                    inUsace={usaceIds.has(String(a.vessel.mmsi)) || usaceIds.has(normName(a.vessel.name))} />
+          {aisOnly.slice(0, 6).map((a, i) => (
+            <AisRow key={a.vessel.mmsi || i} a={a} onOpen={() => onVesselDetails?.(a.vessel, lock.name)} />
           ))}
-          {ais.length > 6 && <div className="text-[11px] text-slate-500">+{ais.length - 6} more</div>}
+          {aisOnly.length > 6 && <div className="text-[11px] text-slate-500">+{aisOnly.length - 6} more</div>}
         </div>
       )}
 
@@ -213,7 +226,7 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails, ais = [] }) {
   );
 }
 
-export default function LockBoard({ userVessel, selectedLockId, onSelectLock, onLockDetails, compact = false,
+export default function LockBoard({ userVessel, selectedLockId, onSelectLock, onLockDetails, onVesselDetails, compact = false,
                                     aisVessels = [], allLocks = [] }) {
   // Live AIS boats (already filtered to fresh positions, not our own boat)
   const aisByLock = useMemo(() => aisNearLocks(aisVessels, allLocks), [aisVessels, allLocks]);
@@ -314,7 +327,7 @@ export default function LockBoard({ userVessel, selectedLockId, onSelectLock, on
       <div className="flex-1 overflow-y-auto space-y-2 pr-1">
         {locks.map((lock) => (
           <LockCard key={lock.lock_id} lock={lock} selected={lock.lock_id === selectedLockId}
-                    onSelectLock={onSelectLock} onLockDetails={onLockDetails}
+                    onSelectLock={onSelectLock} onLockDetails={onLockDetails} onVesselDetails={onVesselDetails}
                     ais={aisByLock[lock.lock_id] || []} />
         ))}
         {!loading && !error && locks.length === 0 && (

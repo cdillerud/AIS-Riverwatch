@@ -41,6 +41,7 @@ import { API } from "@/lib/api";
 import LockageRow, { fmtDuration } from "@/components/LockageRow";
 import LockBoard, { WAIT_TOOLTIP } from "@/components/LockBoard";
 import { fmtRiverTime } from "@/lib/riverTime";
+import { toDetailVessel } from "@/lib/detailVessel";
 
 // Map (vessel positions) or Locks (lock-first board from USACE data).
 const VIEW_KEY = "riverwatch_main_view";
@@ -81,7 +82,7 @@ function DirectionToggle({ value, onChange, size }) {
 }
 
 // One boat expected to lock before us, and why we think so.
-function AheadRow({ a }) {
+function AheadRow({ a, onOpen }) {
   const up = a.direction === "upbound";
   const arrow = a.direction ? (up ? "↑" : "↓") : "";
   const etaAt = a.eta ? new Date(a.eta) : null;
@@ -93,7 +94,8 @@ function AheadRow({ a }) {
     : a.source === "ais" ? `seen on AIS${a.distance_mi != null ? ` · ${a.distance_mi} mi out` : ""}${eta ? ` · ≈ ${eta}` : ""}`
     : `expected from USACE history${a.probability != null && a.probability < 0.8 ? ` · ${Math.round(a.probability * 100)}% likely` : ""}${eta ? (overdue ? ` · overdue (due ${eta})` : ` · ≈ ${eta}`) : ""}`;
   return (
-    <div className="text-[11px] py-0.5" data-testid="ahead-row">
+    <div className="text-[11px] py-0.5 cursor-pointer hover:bg-slate-800/50 rounded" data-testid="ahead-row"
+         onClick={onOpen} title="Vessel details">
       <div className="text-slate-300 break-words">
         {a.vessel_name || "Unknown"} <span className={up ? "text-green-400" : "text-red-400"}>{arrow}</span>
         <span className="text-slate-500"> {a.barges ? `${a.barges} barges` : ""}</span>
@@ -416,6 +418,12 @@ export default function Dashboard({
     };
   }, [userVessel, selectedLockObj, activeTimingLockId, targetLockBoard]);
 
+  // Vessel details for any boat listed at a lock (USACE queue, AIS, ahead
+  // of you): the live AIS record when there is one, else what USACE knows.
+  const openVesselDetails = useCallback((entry, lockName) => {
+    setSelectedVessel(toDetailVessel(entry, vessels, lockName));
+  }, [vessels]);
+
   // Other boats with a fresh AIS position, for the Locks list ("On AIS now").
   const liveAisVessels = useMemo(() => vessels.filter(v =>
     !(userMmsi && v.mmsi === userMmsi) && hasRiverMile(v) && !isVesselStale(v)), [vessels, userMmsi]);
@@ -430,7 +438,7 @@ export default function Dashboard({
     const lockRM = selectedLockObj.river_mile;
     const queueRange = 10; // vessels within 10 miles of lock
     const board = targetLockBoard?.lock_id === selectedLockObj.id && !targetLockBoard.queue_stale ? targetLockBoard : null;
-    const norm = (x) => String(x || "").trim().toUpperCase();
+    const norm = (x) => String(x || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     const inUsace = board ? new Set([...(board.locking || []), ...(board.waiting || [])]
       .flatMap(e => [e.mmsi && String(e.mmsi), norm(e.vessel_name)]).filter(Boolean)) : null;
     const moored = [];
@@ -1187,7 +1195,7 @@ export default function Dashboard({
                   {mainView === "locks" && (
                     <div className="absolute inset-0 z-40 bg-[#020617]">
                       <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail}
-                                 aisVessels={liveAisVessels} allLocks={locks} />
+                                 aisVessels={liveAisVessels} allLocks={locks} onVesselDetails={openVesselDetails} />
                     </div>
                   )}
                   <RiverVisualization
@@ -1204,7 +1212,7 @@ export default function Dashboard({
                     showVesselNames={userSettings.show_vessel_names !== false}
                     focusedVessel={focusedVessel}
                     onFocusClear={() => setFocusedVessel(null)}
-                    onVesselDetails={(vessel) => setSelectedVessel(vessel)}
+                    onVesselDetails={openVesselDetails}
                     lockQueues={lockQueues}
                   />
                   
@@ -1588,7 +1596,7 @@ export default function Dashboard({
                                title="Boats expected to lock through before you get there. The wait above counts them.">
                             Ahead of you when you arrive
                           </div>
-                          {lockTravelInfo.aheadList.slice(0, 5).map((a, i) => <AheadRow key={i} a={a} />)}
+                          {lockTravelInfo.aheadList.slice(0, 5).map((a, i) => <AheadRow key={i} a={a} onOpen={() => openVesselDetails(a, selectedLockObj?.name)} />)}
                           {lockTravelInfo.aheadList.length > 5 && (
                             <div className="text-[10px] text-slate-500">+{lockTravelInfo.aheadList.length - 5} more</div>
                           )}
@@ -2007,7 +2015,7 @@ export default function Dashboard({
                   showVesselNames={userSettings.show_vessel_names !== false}
                   focusedVessel={focusedVessel}
                   onFocusClear={() => setFocusedVessel(null)}
-                  onVesselDetails={(vessel) => setSelectedVessel(vessel)}
+                  onVesselDetails={openVesselDetails}
                   lockQueues={lockQueues}
                 />
               </CardContent>
@@ -2115,6 +2123,7 @@ export default function Dashboard({
         lockId={selectedLockDetail}
         isOpen={!!selectedLockDetail}
         onClose={() => setSelectedLockDetail(null)}
+        onVesselDetails={(entry, lockName) => { setSelectedLockDetail(null); openVesselDetails(entry, lockName); }}
         onSelectOnMap={(lockId) => {
           onSelectLock(lockId);
           setDesktopPanel("timing");

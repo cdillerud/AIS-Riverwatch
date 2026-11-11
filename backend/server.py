@@ -5020,7 +5020,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             live = _live_positions(now)
             appr = _live_arrivals.merge_live_arrivals(
                 lid, _LOCK_RMS, appr, live, now, own_mmsi=mmsi,
-                at_lock=[e.get("mmsi") for e in locking + waiting],
+                at_lock=[x for e in locking + waiting for x in (e.get("mmsi"), e.get("vessel_name"))],
                 barges_by_mmsi=await _recent_barges([v["mmsi"] for v in live]))
             wait_at_arrival = _lock_board.predict_waits_at(
                 lid, locking, waiting, appr, typical, now + timedelta(minutes=arrive_in), now, direction=direction)
@@ -5306,6 +5306,7 @@ async def get_lock_details(lock_id: str):
         # Vessels at lock
         "vessels_locking": [{
             "name": v.get('vessel_name'),
+            "mmsi": v.get('mmsi'),
             "num_barges": v.get('num_barges'),
             "direction": v.get('direction'),
             "arrival_date": v.get('arrival_date'),
@@ -5313,6 +5314,7 @@ async def get_lock_details(lock_id: str):
         } for v in vessels_locking],
         "vessels_waiting": [{
             "name": v.get('vessel_name'),
+            "mmsi": v.get('mmsi'),
             "num_barges": v.get('num_barges'),
             "direction": v.get('direction'),
             "arrival_date": v.get('arrival_date'),

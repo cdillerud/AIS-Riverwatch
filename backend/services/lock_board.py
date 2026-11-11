@@ -112,9 +112,11 @@ CALIBRATION = {
             "melvin_price": -3.03
         }
     },
-    "recreational": {"intercept": 5.7, "slope": 0.09},
-    "fitted_on": "2026-10-11..2026-10-31, 4067 USACE lockages",
-    "test_mae_minutes": {"tow": 43.0, "recreational": 8.1},
+    # L1 (median) fit, 2026-11-11 (services/calibration.fit_recreational): most
+    # pleasure boats lock with no wait; least squares (5.7 + 0.09q) put ~6 min on all.
+    "recreational": {"intercept": 0.7, "slope": 0.09},
+    "fitted_on": "2026-10-11..2026-10-31, 4067 USACE lockages (recreational refit 2026-11-11)",
+    "test_mae_minutes": {"tow": 43.0, "recreational": 6.2},
 }
 
 

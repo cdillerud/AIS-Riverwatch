@@ -53,3 +53,28 @@ def test_not_enough_history(monkeypatch):
 def test_out_of_bounds_fit_is_rejected(monkeypatch):
     report = _run(monkeypatch, BAD, _samples(slope=5.0))
     assert report["adopt"] is False and "tow.v0" in report["reason"]
+
+
+def _rec_samples(n=1200, seed=3):
+    """Pleasure boats: most wait 0, a few wait long (skewed), regardless of queue."""
+    rnd = random.Random(seed)
+    out = []
+    for i in range(n):
+        v2 = rnd.uniform(0, 60)
+        actual = 0.0 if rnd.random() < 0.7 else rnd.uniform(20, 90)
+        out.append({"lock_id": "lock_3", "train": i < n * 2 // 3, "actual": actual, "recreational": True,
+                    "queue": 0, "locking": 0, "v0": v2, "v1": v2, "v2": v2, "lock_median": 0.0,
+                    "n_same": 0.0, "n_opp": 0.0, "dbl": 0.0, "lk_rem": 0.0, "own_double": 0.0, "empty": 1.0})
+    return out
+
+
+def test_recreational_improvement_adopted_on_its_own(monkeypatch):
+    # Tows already right; pleasure boats on the old least-squares fit (5.7 + 0.09q).
+    tow_ok = _run(monkeypatch, BAD, _samples())["model"]["tow"]
+    current = {"tow": tow_ok, "recreational": {"intercept": 5.7, "slope": 0.09}}
+    report = _run(monkeypatch, current, _samples() + _rec_samples())
+    assert report["adopt"] is True, report["reason"]
+    assert "recreational" in report["reason"] and "tow" not in report["reason"].replace("recreational", "")
+    assert report["model"]["tow"] == tow_ok                          # unchanged part kept as is
+    assert report["model"]["recreational"]["intercept"] < 2.0          # median of a mostly-zero wait
+    assert report["new_score"]["recreational"]["mae"] < report["current_score"]["recreational"]["mae"]

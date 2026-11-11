@@ -4172,8 +4172,42 @@ async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
         averages[lid]["avg_tow_wait_minutes"] = round(avg_tow_wait, 1)
         averages[lid]["avg_recreational_wait_minutes"] = round(avg_rec_wait, 1)
         averages[lid]["sample_count"] = len(all_tow_times) + len(all_rec_times)
-    
+
+    # Learned lockage minutes / double chance by barge count (lock_board).
+    tables = await _barge_tables()
+    for lid in averages:
+        if lid in tables:
+            averages[lid]["by_barges"] = tables[lid]
+
     return averages
+
+
+BARGE_TABLE_DAYS = 30
+_barge_table_cache: Dict[str, object] = {"at": None, "value": {}}
+
+
+async def _barge_tables() -> Dict[str, dict]:
+    """Per-lock learned barge tables from the last BARGE_TABLE_DAYS of USACE
+    tow lockages, refreshed every 6 h."""
+    now = datetime.now(timezone.utc)
+    if _barge_table_cache["at"] and now - _barge_table_cache["at"] < timedelta(hours=6):
+        return _barge_table_cache["value"]
+    try:
+        rows = await db.lockage_history.find(
+            {"source": "usace_lpms", "is_tow": True,
+             "exit_time": {"$gte": (now - timedelta(days=BARGE_TABLE_DAYS)).replace(tzinfo=None)}},
+            {"_id": 0, "lock_id": 1, "is_tow": 1, "barge_count": 1, "cuts": 1,
+             "lockage_duration_minutes": 1, "in_progress": 1}).to_list(None)
+    except Exception as e:
+        logger.warning(f"Could not load lockage history for barge tables: {e}")
+        return _barge_table_cache["value"]
+    river = _lock_board.river_barge_stats(rows)
+    by_lock: Dict[str, list] = {}
+    for r in rows:
+        by_lock.setdefault(r.get("lock_id"), []).append(r)
+    value = {lid: _lock_board.lock_barge_table(rs, river) for lid, rs in by_lock.items() if lid}
+    _barge_table_cache.update(at=now, value=value)
+    return value
 
 
 async def track_vessel_lock_passage(vessel: dict):
@@ -5458,6 +5492,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             "avg_tow_wait_minutes": avg.get("avg_tow_wait_minutes"),
             "avg_recreational_wait_minutes": avg.get("avg_recreational_wait_minutes"),
             "double_share": avg.get("double_share"),
+            "by_barges": avg.get("by_barges"),
             "sample_count": avg.get("sample_count", 0),
             "is_baseline": avg.get("is_baseline", True),
         }
@@ -5533,7 +5568,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             "last_lockage_minutes_ago": round((now - last).total_seconds() / 60) if last else None,
             # Predicted from each vessel's last USACE lockage + learned transit times
             "approaching": approaching.get(lid, [])[:6],
-            "typical": typical,
+            "typical": {k: v for k, v in typical.items() if k != "by_barges"},  # table stays server-side
             "queue_data_at": fetched_by_lock.get(lid),
             # Waits from a queue older than ~20 min are labelled, not shown as current
             **({"queue_age_minutes": None, "queue_stale": False} if lid in USACE_NO_DATA_LOCKS

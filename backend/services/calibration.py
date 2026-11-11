@@ -28,15 +28,19 @@ BOUNDS = {
 }
 
 
-def typical_for(records: List[dict]) -> dict:
-    """Per-lock averages, defined as in get_lockage_averages."""
+def typical_for(records: List[dict], river: Optional[dict] = None) -> dict:
+    """Per-lock averages, defined as in get_lockage_averages; with `river`
+    (lock_board.river_barge_stats) also the lock's learned barge table."""
     def mean(xs):
         return sum(xs) / len(xs) if xs else None
     singles = [r["lockage_duration_minutes"] for r in records if (r.get("cuts") or 1) <= 1 and r["lockage_duration_minutes"] > 0]
     doubles = [r["lockage_duration_minutes"] for r in records if (r.get("cuts") or 1) > 1 and r["lockage_duration_minutes"] > 0]
     rec = [r["lockage_duration_minutes"] for r in records if not r.get("is_tow") and r["lockage_duration_minutes"] > 0]
-    return {"avg_single_lockage_minutes": mean(singles), "avg_double_lockage_minutes": mean(doubles),
-            "avg_recreational_lockage_minutes": mean(rec)}
+    out = {"avg_single_lockage_minutes": mean(singles), "avg_double_lockage_minutes": mean(doubles),
+           "avg_recreational_lockage_minutes": mean(rec)}
+    if river is not None:
+        out["by_barges"] = lock_board.lock_barge_table(records, river)
+    return out
 
 
 def state_at(lock_rows: List[dict], target: dict) -> Tuple[list, list]:
@@ -55,8 +59,10 @@ def state_at(lock_rows: List[dict], target: dict) -> Tuple[list, list]:
     return locking, waiting
 
 
-def build_samples(rows: List[dict], split) -> List[dict]:
-    """One sample per lockage: raw queue estimates at arrival and the actual wait."""
+def build_samples(rows: List[dict], split, learned_barges: bool = True) -> List[dict]:
+    """One sample per lockage: raw queue estimates at arrival and the actual wait.
+    learned_barges: lockage minutes / double chance per barge count learned from
+    the training rows (False: the old >9-barge rule, for comparison)."""
     rows = [r for r in rows if r.get("arrival_time") and r.get("entry_time") and r.get("exit_time")
             and not r.get("in_progress")]
     if not rows:
@@ -65,10 +71,11 @@ def build_samples(rows: List[dict], split) -> List[dict]:
     for r in rows:
         by_lock[r["lock_id"]].append(r)
     start = min(r["arrival_time"] for r in rows)
+    river = lock_board.river_barge_stats(r for r in rows if r["arrival_time"] < split) if learned_barges else None
     samples = []
     for lock_id, lock_rows in by_lock.items():
         train_rows = [r for r in lock_rows if r["arrival_time"] < split]
-        typical = typical_for(train_rows or lock_rows)
+        typical = typical_for(train_rows or lock_rows, river)
         train_waits = sorted(r["wait_time_minutes"] for r in train_rows) or [0]
         for target in lock_rows:
             if target["arrival_time"] < start + timedelta(hours=12):
@@ -80,7 +87,7 @@ def build_samples(rows: List[dict], split) -> List[dict]:
             feats = lock_board.queue_features(
                 lock_id, locking, waiting, typical, target.get("direction"), v0,
                 lock_board.estimate_wait(lock_id, locking, [], typical, t),
-                own_double=1.0 if lock_board.needs_double(lock_id, target.get("barge_count")) else 0.0)
+                own_double=lock_board.double_chance(lock_id, target.get("barge_count"), typical))
             samples.append({
                 **feats,
                 "lock_id": lock_id, "train": t < split,

@@ -63,6 +63,7 @@ from services import feed_health as _health
 from services import user_settings as _user_settings
 from services import live_ais as _live_ais
 from services import api_access as _api_access
+from services import user_sim as _user_sim
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -688,6 +689,8 @@ async def restore_user_vessels(request: Request):
         
         if mmsi and _live_ais.on_live_ais(mmsi):
             continue  # live AIS position already on the map; don't put an old one over it
+        if mmsi and (user_vessel_simulation.get(mmsi) or {}).get('enabled'):
+            continue  # being simulated: a page reload must not jump it back to the saved spot
         if mmsi and last_pos and last_pos.get("lat") and last_pos.get("lon"):
             # Create vessel and add to active_vessels
             lat = last_pos["lat"]
@@ -1858,6 +1861,12 @@ async def set_user_vessel_simulation(mmsi: str, request: Request, user: dict = D
         sim['enabled'] = body['enabled']
     if 'river_mile' in body:
         sim['river_mile'] = float(body['river_mile'])
+        # Moved by hand: forget any lock stop in progress.
+        sim['hold_until'] = None
+        sim['holding'] = False
+        sim['last_lock_mile'] = None
+    if 'lock_dwell_minutes' in body:
+        sim['lock_dwell_minutes'] = max(0.0, float(body['lock_dwell_minutes']))
     if 'speed_knots' in body:
         sim['speed_knots'] = float(body['speed_knots'])
     if 'heading' in body:
@@ -1892,7 +1901,8 @@ async def _update_simulated_user_vessel(mmsi: str, sim: dict):
         return
 
     rm = sim['river_mile']
-    speed = sim['speed_knots']
+    # Held at a lock (waiting / locking through): stopped, like a real boat.
+    speed = 0.0 if sim.get('holding') else sim['speed_knots']
     heading = sim['heading']
 
     # Get coordinates from river mile
@@ -1932,7 +1942,14 @@ async def _update_simulated_user_vessel(mmsi: str, sim: dict):
     }
     
     active_vessels[mmsi] = vessel
-    
+
+    # Push to open dashboards like any AIS update (each viewer's own boat is
+    # marked per session). Without this the map kept the boat where it was
+    # when the page loaded, while the API had it miles further on.
+    v_dict = prepare_vessel_for_output(vessel, mmsi)
+    v_dict['source'] = 'SIM'
+    await ais_manager._broadcast_vessel_update(v_dict)
+
     # Broadcast to raw data subscribers
     await broadcast_demo_nmea(mmsi, lat, lon, speed, course)
 
@@ -5145,11 +5162,14 @@ def _live_positions(now: datetime) -> List[dict]:
     """Live AIS boats (no demo boats) for services/live_arrivals.py."""
     out = []
     for mmsi, v in list(active_vessels.items()):
-        if _is_demo_vessel(v, str(mmsi)) or v.river_mile is None:
-            continue
-        out.append({"mmsi": str(mmsi), "name": v.name, "river_mile": v.river_mile, "speed": v.speed,
-                    "heading": v.heading, "ship_type": v.ship_type,
-                    "timestamp": v.last_ais_checkin or v.timestamp})
+        # active_vessels holds models (AIS) and dicts (simulated / demo boats);
+        # a simulated boat on the map used to crash the lock board here.
+        g = v.get if isinstance(v, dict) else (lambda k, d=None, _v=v: getattr(_v, k, d))
+        if _is_demo_vessel(v, str(mmsi)) or g("is_simulated") or g("river_mile") is None:
+            continue  # demo and simulated boats aren't real traffic
+        out.append({"mmsi": str(mmsi), "name": g("name"), "river_mile": g("river_mile"), "speed": g("speed"),
+                    "heading": g("heading"), "ship_type": g("ship_type"),
+                    "timestamp": g("last_ais_checkin") or g("timestamp")})
     return out
 
 
@@ -8132,43 +8152,36 @@ async def simulate_demo_vessels():
                 # Persist to database
                 asyncio.create_task(persist_vessel_sighting(vessel))
             
-            # ALSO simulate user vessels if enabled
-            for mmsi, sim in list(user_vessel_simulation.items()):
-                if not sim.get('enabled'):
-                    continue
-                
-                current_rm = sim.get('river_mile', 815.0)
-                speed_knots = sim.get('speed_knots', 0)
-                heading = sim.get('heading', 'southbound')
-                
-                # Skip if not moving
-                if speed_knots < 0.1:
-                    continue
-                
-                speed_mph = speed_knots * 1.15078
-                movement = speed_mph * (10 / 3600)  # Movement per 10 seconds
-                
-                if heading == "southbound":
-                    new_rm = current_rm - movement
-                else:
-                    new_rm = current_rm + movement
-                
-                # Clamp to river bounds
-                new_rm = max(180.0, min(860.0, new_rm))
-                
-                # Update simulation state
-                sim['river_mile'] = new_rm
-                
-                # Update vessel in active_vessels
-                await _update_simulated_user_vessel(mmsi, sim)
-                
-                logger.debug(f"[USER SIM] {mmsi}: RM {current_rm:.1f} -> {new_rm:.1f} ({heading})")
-            
         except asyncio.CancelledError:
             logger.info("Demo vessel simulation stopped")
             break
         except Exception as e:
             logger.error(f"Error in demo vessel simulation: {e}")
+            await asyncio.sleep(30)
+
+
+async def simulate_user_vessels():
+    """Move users' simulated boats every 10 s. Its own task: it used to run
+    inside the demo-vessel loop, which skips everything while demo boats are
+    off or hidden behind live AIS - so a simulated boat froze in place as soon
+    as real traffic showed up."""
+    lock_miles = sorted(float(l["river_mile"]) for l in LOCKS.values() if l.get("river_mile") is not None)
+    while True:
+        try:
+            await asyncio.sleep(10)
+            now = datetime.now(timezone.utc)
+            for mmsi, sim in list(user_vessel_simulation.items()):
+                if not sim.get('enabled'):
+                    continue
+                before = sim.get('river_mile')
+                _user_sim.step(sim, lock_miles, 10, now)
+                await _update_simulated_user_vessel(mmsi, sim)
+                if sim.get('holding') and before != sim.get('river_mile'):
+                    logger.info(f"[USER SIM] {mmsi}: stopped at the lock at RM {sim['river_mile']} until {sim.get('hold_until')}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in user vessel simulation: {e}")
             await asyncio.sleep(30)
 
 
@@ -8209,6 +8222,8 @@ async def startup_event():
     # Start demo vessel simulation
     if DEMO_VESSELS_ENABLED:
         asyncio.create_task(simulate_demo_vessels())
+    # Users' own simulated boats move regardless of demo boats / live AIS.
+    asyncio.create_task(simulate_user_vessels())
 
     # Periodic stale-vessel pruning (removes leftover test/injected MMSIs)
     asyncio.create_task(stale_vessel_sweep_task())

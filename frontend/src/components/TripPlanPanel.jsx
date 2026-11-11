@@ -59,7 +59,8 @@ const OVERALL_META = {
   clear: { text: "All Clear", color: "text-green-400", badge: "bg-green-900/50 text-green-300 border-green-500" },
   speed_up: { text: "Adjust Speed", color: "text-amber-400", badge: "bg-amber-900/50 text-amber-300 border-amber-500" },
   cant_beat: { text: "Traffic Conflict", color: "text-red-400", badge: "bg-red-900/50 text-red-300 border-red-500" },
-  no_data: { text: "Awaiting Data", color: "text-slate-400", badge: "bg-slate-700 text-slate-300" },
+  // no_data = no speed/heading to plan with, i.e. the boat is stopped
+  no_data: { text: "Stopped", color: "text-slate-400", badge: "bg-slate-700 text-slate-300" },
   no_user: { text: "No User Vessel", color: "text-slate-400", badge: "bg-slate-700 text-slate-300" },
 };
 

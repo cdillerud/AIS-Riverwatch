@@ -6789,6 +6789,11 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         # waiting are in the wait estimate. (Seen: "Traffic Ahead: MARY J,
         # ETA 437 min" while REBOOT sat at Lock 4.)
         user_at_lock = user_distance <= _lock_board.AT_LOCK_MI and user_speed_knots < _lock_board.SLOW_KNOTS
+        # Stopped with no direction of travel (e.g. at its home berth): not
+        # headed for any lock, so nothing to race. (Seen: "Traffic Ahead:
+        # ITASCA" for REBOOT sitting in its slip.)
+        user_parked = (not user_at_lock and user_speed_mph < 0.5
+                       and user_heading not in ('northbound', 'southbound'))
 
         # Find most threatening competitor
         # LOGIC: Any vessel heading TOWARD the lock is a potential competitor,
@@ -6799,7 +6804,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         required_speed = None
         can_beat = True
         
-        for comp in ([] if user_at_lock else competitors):
+        for comp in ([] if (user_at_lock or user_parked) else competitors):
             comp_eta = comp.get('eta_minutes')
             comp_distance_to_lock = comp.get('distance_to_lock')
             
@@ -6837,6 +6842,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
             "timing_paused": user_stopped_for_timing,
             "timing_paused_reason": ("at_lock" if user_at_lock else "stopped") if user_stopped_for_timing else None,
             "user_at_lock": user_at_lock,
+            "user_parked": user_parked,
         }
     
     return RaceAnalysis(

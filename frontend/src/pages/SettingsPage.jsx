@@ -971,6 +971,11 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
             }
             // The boat these settings are for, not a copy saved inside them.
             data.user_mmsi = mmsi;
+            // Name from the account's fleet when the saved settings have none
+            // (Settings showed an empty Boat Name while the fleet said REBOOT).
+            if (!data.boat_name) {
+              data.boat_name = (user?.vessels || []).find(v => String(v.mmsi) === String(mmsi))?.boat_name || "";
+            }
           }
           setSettings(prev => ({
             ...prev,

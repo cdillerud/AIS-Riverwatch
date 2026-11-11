@@ -37,7 +37,7 @@ def test_locks_ahead_of_the_boat():
     assert [lk["lock_id"] for lk in every] == ["a", "b", "c"]
 
 
-def test_board_endpoint_from_usace_queue(monkeypatch):
+def test_board_endpoint_from_usace_queue(monkeypatch, signed_in):
     import server
 
     async def status():
@@ -81,7 +81,7 @@ def test_board_endpoint_from_usace_queue(monkeypatch):
     assert client.get("/api/locks/board", params={"direction": "sideways"}).status_code == 400
 
 
-def test_traffic_summary_counts_only_the_watched_lock(monkeypatch):
+def test_traffic_summary_counts_only_the_watched_lock(monkeypatch, signed_in):
     import server
 
     now = datetime.now(timezone.utc)

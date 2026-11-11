@@ -25,7 +25,7 @@ def _plan(monkeypatch, vessels, lock_id="lock_3"):
     return next(leg for leg in r.json()["legs"] if leg["lock_id"] == lock_id)
 
 
-def test_tow_through_the_lock_before_user_arrives_is_not_a_threat(monkeypatch):
+def test_tow_through_the_lock_before_user_arrives_is_not_a_threat(monkeypatch, signed_in):
     # User RM 830 downbound ~12 mph -> Lock 3 (RM 796.9) in ~2h46m.
     # MARY J 0.5 mi above Lock 3, 3.1 mph: there in ~10 min, through in ~1 h.
     leg = _plan(monkeypatch, {
@@ -36,7 +36,7 @@ def test_tow_through_the_lock_before_user_arrives_is_not_a_threat(monkeypatch):
     assert leg["threatening_vessel"] is None and leg["status"] == "clear"
 
 
-def test_tow_still_locking_when_user_arrives_is_a_threat_with_delay(monkeypatch):
+def test_tow_still_locking_when_user_arrives_is_a_threat_with_delay(monkeypatch, signed_in):
     # User 5 mi above Lock 3 at ~12 mph (~25 min); a 15-barge double reaches it in ~10 min
     # and needs ~2 h: the user will be held up.
     leg = _plan(monkeypatch, {

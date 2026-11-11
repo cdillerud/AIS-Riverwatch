@@ -460,21 +460,6 @@ const RiverVisualizationComponent = ({
     return { minRM: min, maxRM: max };
   }, [selectedLockRM, zoomRange, scrollOffset]);
 
-  // Calculate position percentage for a river mile
-  const getRiverPosition = (riverMile) => {
-    if (riverMile == null || !Number.isFinite(Number(riverMile))) return 50;
-    // Invert because higher RM is north (top of screen)
-    const pct = ((riverMile - minRM) / (maxRM - minRM)) * 100;
-    return Math.max(2, Math.min(98, 100 - pct)); // Invert so north is at top
-  };
-
-  // Check if a river mile is in view
-  const isInView = useCallback((riverMile) => {
-    // Null river_mile (off-river / unknown) is never drawn on the strip.
-    if (riverMile == null || !Number.isFinite(Number(riverMile))) return false;
-    return riverMile >= minRM && riverMile <= maxRM;
-  }, [minRM, maxRM]);
-
   // Find user vessel - ONLY match by MMSI
   const userVessel = useMemo(() => {
     if (!userMmsi) return null;
@@ -489,6 +474,28 @@ const RiverVisualizationComponent = ({
     if (rm < minRM) return 'south';
     return null;
   }, [userVessel, minRM, maxRM]);
+
+  // While the "your boat is off-screen" badge shows, the strip is laid out in
+  // the space beside it, so the badge never sits on top of a lock or boat.
+  const BADGE_BAND_PX = 64;
+  const bandPct = (BADGE_BAND_PX / (mapHeightPx || 500)) * 100;
+  const topPct = userOutOfRange === 'north' ? bandPct : 2;
+  const bottomPct = userOutOfRange === 'south' ? 100 - bandPct : 98;
+
+  // Calculate position percentage for a river mile
+  const getRiverPosition = (riverMile) => {
+    if (riverMile == null || !Number.isFinite(Number(riverMile))) return 50;
+    // Fraction of the way from the north (top) edge; higher RM is north.
+    const f = Math.max(0, Math.min(1, (maxRM - riverMile) / (maxRM - minRM)));
+    return topPct + f * (bottomPct - topPct);
+  };
+
+  // Check if a river mile is in view
+  const isInView = useCallback((riverMile) => {
+    // Null river_mile (off-river / unknown) is never drawn on the strip.
+    if (riverMile == null || !Number.isFinite(Number(riverMile))) return false;
+    return riverMile >= minRM && riverMile <= maxRM;
+  }, [minRM, maxRM]);
 
   // Generate river mile markers - adaptive based on range
   const rmMarkers = useMemo(() => {

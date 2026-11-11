@@ -1805,6 +1805,29 @@ async def admin_clear_stale_vessels(request: Request):
     }
 
 
+async def _repark_pruned(removed: List[str]) -> List[str]:
+    """A parked boat sends no updates, so the stale sweep drops it after
+    VESSEL_STALE_SECONDS and it vanished from the map until the next page load.
+    Put an account's boat back at its home berth when that is where it would be
+    shown anyway (no real fix in the last 6 h). A boat whose recent real fix
+    went quiet stays pruned, as before."""
+    if not removed:
+        return []
+    now = datetime.now(timezone.utc)
+    parked: List[str] = []
+    async for owner in db.users.find({"vessels.mmsi": {"$in": removed}}, {"_id": 0, "vessels": 1}):
+        for info in owner.get("vessels", []):
+            mmsi = info.get("mmsi")
+            if mmsi not in removed or mmsi in active_vessels:
+                continue
+            if (user_vessel_simulation.get(mmsi) or {}).get('enabled'):
+                continue
+            _, source = _home_berth.position_to_show(info, now)
+            if source == "home" and await _park_at_home(mmsi):
+                parked.append(mmsi)
+    return parked
+
+
 async def stale_vessel_sweep_task():
     """Background task that periodically removes stale vessels from active_vessels."""
     if VESSEL_STALE_SECONDS <= 0 or VESSEL_STALE_SWEEP_SECONDS <= 0:
@@ -1817,7 +1840,9 @@ async def stale_vessel_sweep_task():
     while True:
         try:
             await asyncio.sleep(VESSEL_STALE_SWEEP_SECONDS)
-            _prune_stale_vessels()
+            removed = _prune_stale_vessels()
+            if removed:
+                await _repark_pruned(removed)
         except asyncio.CancelledError:
             break
         except Exception as e:

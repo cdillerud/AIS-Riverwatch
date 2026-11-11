@@ -5082,6 +5082,13 @@ async def load_adopted_calibration() -> bool:
     except Exception as e:
         logger.warning(f"Could not load wait calibration: {e}")
         return False
+    try:  # likely-wait ranges: from the latest run that learned them
+        rdoc = await db.wait_calibration.find_one({"ranges.kind": {"$exists": True}}, {"ranges": 1},
+                                                  sort=[("ran_at", -1)])
+        if rdoc:
+            _lock_board.CALIBRATION["tow_ranges"] = rdoc["ranges"]
+    except Exception as e:
+        logger.warning(f"Could not load wait ranges: {e}")
     if not doc or not doc.get("model"):
         return False
     _apply_calibration(doc["model"], doc.get("fitted_on", ""), doc.get("test_mae_minutes", {}))
@@ -5106,6 +5113,9 @@ async def recalibrate_wait_model() -> dict:
                     "recreational": report["new_score"]["recreational"].get("mae")}
         doc.update({"fitted_on": fitted_on, "test_mae_minutes": test_mae})
         _apply_calibration(report["model"], fitted_on, test_mae)
+    if report.get("ranges"):
+        # Learned every run (for the model now in use), adopted or not.
+        _lock_board.CALIBRATION["tow_ranges"] = report["ranges"]
     try:
         await db.wait_calibration.insert_one(doc)
     except Exception as e:
@@ -5586,6 +5596,8 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             "closure_info": st.closure_info if st else None,
             # Calibrated against USACE history (scripts/backtest_waits.py)
             "wait_estimate_minutes": waits["tow"],
+            # Middle 60% of outcomes at this lock, learned nightly (None until then)
+            "wait_range_minutes": waits.get("tow_range"),
             "wait_estimate_recreational_minutes": waits["recreational"],
             "queue_minutes": waits["queue_minutes"],
             "wait_at_arrival": wait_at_arrival,

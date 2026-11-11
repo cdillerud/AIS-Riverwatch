@@ -205,6 +205,24 @@ CALIBRATION = {
 TOW_FEATURES = ["v0", "n_same", "n_opp", "dbl", "lk_rem", "own_double", "empty"]
 
 
+RANGE_OFFSET = 10.0  # minutes added before taking ratios, so a 0-minute estimate still gets a range
+
+
+def tow_range(lock_id: str, estimate: float, ranges: Optional[dict] = None) -> Optional[list]:
+    """[low, high] "likely" tow wait (middle 60% of outcomes) around an
+    estimate, from the learned per-lock ranges (calibration.fit_ranges).
+    None until a recalibration has learned them."""
+    r = ranges if ranges is not None else CALIBRATION.get("tow_ranges")
+    if not r or r.get("kind") != "ratio":
+        return None
+    lo, hi = (r.get("locks") or {}).get(lock_id) or r.get("global") or (None, None)
+    if lo is None:
+        return None
+    base = max(0.0, float(estimate)) + RANGE_OFFSET
+    low, high = max(0.0, base * lo - RANGE_OFFSET), max(0.0, base * hi - RANGE_OFFSET)
+    return [int(round(min(low, estimate))), int(round(max(high, estimate)))]
+
+
 def tow_wait(f: dict, model: Optional[dict] = None) -> float:
     """Tow wait from queue features under the given (default: current) model."""
     m = (model or CALIBRATION)["tow"]
@@ -261,6 +279,7 @@ def predict_waits(lock_id: str, locking: List[dict], waiting: List[dict], typica
     rec = CALIBRATION["recreational"]["intercept"] + CALIBRATION["recreational"]["slope"] * rec_queue
     return {
         "tow": round(max(0.0, tow)),
+        "tow_range": tow_range(lock_id, round(max(0.0, tow))),
         "recreational": round(max(0.0, rec)),
         "queue_minutes": queue_minutes,
     }
@@ -321,7 +340,8 @@ def predict_waits_at(lock_id: str, locking: List[dict], waiting: List[dict], app
                                typical, direction, q, 0.0)
         tow = tow_wait(feats)
     rec = CALIBRATION["recreational"]["intercept"] + CALIBRATION["recreational"]["slope"] * q
-    return {"tow": round(max(0.0, tow)), "recreational": round(max(0.0, rec)),
+    return {"tow": round(max(0.0, tow)), "tow_range": tow_range(lock_id, round(max(0.0, tow))),
+            "recreational": round(max(0.0, rec)),
             "queue_minutes": q, "ahead_count": len(sim["ahead"]),
             "ahead": [{"vessel_name": v.get("vessel_name"), "mmsi": v.get("mmsi"), "barges": v.get("barges"),
                        "direction": v.get("direction"), "predicted": "eta" in v,

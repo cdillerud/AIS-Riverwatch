@@ -155,7 +155,15 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails, onVesselDetails
           <StatusBadge lock={lock} />
           <div className="mt-1 text-right" title={WAIT_TOOLTIP}>
             {lock.queue_count > 0 ? (
-              <div className={`text-sm font-mono ${busy ? "text-amber-400" : "text-white"}`}>Tow ≈ {fmtDuration(wait)}</div>
+              <>
+                <div className={`text-sm font-mono ${busy ? "text-amber-400" : "text-white"}`}>Tow ≈ {fmtDuration(wait)}</div>
+                {lock.wait_range_minutes && lock.wait_range_minutes[1] > lock.wait_range_minutes[0] && (
+                  <div className="text-[11px] text-slate-400 font-mono" data-testid="wait-range"
+                       title="Where most tow waits at this lock have landed for estimates like this (middle 60%), learned from USACE records">
+                    likely {fmtDuration(lock.wait_range_minutes[0])}–{fmtDuration(lock.wait_range_minutes[1])}
+                  </div>
+                )}
+              </>
             ) : lock.queue_stale ? (
               <div className="text-sm font-mono text-slate-400">Queue unknown</div>
             ) : (

@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
-  Map,
+  MapIcon,
   Plus,
   Trash2,
   Pencil,
@@ -202,7 +202,7 @@ export default function TripsPage() {
               Dashboard
             </Button>
             <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Map className="w-7 h-7 text-cyan-400" />
+              <MapIcon className="w-7 h-7 text-cyan-400" />
               My Trips
             </h1>
           </div>
@@ -230,7 +230,7 @@ export default function TripsPage() {
         {!loading && !error && trips.length === 0 && (
           <Card className="glass-panel border-slate-800" data-testid="trips-empty">
             <CardContent className="text-center py-16">
-              <Map className="w-12 h-12 mx-auto mb-4 text-slate-600" />
+              <MapIcon className="w-12 h-12 mx-auto mb-4 text-slate-600" />
               <h2 className="text-xl font-semibold mb-2">No trips saved yet</h2>
               <p className="text-slate-400 mb-6">
                 Plan a route between two river miles, save it, and recall it later.

@@ -26,6 +26,9 @@ const webpackConfig = {
       rules: {
         "react-hooks/rules-of-hooks": "error",
         "react-hooks/exhaustive-deps": "warn",
+        // lucide's "Map" icon hides the built-in Map: `new Map()` then throws
+        // (this left the map without predicted boats or USACE queues). Use MapIcon.
+        "no-restricted-imports": ["error", { paths: [{ name: "lucide-react", importNames: ["Map"], message: "Import MapIcon; Map hides the built-in Map." }] }],
       },
     },
   },

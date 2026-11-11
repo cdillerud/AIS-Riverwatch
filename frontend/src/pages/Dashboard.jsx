@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { 
   Anchor, Ship, Gauge, Clock, MapPin, AlertTriangle, 
-  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings, Map,
+  Wifi, WifiOff, ChevronDown, Navigation, Lock, Settings, MapIcon,
   Zap, Target, Menu, X, ChevronUp, ZoomIn, ZoomOut, Terminal,
   Edit3, Check, RefreshCw, RotateCcw, Compass, Route, Timer, Users, History, Info,
   LogOut, Radio, User, Eye, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
@@ -805,7 +805,7 @@ export default function Dashboard({
                 data-testid="trips-nav-btn"
                 title="My Trips"
               >
-                <Map className="w-4 h-4" />
+                <MapIcon className="w-4 h-4" />
               </Button>
 
               {/* Settings - Icon only */}

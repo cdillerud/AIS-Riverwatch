@@ -62,6 +62,7 @@ from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
 from services import user_settings as _user_settings
 from services import live_ais as _live_ais
+from services import api_access as _api_access
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -349,7 +350,18 @@ def generate_session_token() -> str:
     return f"session_{secrets.token_urlsafe(32)}"
 
 async def get_current_user(request: Request) -> Optional[dict]:
-    """Get current user from session token (cookie or header)."""
+    """Get current user from session token (cookie or header). Cached on the
+    request: the router-wide login check and route dependencies share it."""
+    state = getattr(request, "state", None)
+    if state is not None and hasattr(state, "rw_user"):
+        return state.rw_user
+    user = await _lookup_current_user(request)
+    if state is not None:
+        state.rw_user = user
+    return user
+
+
+async def _lookup_current_user(request: Request) -> Optional[dict]:
     # Try cookie first
     session_token = request.cookies.get("session_token")
     
@@ -6420,7 +6432,9 @@ try {
     return bat.encode("utf-8")
 
 
-@api_router.get("/relay/download", dependencies=[Depends(require_user)])
+# Admin only: the generated script embeds AIS_INGEST_TOKEN, and anyone can
+# register an account. With the token they could push fake AIS for any boat.
+@api_router.get("/relay/download", dependencies=[Depends(require_admin)])
 async def download_relay_bat(request: Request):
     """Return a freshly-generated RIVERWATCH.bat that points at THIS VM."""
     # Use the Host header so the .bat always targets whatever URL the client used
@@ -7375,6 +7389,23 @@ def is_mmsi_blocked(mmsi: str) -> bool:
     """Check if an MMSI is blocked (system or user)."""
     return mmsi in FILTERED_MMSI or mmsi in user_blocked_mmsi
 
+_WS_REFUSED = object()
+
+
+async def _websocket_user_or_close(websocket: WebSocket):
+    """The signed-in user for a WebSocket handshake (None if login isn't
+    required and nobody is signed in), or _WS_REFUSED after rejecting an
+    anonymous handshake (HTTP 403, policy-violation close code)."""
+    try:
+        user = await get_current_user(websocket)
+    except Exception:
+        user = None
+    if user is None and _api_access.login_required():
+        await websocket.close(code=1008)
+        return _WS_REFUSED
+    return user
+
+
 # WebSocket for real-time AIS data
 # Note: We register both paths - /ws/ais for local and /api/ws/ais for production
 # The /api prefix is needed because Kubernetes ingress routes /api/* to backend
@@ -7387,14 +7418,14 @@ async def websocket_ais(websocket: WebSocket):
     Uses the singleton AISConnectionManager - all clients share ONE TCP connection.
     Each client tracks their own MMSI for per-user vessel highlighting.
     """
+    # Same session cookie/Bearer token as the REST API. Signed-in only (the
+    # stream carries users' own boats); who is asking also decides whether
+    # their "this is my boat, named X" is written for everyone.
+    ws_user = await _websocket_user_or_close(websocket)
+    if ws_user is _WS_REFUSED:
+        return
     await websocket.accept()
     logger.info("WebSocket client connected to /ws/ais")
-    # Same session cookie/Bearer token as the REST API. Who is asking decides
-    # whether their "this is my boat, named X" is written for everyone.
-    try:
-        ws_user = await get_current_user(websocket)
-    except Exception:
-        ws_user = None
     subscribed = False
     client_mmsi = ""  # Track this client's MMSI
     client_boat_name = ""
@@ -7483,7 +7514,10 @@ async def websocket_raw(websocket: WebSocket):
     """
     WebSocket endpoint for streaming raw NMEA data for debugging.
     Clients connect here to see every line received from the AIS TCP feed.
+    Signed-in only, like the rest of the API.
     """
+    if await _websocket_user_or_close(websocket) is _WS_REFUSED:
+        return
     await websocket.accept()
     raw_data_subscribers.add(websocket)
     logger.info(f"Raw data subscriber connected. Total subscribers: {len(raw_data_subscribers)}")
@@ -7892,7 +7926,7 @@ done
     return script.encode("utf-8")
 
 
-@api_router.get("/relay/phone-localhost/download", dependencies=[Depends(require_user)])
+@api_router.get("/relay/phone-localhost/download", dependencies=[Depends(require_admin)])  # embeds AIS_INGEST_TOKEN
 async def download_phone_localhost_relay(request: Request):
     """Return an Android/Termux relay script for Boat Beacon localhost TCP output."""
     host = request.headers.get("host") or "127.0.0.1"
@@ -7906,13 +7940,25 @@ async def download_phone_localhost_relay(request: Request):
     )
 
 
+async def require_login_unless_public(request: Request) -> None:
+    """Router-wide: every /api route needs a session unless it's on the short
+    public list (services/api_access.py). Runs inside CORS, so a 401 still
+    carries CORS headers."""
+    if request.method == "OPTIONS" or not _api_access.login_required():
+        return
+    if _api_access.is_public(request.url.path):
+        return
+    if not await get_current_user(request):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+
 # Include the router in the main app
-app.include_router(api_router)
+app.include_router(api_router, dependencies=[Depends(require_login_unless_public)])
 
 # River Traffic Planning routes (Trip Planner, Lock Queue, Meetings, Bottlenecks)
 try:
     from routes.planning import router as planning_router
-    app.include_router(planning_router, prefix="/api")
+    app.include_router(planning_router, prefix="/api", dependencies=[Depends(require_login_unless_public)])
     logger.info("Traffic Planning routes loaded at /api/planning/*")
 except ImportError as e:
     logger.error(f"Failed to load planning routes: {e}")

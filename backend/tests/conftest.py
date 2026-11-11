@@ -39,3 +39,17 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if Path(str(item.fspath)).name in INTEGRATION_FILES:
             item.add_marker(skip)
+
+
+@pytest.fixture
+def signed_in(monkeypatch):
+    """Requests in this test come from a signed-in (non-admin) user. Every
+    /api route except the public list needs one (services/api_access.py)."""
+    import server
+    user = {"user_id": "u_test", "email": "test@riverwatch-local.com", "vessels": [{"mmsi": "338414076"}]}
+
+    async def fake_current_user(request):
+        return user
+
+    monkeypatch.setattr(server, "get_current_user", fake_current_user)
+    return user

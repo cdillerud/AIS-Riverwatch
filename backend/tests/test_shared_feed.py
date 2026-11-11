@@ -2,7 +2,9 @@
 import asyncio
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 import server
 
@@ -37,7 +39,13 @@ def test_dashboard_websocket_cannot_repoint_the_feed(monkeypatch):
             assert "192.168.1.104" not in status["message"]  # feed address is the admin's
             assert ws.receive_json()["type"] == "vessels"
 
-    # Not signed in: can watch, but can't name a boat for everyone.
+    # Not signed in: refused at the handshake (the stream carries users' boats).
+    with pytest.raises(WebSocketDisconnect):
+        connect_as("338414876", "PIRATE")
+    assert "338414876" not in server.vessel_static_cache
+
+    # Signed in, but not this boat's owner: can watch, can't name it for everyone.
+    viewer["user"] = {"user_id": "u_other", "vessels": []}
     connect_as("338414876", "PIRATE")
     assert "338414876" not in server.vessel_static_cache
 

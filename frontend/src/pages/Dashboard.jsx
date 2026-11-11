@@ -300,9 +300,16 @@ export default function Dashboard({
   const isUserEffectivelyStopped = !isTrafficWatch && !!userVessel && userSpeedMph < 0.5;
   const hasRequiredSpeed = Number.isFinite(raceAnalysis?.analysis?.required_speed_mph);
   const isTimingPaused = isUserEffectivelyStopped && !!raceAnalysis?.analysis?.threatening_vessel;
-  const isDangerous = !isTimingPaused &&
-                      hasRequiredSpeed &&
-                      raceAnalysis.analysis.required_speed_mph > maxAllowedSpeedMph;
+  // No speed wins at all (the tow is nearly there, or arrives inside the
+  // buffer): the API sends required_speed_mph=null with can_beat false. That
+  // used to render a blank " mph" and count as merely "TRAFFIC".
+  const cannotArriveFirst = !isTimingPaused &&
+                            !hasRequiredSpeed &&
+                            !!raceAnalysis?.analysis?.threatening_vessel &&
+                            raceAnalysis?.analysis?.can_beat_at_max_speed === false;
+  const isDangerous = !isTimingPaused && (
+                      cannotArriveFirst ||
+                      (hasRequiredSpeed && raceAnalysis.analysis.required_speed_mph > maxAllowedSpeedMph));
   
   // Track current threatening vessel to reset alert when it changes
   const currentThreatMmsi = raceAnalysis?.analysis?.threatening_vessel?.mmsi;
@@ -903,6 +910,15 @@ export default function Dashboard({
                       <div className="text-2xl font-mono font-bold text-slate-300">Stopped</div>
                       <div className="text-[10px] text-slate-400 mt-1">
                         Start moving or enter a speed to estimate the speed needed to arrive before the tow.
+                      </div>
+                    </>
+                  ) : cannotArriveFirst ? (
+                    <>
+                      <div className="text-lg font-semibold text-red-400" data-testid="cannot-arrive-first">Can't arrive first</div>
+                      <div className="text-[10px] text-red-400 mt-1">
+                        {getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)} reaches
+                        the lock first{Number.isFinite(raceAnalysis.analysis.threatening_vessel.eta_minutes)
+                          ? ` (~${Math.round(raceAnalysis.analysis.threatening_vessel.eta_minutes)} min)` : ''}. Plan to wait behind it.
                       </div>
                     </>
                   ) : (
@@ -2107,7 +2123,9 @@ export default function Dashboard({
             <div>
               <div className="text-red-400 font-bold">Traffic Delay Expected</div>
               <div className="text-sm text-slate-300">
-                Required speed ({raceAnalysis?.analysis?.required_speed_mph?.toFixed(1)} MPH) exceeds your max ({maxAllowedSpeedMph} MPH)
+                {cannotArriveFirst
+                  ? `${getVesselDisplayName(raceAnalysis.analysis.threatening_vessel, userSettings.show_vessel_names !== false)} reaches the lock before you can at any speed`
+                  : `Required speed (${raceAnalysis?.analysis?.required_speed_mph?.toFixed(1)} MPH) exceeds your max (${maxAllowedSpeedMph} MPH)`}
               </div>
             </div>
             <button

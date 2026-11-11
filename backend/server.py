@@ -60,6 +60,7 @@ from services import calibration as _calibration
 from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
 from services import user_settings as _user_settings
+from services import live_ais as _live_ais
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -672,6 +673,8 @@ async def restore_user_vessels(request: Request):
         boat_name = vessel_info.get("boat_name", "Your Vessel")
         last_pos = vessel_info.get("last_position")
         
+        if mmsi and _live_ais.on_live_ais(mmsi):
+            continue  # live AIS position already on the map; don't put an old one over it
         if mmsi and last_pos and last_pos.get("lat") and last_pos.get("lon"):
             # Create vessel and add to active_vessels
             lat = last_pos["lat"]
@@ -1826,6 +1829,9 @@ async def set_user_vessel_simulation(mmsi: str, request: Request, user: dict = D
     """Enable/configure user vessel simulation (own boat, or admin)."""
     _require_owner(user, mmsi)
     body = await request.json()
+    ais_refusal = _live_ais.refusal(mmsi)
+    if body.get('enabled') and ais_refusal:
+        raise HTTPException(status_code=409, detail=ais_refusal)
     
     sim = user_vessel_simulation.get(mmsi, {
         'enabled': False,
@@ -1867,10 +1873,15 @@ async def stop_user_vessel_simulation(mmsi: str, user: dict = Depends(require_us
 
 async def _update_simulated_user_vessel(mmsi: str, sim: dict):
     """Update/create the simulated user vessel in active_vessels."""
+    # The boat came up on live AIS: its transponder position wins, so the
+    # simulation stops writing over it.
+    if _live_ais.on_live_ais(mmsi):
+        return
+
     rm = sim['river_mile']
     speed = sim['speed_knots']
     heading = sim['heading']
-    
+
     # Get coordinates from river mile
     coords = river_mile_to_coords(rm)
     if coords:
@@ -2746,7 +2757,9 @@ class AISConnectionManager:
             
             # Store vessel keyed by MMSI - completely isolated
             active_vessels[vessel.mmsi] = vessel
-            
+            # Live AIS now outranks typed-in/phone/simulated positions for it.
+            _live_ais.record_position(vessel.mmsi, checkin_now)
+
             # First real AIS vessel from the live feed → record the event so the
             # /api/vessels endpoint can hide demo vessels in 'auto' mode.
             _record_live_ais_event(vessel.mmsi)
@@ -7050,6 +7063,10 @@ async def update_session_position(session_mmsi: str, data: dict, user: dict = De
     # Only the boat's owner (or an admin) may move it on everyone's map.
     if not _user_owns_mmsi(user, session_mmsi):
         raise HTTPException(status_code=403, detail="Add this MMSI to your account before sharing its position")
+    # Its own transponder outranks anything typed in (admins included).
+    ais_refusal = _live_ais.refusal(session_mmsi)
+    if ais_refusal:
+        raise HTTPException(status_code=409, detail=ais_refusal)
 
     lat = data.get("lat")
     lon = data.get("lon")

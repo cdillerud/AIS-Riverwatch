@@ -813,7 +813,8 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
         setLastGeoUpdate(new Date());
         return data;
       } else {
-        toast.error("Failed to set position");
+        // e.g. 409: the boat is on live AIS, which wins over typed-in positions
+        toast.error(await errorDetail(response, "Failed to set position"));
         return null;
       }
     } catch (error) {

@@ -1092,10 +1092,9 @@ function MainApp() {
           <SettingsPage 
             onBack={handleSettingsUpdate}
             onLiveChange={(changes) => setUserSettings(prev => ({ ...prev, ...changes }))}
-            initialSettings={userSettings}
+            initialSettings={{ ...userSettings, user_mmsi: userMmsi || userSettings.user_mmsi || "" }}
           />
         </Suspense>
-        <Toaster position="top-right" theme="dark" />
       </div>
     );
   }
@@ -1135,7 +1134,8 @@ function MainApp() {
           <SetupPage onConnect={handleConnect} />
         </Suspense>
       )}
-      <Toaster position="top-right" theme="dark" />
+      {/* Toasts render from the single <Toaster> in App; a second one here
+          showed every toast twice. */}
     </div>
   );
 }

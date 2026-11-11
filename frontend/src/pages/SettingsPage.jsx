@@ -913,7 +913,25 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
       try {
         const response = await fetch(`${API}/settings`);
         if (response.ok) {
+          // Server-wide defaults, overlaid with this account's own settings
+          // for its boat (saved per user; values may be booleans/numbers).
           const data = await response.json();
+          const mmsi = initialSettings.user_mmsi || settings.user_mmsi || data.user_mmsi;
+          if (mmsi) {
+            try {
+              const own = await fetch(`${API}/user/${mmsi}/settings`);
+              if (own.ok) {
+                const saved = (await own.json()).settings || {};
+                for (const [k, v] of Object.entries(saved)) {
+                  if (v !== null && v !== undefined && typeof v !== "object") data[k] = String(v);
+                }
+              }
+            } catch (e) {
+              console.warn("Couldn't load your boat's settings:", e);
+            }
+            // The boat these settings are for, not a copy saved inside them.
+            data.user_mmsi = mmsi;
+          }
           setSettings(prev => ({
             ...prev,
             user_mmsi: data.user_mmsi || "",
@@ -972,11 +990,16 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
         show_vessel_names: settings.show_vessel_names.toString(),
       };
 
-      const response = await fetch(`${API}/settings`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settingsToSave)
-      });
+      // Server-wide defaults are admin-only. Everyone's own settings are
+      // saved per boat by onBack -> handleSettingsUpdate (/user/{mmsi}/settings).
+      const isAdmin = user?.is_admin || user?.is_super_admin;
+      const response = isAdmin
+        ? await fetch(`${API}/settings`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(settingsToSave)
+          })
+        : { ok: true };
 
       if (response.ok) {
         // Also update user MMSI

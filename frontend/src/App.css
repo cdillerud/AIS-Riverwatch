@@ -35,7 +35,8 @@
     rgba(59, 130, 246, 0.1) 55%,
     transparent 100%
   );
-  position: relative;
+  /* no position here: the element is Tailwind 'absolute top-0 bottom-0';
+     'relative' overrode it and collapsed the channel to 0 px tall */
 }
 
 .river-viz::before {

@@ -60,6 +60,7 @@ from services import trip_timeline as _trip_timeline
 from services import calibration as _calibration
 from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
+from services import user_settings as _user_settings
 _aisstream_task = None
 # Import from new modular structure (for reusable logic)
 from config import LOCKS, RIVER_MILE_POINTS, get_cors_origins, USGS_GAUGES, USGS_PARAMS, FLOOD_STAGES, LOCK_GAUGES, UPPER_MISS_LOCKS, is_on_upper_mississippi
@@ -755,7 +756,7 @@ async def add_user_vessel(request: Request, vessel: VesselAdd):
     )
     
     # Migrate any existing settings for this MMSI to user
-    existing_settings = await db.user_settings.find_one({"mmsi": vessel.mmsi}, {"_id": 0})
+    existing_settings = await db.user_settings.find_one(_user_settings.read_filter(vessel.mmsi, user), {"_id": 0})
     if existing_settings:
         # Merge settings into user's settings
         await db.users.update_one(
@@ -7124,7 +7125,7 @@ async def update_session_position(session_mmsi: str, data: dict, user: dict = De
     
     # Get boat name from session settings
     boat_name = data.get("name") or "Your Vessel"
-    user_settings = await db.user_settings.find_one({"mmsi": session_mmsi}, {"_id": 0})
+    user_settings = await db.user_settings.find_one(_user_settings.read_filter(session_mmsi, user), {"_id": 0})
     if user_settings and user_settings.get("settings", {}).get("boat_name"):
         boat_name = user_settings["settings"]["boat_name"]
     elif session_mmsi in vessel_static_cache:
@@ -7190,33 +7191,34 @@ async def update_user_position_legacy(data: dict, user: dict = Depends(require_u
     return await update_session_position(mmsi, data, user)
 
 
-@api_router.get("/settings", dependencies=[Depends(require_user)])
-async def get_settings(mmsi: str = None):
-    """Get saved settings. If mmsi provided, get user-specific settings."""
+@api_router.get("/settings")
+async def get_settings(mmsi: str = None, user: dict = Depends(require_user)):
+    """Get saved settings. If mmsi provided, get this user's settings for it."""
     if mmsi:
-        # Get user-specific settings
-        user_settings = await db.user_settings.find_one({"mmsi": mmsi}, {"_id": 0})
+        user_settings = await db.user_settings.find_one(_user_settings.read_filter(mmsi, user), {"_id": 0})
         if user_settings:
             return user_settings.get("settings", {})
         # Fall back to defaults
         return {}
-    
-    # Legacy: get global settings
-    settings = await db.settings.find({}, {"_id": 0}).to_list(100)
-    return {s["key"]: s["value"] for s in settings}
 
-@api_router.post("/settings", dependencies=[Depends(require_admin)])
-async def save_settings(data: dict):
-    """Save settings. If mmsi in data, save as user-specific settings."""
+    # Server-wide defaults; the admin's own boat/feed keys only for admins.
+    settings = await db.settings.find({}, {"_id": 0}).to_list(100)
+    return _user_settings.visible_global_settings({s["key"]: s["value"] for s in settings}, user)
+
+@api_router.post("/settings")
+async def save_settings(data: dict, user: dict = Depends(require_admin)):
+    """Save server-wide settings (admins). If mmsi in data, save as the
+    admin's own settings for that boat."""
     mmsi = data.pop("mmsi", None) if isinstance(data, dict) else None
-    
+
     if mmsi:
         # Save user-specific settings
         await db.user_settings.update_one(
-            {"mmsi": mmsi},
+            _user_settings.write_filter(mmsi, user),
             {
                 "$set": {
                     "mmsi": mmsi,
+                    "user_id": user["user_id"],
                     "settings": data,
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }
@@ -7236,10 +7238,11 @@ async def save_settings(data: dict):
     return {"success": True}
 
 
-@api_router.get("/user/{mmsi}/settings", dependencies=[Depends(require_user)])
-async def get_user_settings(mmsi: str):
-    """Get settings for a specific user (by MMSI)."""
-    user_settings = await db.user_settings.find_one({"mmsi": mmsi}, {"_id": 0})
+@api_router.get("/user/{mmsi}/settings")
+async def get_user_settings(mmsi: str, user: dict = Depends(require_user)):
+    """This user's settings for a boat (by MMSI). Another account's settings
+    for the same MMSI are never returned."""
+    user_settings = await db.user_settings.find_one(_user_settings.read_filter(mmsi, user), {"_id": 0})
     if user_settings:
         return {
             "mmsi": mmsi,
@@ -7249,14 +7252,15 @@ async def get_user_settings(mmsi: str):
     return {"mmsi": mmsi, "settings": {}, "updated_at": None}
 
 
-@api_router.post("/user/{mmsi}/settings", dependencies=[Depends(require_user)])  
-async def save_user_settings(mmsi: str, data: dict):
-    """Save settings for a specific user (by MMSI)."""
+@api_router.post("/user/{mmsi}/settings")
+async def save_user_settings(mmsi: str, data: dict, user: dict = Depends(require_user)):
+    """Save this user's settings for a boat (by MMSI)."""
     await db.user_settings.update_one(
-        {"mmsi": mmsi},
+        _user_settings.write_filter(mmsi, user),
         {
             "$set": {
                 "mmsi": mmsi,
+                "user_id": user["user_id"],
                 "settings": data,
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }

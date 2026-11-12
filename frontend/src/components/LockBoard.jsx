@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { API } from "@/lib/api";
 import { fmtDuration } from "@/components/LockageRow";
+
+// "4h 23m" under two days, then whole days ("18 days").
+export function fmtAgo(minutes) {
+  const m = Number(minutes);
+  if (Number.isFinite(m) && m >= 48 * 60) return `${Math.floor(m / 1440)} days`;
+  return fmtDuration(minutes);
+}
 import { fmtRiverTime } from "@/lib/riverTime";
 import { aisNearLocks } from "@/lib/aisAtLocks";
 import { getVesselDisplayName } from "@/utils/vesselDisplay";
@@ -222,9 +229,9 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails, onVesselDetails
             <span>Tow wait avg <span className="text-slate-300 font-mono">{fmtDuration(t.avg_tow_wait_minutes)}</span></span>
           </>
         ) : (
-          <span>No recorded lockage history yet</span>
+          <span>{lock.last_lockage_minutes_ago != null ? "No lockages in the last 7 days" : "No recorded lockage history yet"}</span>
         )}
-        {lock.last_lockage_minutes_ago != null && <span>Last lockage {fmtDuration(lock.last_lockage_minutes_ago)} ago</span>}
+        {lock.last_lockage_minutes_ago != null && <span>Last lockage {fmtAgo(lock.last_lockage_minutes_ago)} ago</span>}
         <button
           className="ml-auto text-cyan-400 hover:text-cyan-300"
           onClick={(e) => { e.stopPropagation(); onLockDetails?.(lock.lock_id); }}

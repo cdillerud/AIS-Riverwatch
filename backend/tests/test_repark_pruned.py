@@ -75,3 +75,28 @@ def test_no_berth_or_simulated_or_not_pruned_is_left_alone(monkeypatch):
     parked, calls = _run(monkeypatch, vessels, ["111", "222"],
                          sim={"222": {"enabled": True}})
     assert parked == [] and calls == []
+
+
+class _AllUsers(_Users):
+    def find(self, query, projection=None):
+        if "$in" in query["vessels.mmsi"]:
+            return super().find(query, projection)
+        return _Cursor(self.docs)
+
+
+def test_startup_parks_every_boat_at_its_berth(monkeypatch):
+    """A restart empties the in-memory map; boats at their berth come back."""
+    calls = []
+
+    async def fake_park(mmsi):
+        calls.append(mmsi)
+        return True
+
+    db = _DB([])
+    db.users = _AllUsers([{"vessels": [{"mmsi": "338414076", "home_berth": HOME}]},
+                          {"vessels": [{"mmsi": "444", "last_position": {"lat": 44.0, "lon": -92.0}}]}])
+    monkeypatch.setattr(server, "db", db)
+    monkeypatch.setattr(server, "_park_at_home", fake_park)
+    monkeypatch.setattr(server, "user_vessel_simulation", {})
+    server.active_vessels.clear()
+    assert asyncio.run(server._park_all_at_home()) == ["338414076"] and calls == ["338414076"]

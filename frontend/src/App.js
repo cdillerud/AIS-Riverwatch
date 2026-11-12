@@ -25,6 +25,7 @@ import Disclaimer from "@/components/Disclaimer";
 
 import { API, WS_BASE_URL, AIS_WS_PATH } from "@/lib/api";
 import { nextLockAhead, directionOf } from "@/lib/timingLock";
+import { sameVesselList } from "@/lib/vesselListSig";
 
 // Backend URL defaults to same-origin when REACT_APP_BACKEND_URL is unset.
 const WS_URL = WS_BASE_URL;
@@ -574,15 +575,8 @@ function MainApp() {
         const response = await fetch(`${API}/vessels`);
         if (response.ok) {
           const data = await response.json();
-          // Only update if data actually changed (compare length and first/last MMSI)
-          setVessels(prev => {
-            if (prev.length === data.length && 
-                prev[0]?.mmsi === data[0]?.mmsi &&
-                prev[prev.length-1]?.mmsi === data[data.length-1]?.mmsi) {
-              return prev; // No change
-            }
-            return data;
-          });
+          // Keep the old array (no re-render) only if nothing on the map changed
+          setVessels(prev => (sameVesselList(prev, data) ? prev : data));
         }
       } catch (error) {
         console.error("Failed to fetch vessels:", error);

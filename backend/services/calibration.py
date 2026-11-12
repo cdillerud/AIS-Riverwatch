@@ -230,16 +230,24 @@ def fit_ranges(model: dict, samples: List[dict]) -> dict:
     the other): 63% of real waits inside the 20-80% band (target 60%),
     median width 32 min; per-lock bands beat one river-wide band at the
     worst-covered lock (38% vs 29%)."""
+    tows = _ratio_bands(model, [s for s in samples if not s["recreational"]])
+    if not tows:
+        return {}
+    # Pleasure boats the same way, from their own model (estimate = predict()).
+    rec = _ratio_bands(model, [s for s in samples if s["recreational"]])
+    return {"kind": "ratio", "p": [RANGE_LO, RANGE_HI], **tows, **({"recreational": rec} if rec else {})}
+
+
+def _ratio_bands(model: dict, samples: List[dict]) -> dict:
     off = lock_board.RANGE_OFFSET
-    tows = [s for s in samples if not s["recreational"]]
-    if len(tows) < RANGE_MIN_SAMPLES:
+    if len(samples) < RANGE_MIN_SAMPLES:
         return {}
     ratios: Dict[str, List[float]] = defaultdict(list)
-    for s in tows:
-        ratios[s["lock_id"]].append((s["actual"] + off) / (lock_board.tow_wait(s, model) + off))
+    for s in samples:
+        ratios[s["lock_id"]].append((s["actual"] + off) / (predict(model, s) + off))
     every = [r for rs in ratios.values() for r in rs]
     band = lambda rs: [round(_quantile(rs, RANGE_LO), 3), round(_quantile(rs, RANGE_HI), 3)]
-    return {"kind": "ratio", "p": [RANGE_LO, RANGE_HI], "global": band(every),
+    return {"global": band(every),
             "locks": {l: band(rs) for l, rs in ratios.items() if len(rs) >= RANGE_MIN_SAMPLES},
             "samples": len(every)}
 

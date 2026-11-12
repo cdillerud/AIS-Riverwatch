@@ -171,6 +171,8 @@ function LockCard({ lock, selected, onSelectLock, onLockDetails, onVesselDetails
             )}
             <div className="text-[11px] text-slate-400 font-mono">
               {lock.queue_count > 0 ? "" : `tow ≈ ${fmtDuration(wait)} · `}pleasure ≈ {fmtDuration(lock.wait_estimate_recreational_minutes)}
+              {lock.wait_range_recreational_minutes && lock.wait_range_recreational_minutes[1] > lock.wait_range_recreational_minutes[0]
+                && ` (${fmtDuration(lock.wait_range_recreational_minutes[0])}–${fmtDuration(lock.wait_range_recreational_minutes[1])})`}
             </div>
             {lock.queue_stale && (
               <div className="text-[11px] text-amber-400/90" data-testid="queue-stale"

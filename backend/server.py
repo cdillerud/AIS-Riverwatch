@@ -7345,6 +7345,81 @@ async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minute
 # =============================================================================
 # TRIP PLAN - Chain Race Analysis Across Multiple Locks Ahead
 # =============================================================================
+DEPARTURE_OFFSETS = [0, 30, 60, 120, 240]
+
+
+@api_router.get("/session/{session_mmsi}/departure-options")
+async def get_departure_options(session_mmsi: str, direction: str, cruise_mph: float = 15.0,
+                                destination_rm: Optional[float] = None, max_locks: int = 5):
+    """For a boat that is stopped (the trip plan needs it under way): leave now,
+    in 30 min, 1 h, 2 h or 4 h - expected wait at each lock when you'd get
+    there (same model as the trip plan, incl. tows predicted to arrive) and
+    when you'd finish. `best` is the option with the least time at locks."""
+    session_mmsi = str(session_mmsi).strip()
+    if direction not in ("upbound", "downbound"):
+        raise HTTPException(status_code=400, detail="direction must be upbound or downbound")
+    speed = max(1.0, min(float(cruise_mph or 15.0), 60.0))
+    max_locks = max(1, min(int(max_locks or 5), 15))
+    v = active_vessels.get(session_mmsi)
+    if v is None:
+        return {"session_mmsi": session_mmsi, "start_rm": None, "options": [], "best": None, "locks": []}
+    vd = prepare_vessel_for_output(v, session_mmsi)
+    start_rm = vd.get('river_mile') or estimate_river_mile(vd.get('lat'), vd.get('lon'))
+    if start_rm is None:
+        return {"session_mmsi": session_mmsi, "start_rm": None, "options": [], "best": None, "locks": []}
+
+    order = sorted(LOCKS.items(), key=lambda kv: kv[1]['river_mile'], reverse=(direction == "downbound"))
+    chain = []
+    for lid, ldata in order:
+        if not _lock_board.lock_is_ahead(ldata['river_mile'], start_rm, direction, 0.0):
+            continue
+        if destination_rm is not None and ((direction == "downbound" and ldata['river_mile'] < destination_rm)
+                                           or (direction == "upbound" and ldata['river_mile'] > destination_rm)):
+            break
+        chain.append((lid, ldata))
+    chain = chain[:max_locks]
+
+    lock_averages = await get_lockage_averages()
+    user_barges = vd.get('barge_count')
+    user_is_tow = bool(vd.get('is_tow') or (user_barges or 0) > 0)
+
+    async def wait_at(lid: str, arrive_in: float) -> Optional[float]:
+        try:
+            board = await get_lock_board(direction=direction, lock_id=lid,
+                                         arrive_in=arrive_in if arrive_in <= 24 * 60 else None,
+                                         mmsi=session_mmsi)
+        except Exception as e:
+            logger.warning(f"Departure options: no wait estimate for {lid}: {e}")
+            return None
+        row = (board.get("locks") or [None])[0]
+        if not row:
+            return None
+        w = row.get("wait_at_arrival")
+        if w:
+            return w["tow"] if user_is_tow else w["recreational"]
+        return row["wait_estimate_minutes"] if user_is_tow else row["wait_estimate_recreational_minutes"]
+
+    def own_lockage(lid: str) -> float:
+        return _lock_board.expected_lockage_minutes(lid, user_barges if user_is_tow else None,
+                                                    lock_averages.get(lid, {}))
+
+    legs, prev = [], start_rm
+    for lid, ldata in chain:
+        legs.append({"lock_id": lid, "distance_mi": abs(ldata['river_mile'] - prev)})
+        prev = ldata['river_mile']
+    tail = abs(destination_rm - prev) if destination_rm is not None else 0.0
+    options = await _trip_timeline.departure_options(legs, speed * 1.0, DEPARTURE_OFFSETS, wait_at, own_lockage, tail)
+    best = (min(range(len(options)), key=lambda i: (options[i]["time_at_locks_minutes"], options[i]["depart_in_minutes"]))
+            if options and chain else None)
+    return {
+        "session_mmsi": session_mmsi, "direction": direction, "cruise_mph": speed,
+        "start_rm": round(float(start_rm), 1), "destination_rm": destination_rm,
+        "locks": [{"lock_id": lid, "name": ld.get("name"), "river_mile": ld.get("river_mile")} for lid, ld in chain],
+        "options": options, "best": best,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @api_router.get("/session/{session_mmsi}/trip-plan")
 async def get_session_trip_plan(
     session_mmsi: str,

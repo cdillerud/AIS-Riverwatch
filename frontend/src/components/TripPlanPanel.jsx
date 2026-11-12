@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import DeparturePlanner from "@/components/DeparturePlanner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -199,9 +200,8 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
         )}
 
         {userMmsi && !error && plan && summary?.overall_status === "no_data" && legs.length === 0 && (
-          <div className="text-center py-6 text-sm text-slate-400" data-testid="trip-plan-stationary">
-            <Navigation className="w-6 h-6 mx-auto mb-2 text-slate-500" />
-            Your boat is stopped. The trip plan starts once you're under way and RiverWatch knows which direction you're heading.
+          <div data-testid="trip-plan-stationary">
+            <DeparturePlanner userMmsi={userMmsi} destinationRm={activeTrip?.end_rm ?? null} />
           </div>
         )}
 

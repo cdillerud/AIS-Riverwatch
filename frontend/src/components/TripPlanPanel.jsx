@@ -309,7 +309,14 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                       {leg.expected_wait_minutes != null && (
                         <div className="mt-1.5 text-[11px] text-slate-500" data-testid="trip-plan-leg-lock-time"
                              title="Expected wait when you get there (same estimate as Lock Timing) plus your own lockage">
-                          At lock: wait ~{fmtMinutes(leg.expected_wait_minutes)} · lockage ~{fmtMinutes(leg.expected_lockage_minutes)}
+                          At lock: wait ~{fmtMinutes(leg.expected_wait_minutes)}
+                          {Array.isArray(leg.expected_wait_range_minutes) && leg.expected_wait_range_minutes[1] > leg.expected_wait_range_minutes[0] && (
+                            <span data-testid="trip-plan-wait-range"
+                                  title="Where most waits at this lock have landed for estimates like this (middle 60%)">
+                              {" "}(likely {fmtMinutes(leg.expected_wait_range_minutes[0])}–{fmtMinutes(leg.expected_wait_range_minutes[1])})
+                            </span>
+                          )}
+                          {" "}· lockage ~{fmtMinutes(leg.expected_lockage_minutes)}
                           {leg.depart_eta_minutes != null && <> · through in {fmtMinutes(leg.depart_eta_minutes)}</>}
                         </div>
                       )}

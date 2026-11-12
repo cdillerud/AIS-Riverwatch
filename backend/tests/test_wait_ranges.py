@@ -14,14 +14,22 @@ def test_range_widens_with_the_estimate_and_by_lock():
     assert lo <= 50 <= hi
 
 
+def test_pleasure_boat_bands_are_separate():
+    r = {**RANGES, "recreational": {"global": [0.9, 1.6], "locks": {}}}
+    assert LB.tow_range("lock_10", 1, r, recreational=True) == [0, 8]     # (11*0.9-10 -> 0, 11*1.6-10)
+    assert LB.tow_range("lock_10", 1, RANGES, recreational=True) is None  # none learned for pleasure boats
+
+
 def test_fit_ranges_from_held_out_samples():
-    model = {"tow": {"kind": "l1_features", "coef": {"intercept": 30.0}, "lock_effects": {}}}
+    model = {"tow": {"kind": "l1_features", "coef": {"intercept": 30.0}, "lock_effects": {}},
+             "recreational": {"intercept": 1.0, "slope": 0.0}}
     # Estimate is 30 for every sample; actual waits spread 0..190 at lock_a.
     samples = [{"lock_id": "lock_a", "recreational": False, "actual": float(a)} for a in range(0, 200, 10)]
     samples += [{"lock_id": "lock_b", "recreational": False, "actual": 30.0}] * 5     # too few for its own band
-    samples += [{"lock_id": "lock_a", "recreational": True, "actual": 0.0}] * 50     # pleasure boats ignored
+    samples += [{"lock_id": "lock_a", "recreational": True, "actual": 0.0, "v2": 0.0}] * 50  # pleasure: own band
     r = C.fit_ranges(model, samples)
     assert r["kind"] == "ratio" and set(r["locks"]) == {"lock_a"}
+    assert r["recreational"]["samples"] == 50 and LB.tow_range("lock_a", 1, r, recreational=True) == [0, 1]
     lo, hi = LB.tow_range("lock_a", 30, r)
     inside = sum(1 for s in samples if s["lock_id"] == "lock_a" and not s["recreational"] and lo <= s["actual"] <= hi)
     assert 10 <= inside <= 15                                    # about the middle 60% of 20

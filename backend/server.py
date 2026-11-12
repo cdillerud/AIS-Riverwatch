@@ -5599,6 +5599,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
             # Middle 60% of outcomes at this lock, learned nightly (None until then)
             "wait_range_minutes": waits.get("tow_range"),
             "wait_estimate_recreational_minutes": waits["recreational"],
+            "wait_range_recreational_minutes": waits.get("recreational_range"),
             "queue_minutes": waits["queue_minutes"],
             "wait_at_arrival": wait_at_arrival,
             "queue_count": len(locking) + len(waiting),
@@ -7374,6 +7375,7 @@ async def get_session_trip_plan(
     user_barges = user_vessel.get('barge_count')
     user_is_tow = bool(user_vessel.get('is_tow') or (user_barges or 0) > 0)
     board_direction = {'northbound': 'upbound', 'southbound': 'downbound'}.get(user_heading)
+    wait_ranges: Dict[str, Optional[list]] = {}  # lock -> learned "likely" wait range
 
     async def _wait_when_there(lid: str, arrive_in: float) -> Optional[float]:
         try:
@@ -7389,7 +7391,9 @@ async def get_session_trip_plan(
             return None
         w = row.get("wait_at_arrival")
         if w:
+            wait_ranges[lid] = w.get("tow_range") if user_is_tow else w.get("recreational_range")
             return w["tow"] if user_is_tow else w["recreational"]
+        wait_ranges[lid] = row.get("wait_range_minutes") if user_is_tow else row.get("wait_range_recreational_minutes")
         return row["wait_estimate_minutes"] if user_is_tow else row["wait_estimate_recreational_minutes"]
 
     def _own_lockage(lid: str) -> float:
@@ -7516,6 +7520,7 @@ async def get_session_trip_plan(
             "travel_only_eta_minutes": travel_only_eta,
             # Expected at this lock: the wait when you get there + your lockage
             "expected_wait_minutes": tl["wait_minutes"] if tl else None,
+            "expected_wait_range_minutes": wait_ranges.get(lid) if tl else None,
             "expected_lockage_minutes": tl["lockage_minutes"] if tl else None,
             "depart_eta_minutes": tl["depart_minutes"] if tl else None,
             "threatening_vessel": threat,

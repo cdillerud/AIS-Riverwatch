@@ -1829,6 +1829,20 @@ async def _repark_pruned(removed: List[str]) -> List[str]:
     return parked
 
 
+async def _park_all_at_home() -> List[str]:
+    """At startup: every account boat whose shown position is its home berth."""
+    try:
+        mmsis = [v.get("mmsi") async for owner in db.users.find({"vessels.mmsi": {"$exists": True}}, {"_id": 0, "vessels": 1})
+                 for v in owner.get("vessels", []) if v.get("mmsi")]
+        parked = await _repark_pruned(mmsis)
+        if parked:
+            logger.info(f"[HOME] parked {len(parked)} boat(s) at home berth on startup")
+        return parked
+    except Exception as e:
+        logger.warning(f"[HOME] startup parking failed: {e}")
+        return []
+
+
 async def stale_vessel_sweep_task():
     """Background task that periodically removes stale vessels from active_vessels."""
     if VESSEL_STALE_SECONDS <= 0 or VESSEL_STALE_SWEEP_SECONDS <= 0:
@@ -5540,7 +5554,9 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
     last_by_lock = {}
     try:
         rows = await db.lockage_history.aggregate([
-            {"$match": {"recorded_at": {"$gte": now - timedelta(days=2)}}},
+            # Long window: a quiet lock (e.g. L1 late in the season) should still
+            # say when it last locked, not look like it has no history.
+            {"$match": {"recorded_at": {"$gte": now - timedelta(days=60)}}},
             {"$group": {"_id": "$lock_id", "last": {"$max": "$exit_time"}}},
         ]).to_list(None)
         for r in rows:
@@ -8779,6 +8795,9 @@ async def startup_event():
 
     # Periodic stale-vessel pruning (removes leftover test/injected MMSIs)
     asyncio.create_task(stale_vessel_sweep_task())
+    # Boats parked at their home berth live only in memory; without this a
+    # restart (every deploy) left them off the map.
+    asyncio.create_task(_park_all_at_home())
     # Auto-restore last AIS connection (so the Pi reconnects to the phone
     # automatically after a reboot without the user re-entering the IP).
     try:

@@ -13,7 +13,7 @@ def test_river_stats_and_shrinkage():
     assert river[15]["double_share"] == 1.0
     # This lock locks 4-barge tows with the boat separate (2 cuts, ~90 min).
     own = [_tow(4, 90.0, 2)] * 15
-    table = LB.lock_barge_table(own, river)
+    table = LB.lock_barge_table(own, river, k=5)
     assert table[4]["n"] == 15
     assert table[4]["minutes"] == 75.0              # (90*15 + 30*5) / 20
     assert table[4]["double_share"] == 0.75         # (1*15 + 0*5) / 20

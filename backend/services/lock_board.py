@@ -40,7 +40,9 @@ def needs_double(lock_id: str, barges: Optional[int]) -> bool:
 # single/double wrongly (4-barge tows often lock with the boat separate,
 # ~90 min, where the rule said ~30).
 # --------------------------------------------------------------------------
-BARGE_TABLE_SHRINK = 5   # pseudo-count pulling a lock's cell toward the river-wide value
+BARGE_TABLE_SHRINK = 2   # pseudo-count pulling a lock's cell toward the river-wide value
+# 5 -> 2 (2026-11-12): tow lockage-time MAE held out 17.44/16.71/15.94 -> 16.99/16.48/15.68
+# at the 1/2, 2/3, 4/5 time splits; 10 and river-only were worse.
 MAX_BARGE_BUCKET = 16
 
 

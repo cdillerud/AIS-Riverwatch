@@ -789,7 +789,11 @@ async def set_home_berth(mmsi: str, body: HomeBerth, request: Request):
         raise HTTPException(status_code=400, detail="That spot isn't on the Upper Mississippi")
     home = {"lat": round(float(lat), 6), "lon": round(float(lon), 6), "river_mile": round(rm, 1),
             "set_at": datetime.now(timezone.utc).isoformat()}
-    res = await db.users.update_one({"vessels.mmsi": mmsi}, {"$set": {"vessels.$.home_berth": home}})
+    # The caller's own account when the boat is on it (two accounts could hold
+    # the same MMSI); an admin setting someone else's boat matches by MMSI.
+    own = any(str(v.get("mmsi")) == str(mmsi) for v in user.get("vessels") or [])
+    match = {"user_id": user["user_id"], "vessels.mmsi": mmsi} if own else {"vessels.mmsi": mmsi}
+    res = await db.users.update_one(match, {"$set": {"vessels.$.home_berth": home}})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="That boat isn't on an account")
     sim = user_vessel_simulation.get(mmsi) or {}
@@ -864,10 +868,16 @@ async def remove_user_vessel(request: Request, mmsi: str):
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
-    await db.users.update_one(
+    res = await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$pull": {"vessels": {"mmsi": mmsi}}}
     )
+    if res.modified_count:
+        # Once removed, the owner can no longer stop its simulation, and a
+        # simulated or parked copy kept showing on everyone's map.
+        sim = user_vessel_simulation.pop(mmsi, None)
+        if (sim and sim.get('enabled')) or not _live_ais.on_live_ais(mmsi):
+            active_vessels.pop(mmsi, None)
     
     logger.info(f"[USER:{user['user_id']}] Removed vessel: {mmsi}")
     
@@ -1133,7 +1143,7 @@ async def get_traffic_summary(lock_id: str):
         # Track vessels near the lock
         if distance <= TRAFFIC_SUMMARY_RADIUS_MI:
             counted[str(mmsi)] = heading if heading in ("northbound", "southbound") else "stationary"
-            v_dict = prepare_vessel_for_output(vessel, mmsi)
+            v_dict = prepare_vessel_for_output(vessel, None)  # another boat: never "yours"
             v_dict['distance_to_lock'] = round(distance, 1)
             
             # Calculate ETA for vessels heading TOWARD the lock
@@ -1924,8 +1934,9 @@ async def toggle_illinois_filter(request: Request):
 # ============================================================================
 
 @api_router.get("/user-vessel/simulation/{mmsi}")
-async def get_user_vessel_simulation(mmsi: str):
+async def get_user_vessel_simulation(mmsi: str, request: Request = None):
     """Get user vessel simulation status."""
+    await _check_session_owner(request, mmsi)
     sim = user_vessel_simulation.get(mmsi, {})
     vessel = active_vessels.get(mmsi, {})
     
@@ -2954,10 +2965,11 @@ class AISConnectionManager:
 
         for ws, user_info in list(self._subscribers.items()):
             try:
-                # Create copy with user-specific is_user_vessel flag. A viewer
-                # with no MMSI of their own sees the feed's boat as theirs.
+                # Create copy with user-specific is_user_vessel flag. An admin
+                # with no MMSI of their own (the feed owner, e.g. on the Pi) sees
+                # the feed's boat as theirs; nobody else does (session isolation).
                 user_vessel_dict = vessel_dict.copy()
-                user_mmsi = user_info.get('mmsi', '') or feed_mmsi
+                user_mmsi = user_info.get('mmsi', '') or (feed_mmsi if user_info.get('admin') else '')
                 user_vessel_dict['is_user_vessel'] = (vessel_mmsi == user_mmsi)
                 
                 await ws.send_json({"type": "vessel_update", "vessel": user_vessel_dict})
@@ -2971,7 +2983,7 @@ class AISConnectionManager:
                         show_feed_address: bool = False):
         """Add a WebSocket client as a subscriber with their MMSI. The feed's
         IP:port (the admin's phone/receiver) is only shown to admins."""
-        self._subscribers[websocket] = {"mmsi": user_mmsi, "boat_name": boat_name}
+        self._subscribers[websocket] = {"mmsi": user_mmsi, "boat_name": boat_name, "admin": show_feed_address}
         logger.info(f"WebSocket subscribed (MMSI: {user_mmsi}). Total subscribers: {len(self._subscribers)}")
 
         # Send current status
@@ -4571,7 +4583,9 @@ def determine_heading(speed: float, course: float, lat: float = None, lon: float
 
 def calculate_eta_to_lock(vessel_rm: float, vessel_speed_knots: float, heading: str, lock_rm: float) -> Optional[float]:
     """Calculate ETA in minutes to reach a lock. Returns None if vessel moving away."""
-    if vessel_speed_knots < 0.1:
+    # A boat off the main channel has no river mile; one such boat used to
+    # 500 race-analysis and trip-plan for every user.
+    if vessel_rm is None or lock_rm is None or vessel_speed_knots is None or vessel_speed_knots < 0.1:
         return None
     
     distance_rm = abs(vessel_rm - lock_rm)
@@ -4607,7 +4621,7 @@ def calculate_required_speed(user_rm: float, user_heading: str, target_lock_rm: 
     - User needs to arrive AND complete lockage before the tow arrives
     - Typical recreational lockage takes 15-20 minutes
     """
-    if competitor_eta_minutes is None or competitor_eta_minutes <= 0:
+    if competitor_eta_minutes is None or competitor_eta_minutes <= 0 or user_rm is None or target_lock_rm is None:
         return None
     
     distance_rm = abs(user_rm - target_lock_rm)
@@ -5711,6 +5725,8 @@ def _live_positions(now: datetime) -> List[dict]:
         g = v.get if isinstance(v, dict) else (lambda k, d=None, _v=v: getattr(_v, k, d))
         if _is_demo_vessel(v, str(mmsi)) or g("is_simulated") or g("river_mile") is None:
             continue  # demo and simulated boats aren't real traffic
+        if g("is_user_vessel") or g("vessel_type") == "recreational":
+            continue  # account boats (phone / manual / parked) have no ship type and counted as tows
         out.append({"mmsi": str(mmsi), "name": g("name"), "river_mile": g("river_mile"), "speed": g("speed"),
                     "heading": g("heading"), "ship_type": g("ship_type"),
                     "timestamp": g("last_ais_checkin") or g("timestamp")})
@@ -7149,7 +7165,7 @@ async def get_vessels():
     return vessels
 
 @api_router.get("/session/{session_mmsi}/race-analysis/{lock_id}")
-async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minutes: int = 20,
+async def get_session_race_analysis(session_mmsi: str, lock_id: str, request: Request = None, buffer_minutes: int = 20,
                                     max_speed_mph: float = 25.0):
     """
     Get race analysis for a specific session (MMSI) and lock.
@@ -7163,6 +7179,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         buffer_minutes: Minutes of buffer needed before a commercial tow arrives
     """
     session_mmsi = str(session_mmsi).strip()
+    await _check_session_owner(request, session_mmsi)
     
     # Validate session
     if not session_mmsi:
@@ -7221,7 +7238,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
         
         if eta is not None and eta > 0:
             # Use prepare_vessel_for_output for clean data
-            v_dict = prepare_vessel_for_output(vessel, mmsi)
+            v_dict = prepare_vessel_for_output(vessel, None)  # another boat: never "yours"
             v_dict['eta_minutes'] = eta
             
             # Calculate distance from this competitor TO THE LOCK (for bi-directional filtering)
@@ -7329,7 +7346,7 @@ async def get_session_race_analysis(session_mmsi: str, lock_id: str, buffer_minu
 
 # Legacy race analysis endpoint - requires mmsi query param
 @api_router.get("/race-analysis/{lock_id}")
-async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minutes: int = 20,
+async def get_race_analysis_legacy(lock_id: str, request: Request, mmsi: str = None, buffer_minutes: int = 20,
                                    max_speed_mph: float = 25.0):
     """
     LEGACY: Get race analysis for a lock.
@@ -7339,7 +7356,7 @@ async def get_race_analysis_legacy(lock_id: str, mmsi: str = None, buffer_minute
     if not mmsi:
         raise HTTPException(status_code=400, detail="mmsi query parameter required. Use GET /session/{mmsi}/race-analysis/{lock_id}")
     
-    return await get_session_race_analysis(mmsi, lock_id, buffer_minutes, max_speed_mph)
+    return await get_session_race_analysis(mmsi, lock_id, request, buffer_minutes, max_speed_mph)
 
 
 # =============================================================================
@@ -7349,13 +7366,14 @@ DEPARTURE_OFFSETS = [0, 30, 60, 120, 240]
 
 
 @api_router.get("/session/{session_mmsi}/departure-options")
-async def get_departure_options(session_mmsi: str, direction: str, cruise_mph: float = 15.0,
+async def get_departure_options(session_mmsi: str, direction: str, request: Request = None, cruise_mph: float = 15.0,
                                 destination_rm: Optional[float] = None, max_locks: int = 5):
     """For a boat that is stopped (the trip plan needs it under way): leave now,
     in 30 min, 1 h, 2 h or 4 h - expected wait at each lock when you'd get
     there (same model as the trip plan, incl. tows predicted to arrive) and
     when you'd finish. `best` is the option with the least time at locks."""
     session_mmsi = str(session_mmsi).strip()
+    await _check_session_owner(request, session_mmsi)
     if direction not in ("upbound", "downbound"):
         raise HTTPException(status_code=400, detail="direction must be upbound or downbound")
     speed = max(1.0, min(float(cruise_mph or 15.0), 60.0))
@@ -7423,6 +7441,7 @@ async def get_departure_options(session_mmsi: str, direction: str, cruise_mph: f
 @api_router.get("/session/{session_mmsi}/trip-plan")
 async def get_session_trip_plan(
     session_mmsi: str,
+    request: Request = None,
     destination_rm: Optional[float] = None,
     buffer_minutes: int = 20,
     max_locks: int = 5,
@@ -7449,6 +7468,7 @@ async def get_session_trip_plan(
     - "no_data":   insufficient info (no speed/heading) to compute
     """
     session_mmsi = str(session_mmsi).strip()
+    await _check_session_owner(request, session_mmsi)
     if not session_mmsi:
         raise HTTPException(status_code=400, detail="Session MMSI required")
 
@@ -7615,7 +7635,7 @@ async def get_session_trip_plan(
             # Earliest competitor wins; user needs to arrive buffer_minutes before them
             if user_eta is None or eta < user_eta + buffer_minutes:
                 if threat_eta is None or eta < threat_eta:
-                    v_dict = prepare_vessel_for_output(vessel, mmsi)
+                    v_dict = prepare_vessel_for_output(vessel, None)  # another boat: never "yours"
                     v_dict['eta_minutes'] = eta
                     v_dict['distance_to_lock'] = round(abs(vessel_rm - lock_rm), 1) if vessel_rm else None
                     v_dict['expected_lockage_minutes'] = round(comp_lockage)
@@ -7782,6 +7802,16 @@ _NOT_YOUR_BOAT = "Add this MMSI to your account (Settings > Your Vessel) first"
 
 def _require_owner(user: dict, mmsi: str) -> None:
     if not _user_owns_mmsi(user, mmsi):
+        raise HTTPException(status_code=403, detail=_NOT_YOUR_BOAT)
+
+
+async def _check_session_owner(request: Request, mmsi: str) -> None:
+    """Per-boat planning views answer only for the caller's own boat (they mark
+    it is_user_vessel and show its simulation). No-login installs skip this."""
+    if request is None or not _api_access.login_required():
+        return  # internal call, or a no-login install
+    user = await get_current_user(request)
+    if user and not _user_owns_mmsi(user, str(mmsi)):
         raise HTTPException(status_code=403, detail=_NOT_YOUR_BOAT)
 
 
@@ -8130,7 +8160,8 @@ async def websocket_ais(websocket: WebSocket):
                     logger.info(f"WebSocket subscribed to AIS updates (MMSI: {client_mmsi})")
                 else:
                     # Update existing subscription with new MMSI if changed
-                    ais_manager._subscribers[websocket] = {"mmsi": client_mmsi, "boat_name": client_boat_name}
+                    ais_manager._subscribers[websocket] = {**ais_manager._subscribers.get(websocket, {}),
+                                                          "mmsi": client_mmsi, "boat_name": client_boat_name}
                     logger.info(f"Updated subscription MMSI: {client_mmsi}")
                     
             elif msg.get("action") == "disconnect":

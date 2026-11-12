@@ -32,11 +32,15 @@ INDEXES = [
     ("lockage_history", [("mmsi", ASC), ("recorded_at", DESC)], {}),
     ("lockage_history", [("source", ASC), ("exit_time", DESC)], {}),
     ("lockage_history", [("source", ASC), ("arrival_time", ASC)], {}),
+    # Lock board averages (7 days) and last lockage per lock (60 days) filter on
+    # recorded_at alone: both were full collection scans on every board request.
+    ("lockage_history", [("recorded_at", DESC)], {}),
     ("lockage_history", [("lock_id", ASC), ("source", ASC), ("usace_vessel_no", ASC),
                          ("vessel_name", ASC), ("entry_time", ASC)], {"name": "usace_upsert_key"}),
     # Accounts and sessions
     ("users", [("email", ASC)], _unique_str("email")),
     ("users", [("user_id", ASC)], _unique_str("user_id")),
+    ("users", [("vessels.mmsi", ASC)], {}),   # owner / home-berth lookups by boat
     ("user_sessions", [("session_token", ASC)], _unique_str("session_token")),
     # Expired sessions are deleted by MongoDB itself
     ("user_sessions", [("expires_at", ASC)], {"expireAfterSeconds": 0}),

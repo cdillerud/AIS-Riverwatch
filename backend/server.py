@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import UpdateOne
 import math
 import os
 import logging
@@ -139,6 +140,8 @@ repos = RepositoryFactory(db)
 # Helper function to persist vessel sighting with USACE data
 HISTORY_INTERVAL = timedelta(minutes=10)
 _last_history_write: Dict[tuple, datetime] = {}
+SIGHTING_INTERVAL = timedelta(seconds=30)
+_last_sighting_write: Dict[str, tuple] = {}
 
 
 async def persist_vessel_sighting(vessel_data: dict):
@@ -178,8 +181,22 @@ async def persist_vessel_sighting(vessel_data: dict):
         "is_double_lockage": vessel_data.get('is_double_lockage', False),
     }
     
-    # Update or insert the vessel's latest sighting
-    # Use upsert to maintain one "current" record per vessel
+    # Update or insert the vessel's latest sighting (one "current" record per
+    # vessel). AIS sends positions every few seconds: write at most every
+    # SIGHTING_INTERVAL per vessel unless its USACE state changed.
+    now_s = datetime.now(timezone.utc)
+    state = (vessel_data.get('usace_status'), vessel_data.get('usace_lock'), vessel_data.get('barge_count'))
+    prev = _last_sighting_write.get(str(mmsi))
+    if prev is None or now_s - prev[0] >= SIGHTING_INTERVAL or prev[1] != state:
+        _last_sighting_write[str(mmsi)] = (now_s, state)
+        if len(_last_sighting_write) > 20000:
+            _last_sighting_write.clear()
+        await _upsert_sighting(mmsi, sighting)
+
+    await _append_history(mmsi, vessel_data, sighting)
+
+
+async def _upsert_sighting(mmsi, sighting: dict) -> None:
     await db.vessel_sightings.update_one(
         {"mmsi": mmsi},
         {
@@ -188,7 +205,9 @@ async def persist_vessel_sighting(vessel_data: dict):
         },
         upsert=True
     )
-    
+
+
+async def _append_history(mmsi, vessel_data: dict, sighting: dict) -> None:
     # Also append to historical sightings if USACE data present (for analysis),
     # at most once per vessel per lock every HISTORY_INTERVAL - position updates
     # can arrive every few seconds.
@@ -3457,6 +3476,13 @@ def _rebuild_usace_indexes() -> None:
             if name:
                 by_name[_normalize_vessel_name(name)] = info
                 by_name[name.upper()] = info
+                # The forms get_usace_vessel_info used to find by scanning every
+                # name per AIS boat: punctuation-normalized, and minus one prefix.
+                un = name.upper().replace('-', ' ').replace('/', ' ').strip()
+                by_name.setdefault(un, info)
+                for prefix in ('M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS '):
+                    if un.startswith(prefix):
+                        by_name.setdefault(un[len(prefix):], info)
     usace_lock_queue_cache["data"] = by_mmsi
     usace_lock_queue_cache["data_by_name"] = by_name
     usace_lock_queue_cache["last_updated"] = datetime.now(timezone.utc)
@@ -3607,20 +3633,38 @@ def lockage_for_output(record: dict) -> dict:
     return out
 
 
+_usace_stored: Dict[str, Dict[str, str]] = {}   # lock_id -> {record key: record signature}
+
+
 async def _store_usace_lockages(rows, lock_no: str) -> int:
     """Upsert completed lockages from one lock's queue feed into lockage_history."""
     lock_id = usace_lock_id(lock_no)
     lock_name = (LOCKS.get(lock_id) or {}).get("name")
-    stored = 0
+    # The feed repeats ~30 days of completed lockages on every fetch (median
+    # ~220 rows per lock, every 13 s): only write rows that are new or changed
+    # since this process last stored them, in one bulk write.
+    seen = _usace_stored.setdefault(lock_id, {})
+    ops, sigs = [], {}
     for record in _usace_lockages.completed_lockages(rows, lock_id, lock_name):
-        try:
-            await db.lockage_history.update_one(
-                _usace_lockages.record_key(record), {"$set": record}, upsert=True
-            )
-            stored += 1
-        except Exception as e:
-            logger.warning(f"Could not store USACE lockage for {lock_id}: {e}")
-    return stored
+        key = _usace_lockages.record_key(record)
+        k = repr(sorted(key.items(), key=lambda kv: kv[0]))
+        sig = repr(sorted(record.items(), key=lambda kv: kv[0]))
+        if seen.get(k) == sig:
+            continue
+        ops.append(UpdateOne(key, {"$set": record}, upsert=True))
+        sigs[k] = sig
+    if not ops:
+        return 0
+    try:
+        await db.lockage_history.bulk_write(ops, ordered=False)
+    except Exception as e:
+        logger.warning(f"Could not store USACE lockages for {lock_id}: {e}")
+        return 0
+    seen.update(sigs)
+    if len(seen) > 5000:   # the feed only carries ~30 days; keep the map bounded
+        for old in list(seen)[:len(seen) - 4000]:
+            seen.pop(old, None)
+    return len(ops)
 
 
 def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional[dict]:
@@ -3673,22 +3717,8 @@ def get_usace_vessel_info(mmsi: str = None, vessel_name: str = None) -> Optional
             if is_valid_active_lockage(info):
                 return info
         
-        # Fuzzy matching: iterate through all USACE names and compare normalized versions
-        for usace_name, info in data_by_name.items():
-            if not is_valid_active_lockage(info):
-                continue
-            # Normalize USACE name the same way
-            usace_normalized = usace_name.upper().replace('-', ' ').replace('/', ' ').strip()
-            if usace_normalized == search_name:
-                return info
-            # Also try without prefix
-            if usace_normalized == search_without_prefix:
-                return info
-            # Check if search name without prefix matches USACE name
-            for prefix in ['M/V ', 'MV ', 'CAPT ', 'SIR ', 'MISS ']:
-                if usace_normalized.startswith(prefix):
-                    if usace_normalized[len(prefix):] == search_without_prefix:
-                        return info
+        # (The normalized and prefix-less forms are indexed in _rebuild_usace_indexes;
+        # this used to scan every queue name for every AIS boat without a match.)
     
     return None
 
@@ -4069,7 +4099,51 @@ async def fetch_lpms_lockage_data(lock_number: int = None) -> Dict[str, list]:
     return lockage_data
 
 
+_AVERAGES_CACHE: Dict[str, object] = {"at": None, "data": None}
+_LAST_LOCKAGE_CACHE: Dict[str, object] = {"at": None, "data": None}
+BOARD_INPUT_CACHE_SECONDS = 60
+
+
+def _fresh(cache: dict, now: datetime) -> bool:
+    return cache["at"] is not None and (now - cache["at"]).total_seconds() < BOARD_INPUT_CACHE_SECONDS
+
+
 async def get_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
+    """All locks' averages are cached for a minute: every lock board call needs
+    them, and a trip plan / departure options call the board once per lock per
+    departure time (75 calls: 1.9 s, 151 Mongo reads before this). Callers
+    must not mutate the result."""
+    if lock_id is not None:
+        return await _compute_lockage_averages(lock_id)
+    now = datetime.now(timezone.utc)
+    if not _fresh(_AVERAGES_CACHE, now):
+        _AVERAGES_CACHE.update(at=now, data=await _compute_lockage_averages(None))
+    return _AVERAGES_CACHE["data"]
+
+
+async def _last_lockage_by_lock(now: datetime) -> Dict[str, datetime]:
+    """Latest completed lockage per lock (60 days back), cached for a minute."""
+    if _fresh(_LAST_LOCKAGE_CACHE, now):
+        return _LAST_LOCKAGE_CACHE["data"]
+    last_by_lock = {}
+    try:
+        rows = await db.lockage_history.aggregate([
+            # Long window: a quiet lock (e.g. L1 late in the season) should still
+            # say when it last locked, not look like it has no history.
+            {"$match": {"recorded_at": {"$gte": now - timedelta(days=60)}}},
+            {"$group": {"_id": "$lock_id", "last": {"$max": "$exit_time"}}},
+        ]).to_list(None)
+        for r in rows:
+            if r.get("last"):
+                last_by_lock[r["_id"]] = r["last"] if r["last"].tzinfo else r["last"].replace(tzinfo=timezone.utc)
+    except Exception as e:
+        logger.warning(f"Lock board: could not read last lockages: {e}")
+        return last_by_lock
+    _LAST_LOCKAGE_CACHE.update(at=now, data=last_by_lock)
+    return last_by_lock
+
+
+async def _compute_lockage_averages(lock_id: str = None) -> Dict[str, dict]:
     """
     Calculate running averages for lockage times based on historical data.
     Returns averages for tows vs recreational vessels, plus wait times.
@@ -4962,8 +5036,7 @@ def vessel_data_from_decoded(decoded: dict, is_own_vessel: bool = False) -> Opti
 
             logger.debug(f"Using USACE data for {mmsi}: {usace_info['num_barges']} barges")
 
-            # Persist USACE-enriched vessel data to database
-            asyncio.create_task(persist_vessel_sighting(vessel))
+            # (persisted once below, with or without USACE data)
         else:
             # NO USACE data - use AIS-based tow detection only
             # IMPORTANT: Clear any stale barge data - only show if USACE confirms
@@ -5058,19 +5131,29 @@ _TRANSIT_ORDER = _transits.lock_order(LOCKS)
 _transit_cache = {"stats": None, "at": None}
 
 
+TRANSIT_HISTORY_DAYS = 120
+
+
 async def get_transit_stats() -> dict:
     now = datetime.now(timezone.utc)
     if _transit_cache["stats"] is not None and _transit_cache["at"] and now - _transit_cache["at"] < timedelta(hours=1):
         return _transit_cache["stats"]
     try:
+        # Last TRANSIT_HISTORY_DAYS only (the query had no bound and grew forever),
+        # and the learning runs off the event loop (~80 ms now, linear in history).
         rows = await db.lockage_history.find(
-            {"source": "usace_lpms", "in_progress": {"$ne": True}},
+            {"source": "usace_lpms", "in_progress": {"$ne": True},
+             "arrival_time": {"$gte": (now - timedelta(days=TRANSIT_HISTORY_DAYS)).replace(tzinfo=None)}},
             {"_id": 0, "mmsi": 1, "usace_vessel_no": 1, "lock_id": 1, "direction": 1, "barge_count": 1,
              "arrival_time": 1, "exit_time": 1, "is_recreational": 1},
         ).to_list(None)
-        stats = _transits.transit_stats(_transits.transit_samples(rows, _TRANSIT_ORDER))
-        stats.update(_transits.dwell_stats(rows))
-        stats.update(_transits.continuation_stats(rows, _TRANSIT_ORDER))
+
+        def learn():
+            s = _transits.transit_stats(_transits.transit_samples(rows, _TRANSIT_ORDER))
+            s.update(_transits.dwell_stats(rows))
+            s.update(_transits.continuation_stats(rows, _TRANSIT_ORDER))
+            return s
+        stats = await asyncio.to_thread(learn)
         _transit_cache["stats"] = stats
         _transit_cache["at"] = now
     except Exception as e:
@@ -5285,10 +5368,12 @@ async def relearn_arrivals() -> dict:
     for a in arrivals:
         if isinstance(a.get("arrival_time"), datetime) and a["arrival_time"].tzinfo is None:
             a["arrival_time"] = a["arrival_time"].replace(tzinfo=timezone.utc)
-    scored = _arrival_learning.score(preds, arrivals, now)
-    report = _arrival_learning.fit_ais_factor(scored, _live_arrivals.AIS_ETA_FACTOR)
+    def learn():   # off the event loop: grows with logged predictions (~7k/day)
+        s = _arrival_learning.score(preds, arrivals, now)
+        return s, _arrival_learning.fit_ais_factor(s, _live_arrivals.AIS_ETA_FACTOR), _arrival_learning.summarize(s)
+    scored, report, accuracy = await asyncio.to_thread(learn)
     doc = {"ran_at": now, "logged_predictions": len(preds), "scored": len(scored),
-           "accuracy": _arrival_learning.summarize(scored),
+           "accuracy": accuracy,
            "adopted": bool(report.pop("adopt")), **report}
     if doc["adopted"]:
         _live_arrivals.AIS_ETA_FACTOR = float(report["fitted_factor"])
@@ -5565,19 +5650,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
     averages = await get_lockage_averages()
 
     # Latest completed lockage per lock
-    last_by_lock = {}
-    try:
-        rows = await db.lockage_history.aggregate([
-            # Long window: a quiet lock (e.g. L1 late in the season) should still
-            # say when it last locked, not look like it has no history.
-            {"$match": {"recorded_at": {"$gte": now - timedelta(days=60)}}},
-            {"$group": {"_id": "$lock_id", "last": {"$max": "$exit_time"}}},
-        ]).to_list(None)
-        for r in rows:
-            if r.get("last"):
-                last_by_lock[r["_id"]] = r["last"] if r["last"].tzinfo else r["last"].replace(tzinfo=timezone.utc)
-    except Exception as e:
-        logger.warning(f"Lock board: could not read last lockages: {e}")
+    last_by_lock = await _last_lockage_by_lock(now)
 
     # Active queue rows from the USACE worker, by lock id
     queue_by_lock = {}
@@ -5596,6 +5669,7 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
         return _usace_lockages.parse_time(text, tz)
 
     board = []
+    live, live_barges = None, {}
     for lk in ordered:
         lid = lk["lock_id"]
         avg = averages.get(lid, {})
@@ -5639,11 +5713,13 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
                     appr.append({**a, "eta": datetime.fromisoformat(a["eta"])})
                 except (KeyError, TypeError, ValueError):
                     continue
-            live = _live_positions(now)
+            if live is None:   # once per request, not once per lock
+                live = _live_positions(now)
+                live_barges = await _recent_barges([v["mmsi"] for v in live])
             appr = _live_arrivals.merge_live_arrivals(
                 lid, _LOCK_RMS, appr, live, now, own_mmsi=mmsi,
                 at_lock=[x for e in locking + waiting for x in (e.get("mmsi"), e.get("vessel_name"))],
-                barges_by_mmsi=await _recent_barges([v["mmsi"] for v in live]))
+                barges_by_mmsi=live_barges)
             wait_at_arrival = _lock_board.predict_waits_at(
                 lid, locking, waiting, appr, typical, now + timedelta(minutes=arrive_in), now, direction=direction)
             wait_at_arrival["arrive_in_minutes"] = round(arrive_in)

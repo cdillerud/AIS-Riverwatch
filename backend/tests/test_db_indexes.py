@@ -60,4 +60,5 @@ def test_one_failing_index_does_not_stop_the_rest():
     db = FakeDB()
     db["users"] = Broken([])
     out = asyncio.run(db_indexes.ensure_indexes(db))
-    assert len(out["errors"]) == 2 and out["created"] == len(db_indexes.INDEXES) - 2
+    n_users = sum(1 for c, _, _ in db_indexes.INDEXES if c == "users")
+    assert len(out["errors"]) == n_users and out["created"] == len(db_indexes.INDEXES) - n_users

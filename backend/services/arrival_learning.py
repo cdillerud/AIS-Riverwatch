@@ -20,6 +20,7 @@ Neither had ever been checked against what really happened. This module:
                     MIN_IMPROVEMENT on held-out data, with enough samples, and
                     inside sane BOUNDS. Otherwise the factor stays 1.0.
 """
+import bisect
 import statistics
 from datetime import datetime, timedelta
 from typing import Dict, Iterable, List, Optional
@@ -68,17 +69,21 @@ def score(predictions: Iterable[dict], arrivals: Iterable[dict], now: datetime) 
     for a in arrivals:
         if a.get("arrival_time") and a.get("lock_id"):
             by_lock.setdefault(a["lock_id"], []).append(a)
-    for rows in by_lock.values():
+    times: Dict[str, List[datetime]] = {}
+    for lid, rows in by_lock.items():
         rows.sort(key=lambda r: r["arrival_time"])
+        times[lid] = [r["arrival_time"] for r in rows]
 
     scored = []
     for p in predictions:
         made = p["made_at"]
         name = _norm(p.get("vessel_name"))
         hit = None
-        for a in by_lock.get(p["lock_id"], []):
-            if a["arrival_time"] < made - EARLY_SLACK:
-                continue
+        rows = by_lock.get(p["lock_id"], [])
+        # Start at the first arrival that could match (was a scan from the start
+        # for every prediction: quadratic as predictions pile up).
+        start = bisect.bisect_left(times.get(p["lock_id"], []), made - EARLY_SLACK)
+        for a in rows[start:]:
             if a["arrival_time"] > made + HORIZON:
                 break
             if (p.get("mmsi") and a.get("mmsi") and str(a["mmsi"]) == p["mmsi"]) or (name and _norm(a.get("vessel_name")) == name):

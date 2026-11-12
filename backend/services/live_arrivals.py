@@ -73,7 +73,7 @@ def merge_live_arrivals(lock_id: str, lock_rms: Dict[str, float], predicted: Lis
         mmsi = str(v.get("mmsi") or "")
         ts = _aware(v.get("timestamp"))
         rm = v.get("river_mile")
-        if not mmsi or mmsi == own or rm is None or (ts and now - ts > LIVE_MAX_AGE):
+        if not mmsi or mmsi == own or rm is None or not ts or now - ts > LIVE_MAX_AGE:  # no time: not live
             continue
         fresh[mmsi] = v
 

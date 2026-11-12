@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+import math
 import os
 import logging
 import asyncio
@@ -3252,7 +3253,7 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
         v_dict['usace_source'] = True
         v_dict['usace_lock'] = usace_info.get('lock_id')
         v_dict['usace_status'] = usace_info.get('status')
-        v_dict.update(_in_lock_fields(usace_info, v_dict.get('river_mile')))
+        v_dict.update(_in_lock_fields(usace_info, v_dict))
 
         # Calculate lockage time from actual barge count
         if bc <= 6:
@@ -3283,7 +3284,8 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
         v_dict['usace_source'] = False
         v_dict['usace_lock'] = None
         v_dict['usace_status'] = None
-        v_dict.update(_in_lock_fields(None, None))
+        v_dict.update(_in_lock_fields(None, None) if v_dict.get('is_tow')
+                      else _recreational_in_lock_fields(v_dict))
         # Keep is_tow based on AIS data (ship type, name patterns)
 
     return v_dict
@@ -3292,26 +3294,71 @@ def prepare_vessel_for_output(vessel, session_mmsi: str = None) -> dict:
 # A boat USACE shows mid-lockage is drawn "in the lock" only if its own
 # position agrees (a stale queue row must not pin a boat that has moved on).
 IN_LOCK_MAX_MI = 1.0
+# Pleasure boats can't be matched to a USACE row (they're logged as anonymous
+# "RECREATIONAL VESSEL"), so a stopped pleasure boat right at a lock where a
+# recreational lockage is under way is taken to be in it. Stopped tows logged
+# at the lock (waiting or locking) sit 0.08-0.31 mi from the lock point in
+# vessel_history; speed under 1.5 kn.
+REC_IN_LOCK_MAX_MI = 0.31
+REC_IN_LOCK_MAX_KN = 1.5
+_IN_LOCK_OFF = {"in_lock": False, "in_lock_id": None, "in_lock_since": None, "in_lock_cut": None}
 
 
-def _in_lock_fields(usace_info: Optional[dict], river_mile) -> dict:
+def _miles_between(lat1, lon1, lat2, lon2) -> float:
+    p = math.radians
+    a = (math.sin(p(lat2 - lat1) / 2) ** 2
+         + math.cos(p(lat1)) * math.cos(p(lat2)) * math.sin(p(lon2 - lon1) / 2) ** 2)
+    return 2 * 3958.8 * math.asin(math.sqrt(a))
+
+
+def _lock_distance_mi(vessel: dict, lock: dict) -> Optional[float]:
+    """Distance from a vessel to a lock: river miles when both are known,
+    otherwise straight-line from its AIS position (river_mile is often unset)."""
+    try:
+        if vessel.get("river_mile") is not None and lock.get("river_mile") is not None:
+            return abs(float(vessel["river_mile"]) - float(lock["river_mile"]))
+        if vessel.get("lat") is not None and vessel.get("lon") is not None and lock.get("lat") is not None:
+            return _miles_between(float(vessel["lat"]), float(vessel["lon"]), float(lock["lat"]), float(lock["lon"]))
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def _locking_fields(info: dict) -> dict:
+    started = _usace_lockages.parse_time(info.get("sol_date"), info.get("timezone"))
+    return {"in_lock": True, "in_lock_id": info.get("lock_id"),
+            "in_lock_since": started.isoformat() if started else None,
+            "in_lock_cut": int(info.get("cuts_completed") or 0) + 1}
+
+
+def _in_lock_fields(usace_info: Optional[dict], vessel: Optional[dict]) -> dict:
     """in_lock / in_lock_id / in_lock_since / in_lock_cut for the map, from the
     USACE queue: lockage started (start-of-lockage logged) and not finished."""
-    off = {"in_lock": False, "in_lock_id": None, "in_lock_since": None, "in_lock_cut": None}
     if not usace_info or usace_info.get("status") != "locking":
-        return off
-    lock_id = usace_info.get("lock_id")
-    lock = LOCKS.get(lock_id) or {}
-    if river_mile is not None and lock.get("river_mile") is not None:
-        try:
-            if abs(float(river_mile) - float(lock["river_mile"])) > IN_LOCK_MAX_MI:
-                return off
-        except (TypeError, ValueError):
-            pass
-    started = _usace_lockages.parse_time(usace_info.get("sol_date"), usace_info.get("timezone"))
-    return {"in_lock": True, "in_lock_id": lock_id,
-            "in_lock_since": started.isoformat() if started else None,
-            "in_lock_cut": int(usace_info.get("cuts_completed") or 0) + 1}
+        return dict(_IN_LOCK_OFF)
+    lock = LOCKS.get(usace_info.get("lock_id")) or {}
+    d = _lock_distance_mi(vessel or {}, lock)
+    if d is not None and d > IN_LOCK_MAX_MI:
+        return dict(_IN_LOCK_OFF)
+    return _locking_fields(usace_info)
+
+
+def _recreational_in_lock_fields(vessel: dict) -> dict:
+    """A pleasure boat stopped at a lock whose USACE queue shows a recreational
+    lockage in progress."""
+    try:
+        if float(vessel.get("speed") or 0) > REC_IN_LOCK_MAX_KN:
+            return dict(_IN_LOCK_OFF)
+    except (TypeError, ValueError):
+        return dict(_IN_LOCK_OFF)
+    for infos in usace_lock_rows.values():
+        for info in infos:
+            if info.get("status") != "locking" or "RECREATIONAL" not in str(info.get("vessel_name", "")).upper():
+                continue
+            d = _lock_distance_mi(vessel, LOCKS.get(info.get("lock_id")) or {})
+            if d is not None and d <= REC_IN_LOCK_MAX_MI:
+                return _locking_fields(info)
+    return dict(_IN_LOCK_OFF)
 
 
 def estimate_tow_info(vessel_data: dict) -> dict:

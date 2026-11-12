@@ -127,7 +127,7 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
 
   return (
     <div 
-      className="absolute top-2 right-2 z-50 glass-panel border border-slate-600 rounded-lg shadow-xl w-[420px]"
+      className="absolute top-2 right-2 z-50 glass-panel border border-slate-600 rounded-lg shadow-xl w-[min(420px,calc(100%-1rem))]"
       data-testid="vessel-info-overlay"
     >
       {/* HEADER */}
@@ -484,12 +484,14 @@ const RiverVisualizationComponent = ({
   const bottomPct = userOutOfRange === 'south' ? 100 - bandPct : 98;
 
   // Calculate position percentage for a river mile
-  const getRiverPosition = (riverMile) => {
+  // Memoized: a new function every render re-ran the label layout below on
+  // every render of the map (incl. the 30 s clock tick).
+  const getRiverPosition = useCallback((riverMile) => {
     if (riverMile == null || !Number.isFinite(Number(riverMile))) return 50;
     // Fraction of the way from the north (top) edge; higher RM is north.
     const f = Math.max(0, Math.min(1, (maxRM - riverMile) / (maxRM - minRM)));
     return topPct + f * (bottomPct - topPct);
-  };
+  }, [minRM, maxRM, topPct, bottomPct]);
 
   // Check if a river mile is in view
   const isInView = useCallback((riverMile) => {

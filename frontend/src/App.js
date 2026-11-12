@@ -1,3 +1,4 @@
+import { whenVisible } from "@/lib/visibility";
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
@@ -410,7 +411,7 @@ function MainApp() {
       // Update vessels
       if (vesselsRes.ok) {
         const vesselsData = await vesselsRes.json();
-        setVessels(vesselsData);
+        setVessels(prev => (sameVesselList(prev, vesselsData) ? prev : vesselsData));
       }
       
       if (lockStatusRes.ok) {
@@ -433,6 +434,8 @@ function MainApp() {
             avg_recreational_wait_minutes: lock.avg_recreational_wait_minutes,
             sample_count: lock.sample_count,
             is_baseline: lock.is_baseline,
+            upbound: lock.upbound,      // the 10-min fetch keeps these; dropping them here
+            downbound: lock.downbound,  // blanked the up/down numbers until the next one
           };
         });
         setLockageTimes(timesMap);
@@ -529,7 +532,7 @@ function MainApp() {
 
     fetchLockStatus();
     // Refresh every 5 minutes
-    const interval = setInterval(fetchLockStatus, 300000);
+    const interval = setInterval(whenVisible(fetchLockStatus), 300000);
     return () => clearInterval(interval);
   }, []);
 
@@ -563,7 +566,7 @@ function MainApp() {
 
     fetchLockageTimes();
     // Refresh every 10 minutes
-    const interval = setInterval(fetchLockageTimes, 600000);
+    const interval = setInterval(whenVisible(fetchLockageTimes), 600000);
     return () => clearInterval(interval);
   }, []);
 
@@ -587,7 +590,7 @@ function MainApp() {
     fetchVessels();
     
     // OPTIMIZED: Reduced polling to every 30 seconds (WebSocket handles real-time updates)
-    const interval = setInterval(fetchVessels, 30000);
+    const interval = setInterval(whenVisible(fetchVessels), 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1053,7 +1056,7 @@ function MainApp() {
 
     fetchRaceAnalysis();
     // OPTIMIZED: Reduced frequency from 10s to 20s
-    const interval = setInterval(fetchRaceAnalysis, 20000);
+    const interval = setInterval(whenVisible(fetchRaceAnalysis), 20000);
     return () => clearInterval(interval);
   }, [activeTimingLock, userMmsi, userSettings.lock_buffer_minutes]);
 

@@ -43,6 +43,8 @@ import LockBoard, { WAIT_TOOLTIP } from "@/components/LockBoard";
 import { fmtRiverTime } from "@/lib/riverTime";
 import { toDetailVessel } from "@/lib/detailVessel";
 import { nextLockAhead, directionOf } from "@/lib/timingLock";
+import useMediaQuery from "@/hooks/useMediaQuery";
+import { whenVisible } from "@/lib/visibility";
 
 // Map (vessel positions) or Locks (lock-first board from USACE data).
 const VIEW_KEY = "riverwatch_main_view";
@@ -136,6 +138,7 @@ export default function Dashboard({
     setMainViewState(v);
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* per-device preference only */ }
   };
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const [mobilePanel, setMobilePanel] = useState("race"); // "race" | "vessels" | "map" | "locks" | "debug"
   const [desktopPanel, setDesktopPanel] = useState("timing"); // "map" | "timing" | "vessels" | "locks" | "debug"
   const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -229,7 +232,7 @@ export default function Dashboard({
     };
     
     fetchTrafficSummary();
-    const interval = setInterval(fetchTrafficSummary, 30000); // Refresh every 30s
+    const interval = setInterval(whenVisible(fetchTrafficSummary), 30000); // Refresh every 30s
     
     return () => clearInterval(interval);
   }, [isTrafficWatch, selectedLock]);
@@ -355,7 +358,7 @@ export default function Dashboard({
       } catch { /* keep the last value */ }
     };
     load();
-    const id = setInterval(load, 60000);
+    const id = setInterval(whenVisible(load), 60000);
     return () => { cancelled = true; clearInterval(id); };
   }, [activeTimingLockId, arriveInMinutes, userDirection, userMmsi]);
 
@@ -377,7 +380,7 @@ export default function Dashboard({
       } catch { /* keep the last queues */ }
     };
     load();
-    const id = setInterval(load, 60000);
+    const id = setInterval(whenVisible(load), 60000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
@@ -1380,7 +1383,8 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Desktop Split-View Layout */}
+        {/* Desktop Split-View Layout (only the layout in use is mounted) */}
+        {isDesktop && (
         <div className="hidden md:block">
           {/* Desktop Split-View Layout - Map always visible with sidebar */}
           <div className="grid grid-cols-12 grid-rows-[minmax(0,1fr)] gap-4" style={{ height: 'calc(100vh - 220px)', minHeight: '500px' }}>
@@ -1883,8 +1887,10 @@ export default function Dashboard({
             </div>
           </div>
         </div>
+        )}
 
         {/* Mobile Content Panels */}
+        {!isDesktop && (
         <div className="md:hidden">
           {/* Race Panel - Mobile */}
           {mobilePanel === "race" && (
@@ -2135,6 +2141,7 @@ export default function Dashboard({
             </div>
           )}
         </div>
+        )}
       </main>
 
       {/* Alert Overlay for Traffic Delay */}

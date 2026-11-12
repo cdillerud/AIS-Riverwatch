@@ -116,9 +116,11 @@ def fit_linear(xs, ys) -> Tuple[float, float]:
 
 
 def _solve(X, y, ridge=1.0):
-    """Ridge-regularised least squares via normal equations (no intercept penalty)."""
+    """Ridge-regularised least squares via normal equations (no intercept penalty).
+    `ridge`: one value for every column, or a list with one per column."""
     n = len(X[0])
-    A = [[sum(r[i] * r[j] for r in X) + (ridge if i == j and i > 0 else 0.0) for j in range(n)] for i in range(n)]
+    pen = list(ridge) if isinstance(ridge, (list, tuple)) else [0.0] + [float(ridge)] * (n - 1)
+    A = [[sum(r[i] * r[j] for r in X) + (pen[i] if i == j else 0.0) for j in range(n)] for i in range(n)]
     B = [sum(r[i] * yy for r, yy in zip(X, y)) for i in range(n)]
     for i in range(n):
         p = max(range(i, n), key=lambda k: abs(A[k][i]))
@@ -155,7 +157,12 @@ def fit_tow_features(train: List[dict]) -> dict:
     locks = sorted({s["lock_id"] for s in tows})
     names = lock_board.TOW_FEATURES
     X = [[1.0] + [float(s[k]) for k in names] + [1.0 if s["lock_id"] == l else 0.0 for l in locks[1:]] for s in tows]
-    coef = fit_l1(X, [s["actual"] for s in tows])
+    # No ridge on the per-lock effects. In the IRLS fit the weights are ~1/|residual|
+    # (~1/40), so ridge=1 shrank a lock with ~100 samples ~30% toward the base
+    # lock - under-fit, not over-fit. Held out at 4 time splits (review 2026-11-12):
+    # MAE 36.5 -> 35.8 on average, better at every split (Chain of Rocks most).
+    coef = fit_l1(X, [s["actual"] for s in tows],
+                  ridge=[0.0] + [1.0] * len(names) + [0.0] * (len(locks) - 1))
     return {
         "kind": "l1_features",
         "coef": {"intercept": round(coef[0], 2), **{k: round(c, 3) for k, c in zip(names, coef[1:1 + len(names)])}},

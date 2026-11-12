@@ -42,3 +42,32 @@ async def schedule(legs: List[dict], speed_mph: float,
         t = arrive + wait + lockage
         at_locks += wait + lockage
     return out
+
+
+async def departure_options(legs: List[dict], speed_mph: float, offsets: List[float],
+                            wait_fn: Callable[[str, float], Awaitable[Optional[float]]],
+                            lockage_fn: Callable[[str], float], tail_mi: float = 0.0) -> List[dict]:
+    """For a boat that is stopped: the same schedule for each departure time
+    (`offsets`, minutes from now). wait_fn gets minutes from NOW, so a tow
+    expected at a lock later counts for later departures. tail_mi: distance
+    from the last lock to the destination. Each option:
+    {depart_in_minutes, locks: [...schedule from departure...], lock_wait_minutes,
+    time_at_locks_minutes, trip_minutes, finish_in_minutes}."""
+    if not speed_mph or speed_mph <= 0:
+        return []
+    out = []
+    for off in offsets:
+        async def shifted(lid, arrive, off=off):
+            return await wait_fn(lid, off + arrive)
+        locks = await schedule(legs, speed_mph, shifted, lockage_fn)
+        end = locks[-1]["depart_minutes"] if locks else 0
+        trip = end + float(tail_mi or 0) / speed_mph * 60
+        out.append({
+            "depart_in_minutes": round(off),
+            "locks": locks,
+            "lock_wait_minutes": sum(l["wait_minutes"] for l in locks),
+            "time_at_locks_minutes": sum(l["wait_minutes"] + l["lockage_minutes"] for l in locks),
+            "trip_minutes": round(trip),
+            "finish_in_minutes": round(off + trip),
+        })
+    return out

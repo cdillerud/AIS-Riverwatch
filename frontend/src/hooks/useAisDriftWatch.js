@@ -22,6 +22,7 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
 import { API } from "@/lib/api";
+import { whenVisible } from "@/lib/visibility";
 
 export default function useAisDriftWatch({
   enabled = true,
@@ -81,7 +82,7 @@ export default function useAisDriftWatch({
     };
 
     tick();
-    const interval = setInterval(tick, pollMs);
+    const interval = setInterval(whenVisible(tick), pollMs);
     return () => {
       cancelled = true;
       clearInterval(interval);

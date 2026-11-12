@@ -1,3 +1,4 @@
+import { whenVisible } from "@/lib/visibility";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -436,7 +437,7 @@ export default function SettingsPage({ onBack, onLiveChange, initialSettings = {
     };
 
     pull();
-    interval = setInterval(pull, 3000);
+    interval = setInterval(whenVisible(pull), 3000);
     return () => {
       cancelled = true;
       if (interval) clearInterval(interval);

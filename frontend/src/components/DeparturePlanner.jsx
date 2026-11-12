@@ -4,6 +4,7 @@
 // predicted to arrive) and when you'd arrive. Backend: /departure-options.
 import { useEffect, useState, useCallback } from "react";
 import { API } from "../lib/api";
+import { whenVisible } from "../lib/visibility";
 import { departureLabel, clockIn, readPrefs, savePrefs } from "../lib/departure";
 
 const fmtMin = (m) => {
@@ -39,7 +40,7 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 120000);
+    const id = setInterval(whenVisible(load), 120000);
     return () => clearInterval(id);
   }, [load]);
 

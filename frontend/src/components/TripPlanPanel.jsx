@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import DeparturePlanner from "@/components/DeparturePlanner";
+import { whenVisible } from "@/lib/visibility";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -119,7 +120,7 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
 
   useEffect(() => {
     fetchPlan();
-    const id = setInterval(fetchPlan, waiting ? 10000 : 30000);
+    const id = setInterval(whenVisible(fetchPlan), waiting ? 10000 : 30000);
     return () => clearInterval(id);
   }, [fetchPlan, waiting]);
 

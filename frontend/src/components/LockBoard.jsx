@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { API } from "@/lib/api";
 import { fmtDuration } from "@/components/LockageRow";
+import { whenVisible, onVisible } from "@/lib/visibility";
 
 // "4h 23m" under two days, then whole days ("18 days").
 export function fmtAgo(minutes) {
@@ -263,11 +264,13 @@ export default function LockBoard({ userVessel, selectedLockId, onSelectLock, on
 
   const query = useMemo(() => {
     const p = new URLSearchParams({ scope: effectiveScope, sort });
-    if (position != null) p.set("from_rm", String(position));
+    // Rounded to 0.5 mi: the raw position changed with every AIS update and
+    // refetched the whole board every few seconds while under way.
+    if (position != null) p.set("from_rm", String(Math.round(position * 2) / 2));
     if (direction) p.set("direction", direction);
     if (effectiveScope === "ahead") p.set("limit", "6");
     return p.toString();
-  }, [effectiveScope, sort, position, direction]);
+  }, [effectiveScope, sort, position == null ? null : Math.round(position * 2) / 2, direction]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async () => {
     setLoading(true);

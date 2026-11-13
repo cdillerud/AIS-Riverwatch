@@ -66,9 +66,10 @@ LOCKS = {
 
 # Upper Mississippi lock numbers for USACE API
 # USACE lock queue codes. Locks 1-9 must be zero-padded ("02"); "2" returns
-# an empty feed. 5A's code is unconfirmed (neither "5A" nor "05A" returned rows).
+# an empty feed. Lock 5A is "55" (checked 2026-11-12: "5A"/"05A" return nothing,
+# "55" returns 5A's lockages).
 UPPER_MISS_LOCKS = [
-    "01", "02", "03", "04", "05", "05A", "06", "07", "08", "09", "10",
+    "01", "02", "03", "04", "05", "55", "06", "07", "08", "09", "10",
     "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
     "21", "22", "24", "25", "26", "27"  # no 23 (never built); 26 = Mel Price, 27 = Chain of Rocks
 ]

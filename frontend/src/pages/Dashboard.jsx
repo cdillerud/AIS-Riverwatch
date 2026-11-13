@@ -49,6 +49,7 @@ import { toDetailVessel } from "@/lib/detailVessel";
 import { nextLockAhead, directionOf } from "@/lib/timingLock";
 import useMediaQuery from "@/hooks/useMediaQuery";
 import { whenVisible } from "@/lib/visibility";
+import { mmsiLabel } from "../lib/boatId";
 
 // Map (vessel positions) or Locks (lock-first board from USACE data).
 const VIEW_KEY = "riverwatch_main_view";
@@ -1247,7 +1248,7 @@ export default function Dashboard({
                   {userMmsi && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1 border-r border-white/10">
                       <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                      <span className="font-mono text-slate-400">{userMmsi}</span>
+                      <span className="font-mono text-slate-400">{mmsiLabel(userMmsi)}</span>
                       {userVessel?.name && (
                         <>
                           <span className="text-slate-600">|</span>
@@ -1781,13 +1782,19 @@ export default function Dashboard({
                     )}
                   </div>
                 </Card>
+              ) : isUserEffectivelyStopped && userMmsi ? (
+              /* Stopped: best time to leave first; lock timing (paused) after it */
+              <>
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={5} bufferMinutes={20} compact={true} />
+                {renderLockTimingCard()}
+              </>
               ) : (
               /* Lock Timing Card - Enhanced (for vessel owners) */
               renderLockTimingCard()
               )}
 
-              {/* Trip Plan - Multi-Lock Chain Analysis (vessel_owner only) */}
-              {!isTrafficWatch && userMmsi && (
+              {/* Trip Plan - Multi-Lock Chain Analysis (vessel_owner only), under way */}
+              {!isTrafficWatch && userMmsi && !isUserEffectivelyStopped && (
                 <TripPlanPanel userMmsi={userMmsi} maxLocks={5} bufferMinutes={20} compact={true} />
               )}
 
@@ -1906,6 +1913,11 @@ export default function Dashboard({
               {/* Same Lock Timing card as desktop: distance, travel, the wait
                   when you get there, who's ahead. Phones used to get the older
                   race panel, which had none of the wait estimate. */}
+              {/* Stopped: the trip plan (best time to leave) comes first; under way, lock timing. */}
+              {!isTrafficWatch && userMmsi && isUserEffectivelyStopped && (
+                <TripPlanPanel userMmsi={userMmsi} maxLocks={5} bufferMinutes={20} compact={true} />
+              )}
+
               {isTrafficWatch ? (
                 <RaceAnalysisPanel
                   raceAnalysis={raceAnalysis}
@@ -1918,7 +1930,7 @@ export default function Dashboard({
                 />
               ) : renderLockTimingCard()}
 
-              {!isTrafficWatch && userMmsi && (
+              {!isTrafficWatch && userMmsi && !isUserEffectivelyStopped && (
                 <TripPlanPanel userMmsi={userMmsi} maxLocks={5} bufferMinutes={20} compact={true} />
               )}
 

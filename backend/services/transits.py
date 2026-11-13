@@ -8,7 +8,7 @@ next lock in the same direction gives real transit times per leg and
 direction. A vessel that has just left lock A heading toward lock B is then
 expected at B around exit + median transit, before any AIS sees it.
 
-Locks with no USACE data (5A) are skipped, so 5 -> 6 is one leg.
+Locks with no USACE data can be skipped (skip=...); 5A is included since its code ("55") was found.
 
 Tested and not used (2026-11-10): river flow. Daily USGS discharge at five
 gauges vs 3,646 transits: correlation ~+0.01 both directions (downbound ~4%
@@ -30,7 +30,7 @@ def size_class(barges) -> str:
     return "light" if b <= 3 else ("medium" if b <= 9 else "large")
 
 
-def lock_order(locks: Dict[str, dict], skip: Iterable[str] = ("lock_5a",)) -> List[str]:
+def lock_order(locks: Dict[str, dict], skip: Iterable[str] = ()) -> List[str]:
     """Lock ids north to south (descending river mile)."""
     skip = set(skip)
     return [k for k in sorted(locks, key=lambda k: -locks[k]["river_mile"]) if k not in skip]

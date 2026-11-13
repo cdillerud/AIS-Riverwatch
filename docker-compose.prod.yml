@@ -37,6 +37,10 @@ services:
       - COOKIE_SECURE=${COOKIE_SECURE:-true}
       # Demo boats: off unless an admin enables them ("on" for a sales demo instance).
       - RIVERWATCH_DEMO_VESSELS_MODE=${RIVERWATCH_DEMO_VESSELS_MODE:-auto}
+      # Web Push alerts with the app closed (backend/scripts/make_vapid_keys.py); empty = off.
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-}
     depends_on:
       - mongodb
     restart: unless-stopped

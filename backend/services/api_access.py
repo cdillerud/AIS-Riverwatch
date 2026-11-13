@@ -11,6 +11,7 @@ without an account. Now everything under /api needs a session except:
     used by install health checks)
   - /api/ais/ingest (relays authenticate with X-Ingest-Token instead)
   - /api/install/* (Pi bootstrap downloads, no data)
+  - /api/accuracy (published prediction accuracy; aggregates, no user data)
 
 Rollback: API_LOGIN_REQUIRED=false restores the old open behaviour.
 """
@@ -20,6 +21,7 @@ PUBLIC_EXACT = frozenset({
     "/api", "/api/",
     "/api/health",
     "/api/locks",
+    "/api/accuracy",
     "/api/ais/ingest",
     "/api/install/tarball",
     "/api/install/bootstrap",

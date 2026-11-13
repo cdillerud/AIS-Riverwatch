@@ -244,6 +244,9 @@ export default function LandingPage() {
                 RiverWatch<span className="text-cyan-400/50 ml-0.5">AIS</span>
               </span>
             </div>
+            <button onClick={() => navigate("/accuracy")} className="text-xs text-slate-400 hover:text-cyan-300 underline-offset-2 hover:underline" data-testid="accuracy-link">
+              How accurate are the wait estimates?
+            </button>
             <p className="text-xs text-slate-600">
               Not affiliated with USACE.
             </p>

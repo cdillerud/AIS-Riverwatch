@@ -15,6 +15,7 @@ const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
 const TrafficPlanner = lazy(() => import("@/pages/TrafficPlanner"));
 const TripsPage = lazy(() => import("@/pages/TripsPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
+const AccuracyPage = lazy(() => import("@/pages/AccuracyPage"));
 
 function PageLoading() {
   return <div className="min-h-screen bg-[#020617] flex items-center justify-center text-sm text-slate-500">Loading...</div>;
@@ -95,6 +96,8 @@ function AppRouter() {
           <ReportsPage />
         </ProtectedRoute>
       } />
+      {/* Public: published prediction accuracy */}
+      <Route path="/accuracy" element={<AccuracyPage />} />
       {/* Catch-all redirect to landing or dashboard */}
       <Route path="*" element={
         isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/" replace />

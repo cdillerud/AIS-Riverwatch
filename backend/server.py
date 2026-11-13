@@ -65,6 +65,7 @@ from services import calibration as _calibration
 from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
 from services import wait_log as _wait_log
+from services import marinas as _marinas
 from services import user_settings as _user_settings
 from services import live_ais as _live_ais
 from services import api_access as _api_access
@@ -5934,6 +5935,67 @@ async def accuracy(days: int = 30):
     _accuracy_cache[days] = (now, out)
     return out
 
+# --- Marinas along the river (OpenStreetMap, services/marinas.py) ---------------
+_marinas_cache: list = []
+
+
+async def refresh_marinas(force: bool = False) -> int:
+    """Load marinas from the DB; re-fetch from OpenStreetMap weekly."""
+    global _marinas_cache
+    meta = await db.settings.find_one({"_id": "marinas_meta"}) or {}
+    fetched = meta.get("fetched_at")
+    if fetched is not None and fetched.tzinfo is None:
+        fetched = fetched.replace(tzinfo=timezone.utc)
+    fresh = fetched and datetime.now(timezone.utc) - fetched < timedelta(days=_marinas.REFRESH_DAYS)
+    if fresh and not force:
+        _marinas_cache = await db.marinas.find({}, {"_id": 0}).to_list(None)
+        return len(_marinas_cache)
+    try:
+        async with httpx.AsyncClient(timeout=120.0, headers=OUTBOUND_HEADERS) as client:
+            r = await client.post(_marinas.OVERPASS_URL, data={"data": _marinas.QUERY})
+            r.raise_for_status()
+            elements = r.json().get("elements", [])
+        snap = lambda lat, lon: _river_geo.river_mile(lat, lon, max_offset_mi=_marinas.MAX_OFFSET_MI)
+        docs = await asyncio.to_thread(_marinas.parse, elements, snap)
+    except Exception as e:
+        logger.warning(f"[MARINAS] OpenStreetMap fetch failed: {e}")
+        _marinas_cache = await db.marinas.find({}, {"_id": 0}).to_list(None)
+        return len(_marinas_cache)
+    if docs:
+        await db.marinas.delete_many({})
+        await db.marinas.insert_many([dict(d) for d in docs])
+        await db.settings.update_one({"_id": "marinas_meta"},
+                                     {"$set": {"fetched_at": datetime.now(timezone.utc), "count": len(docs)}},
+                                     upsert=True)
+        _marinas_cache = docs
+        logger.info(f"[MARINAS] {len(docs)} marinas on the river from OpenStreetMap")
+    return len(_marinas_cache)
+
+
+async def marinas_task():
+    while True:
+        try:
+            await refresh_marinas()
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.error(f"[MARINAS] refresh failed: {e}")
+        try:
+            await asyncio.sleep(12 * 3600)
+        except asyncio.CancelledError:
+            return
+
+
+@api_router.get("/marinas")
+async def list_marinas(from_rm: Optional[float] = None, to_rm: Optional[float] = None):
+    """Marinas / fuel docks on the river, optionally between two river miles
+    (listed in travel order from -> to)."""
+    rows = _marinas_cache
+    if from_rm is not None and to_rm is not None:
+        rows = _marinas.between(rows, from_rm, to_rm)
+    return {"marinas": rows, "credit": _marinas.OSM_CREDIT,
+            "add_url": "https://www.openstreetmap.org/"}
+
 # --- AIS feed health: uptime history and outage alerts ------------------------
 _feed_samples: "deque" = deque()
 _feed_uptime: dict = {}
@@ -9159,6 +9221,7 @@ async def startup_event():
     asyncio.create_task(daily_report_task())
     asyncio.create_task(feed_monitor_task())
     asyncio.create_task(wait_logging_task())
+    asyncio.create_task(marinas_task())
 
     restored = await load_usace_queue_snapshot()
     if restored:

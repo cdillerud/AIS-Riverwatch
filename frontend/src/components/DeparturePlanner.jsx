@@ -8,6 +8,8 @@ import { whenVisible } from "../lib/visibility";
 import { departureLabel, clockIn, readPrefs, savePrefs } from "../lib/departure";
 import { darkCheck, isDark, sunTimes, positionAtRm } from "../lib/sun";
 import useLocks from "../hooks/useLocks";
+import StopsAhead from "./StopsAhead";
+import { anchorsFromOption } from "../lib/stops";
 
 const fmtMin = (m) => {
   if (m == null) return "—";
@@ -154,6 +156,7 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
             Arrive: {data.destination_rm != null ? `at RM ${data.destination_rm}` : "through the last lock shown"}. ★ least time at locks.
           </div>
           {darkNote && <div className="text-[11px] text-amber-400 mt-1" data-testid="dark-note">☾ {darkNote}</div>}
+          <StopsAhead fromRm={data.start_rm} direction={prefs.direction} mph={prefs.mph} anchors={anchorsFromOption(opts[0], allLocks)} locks={allLocks} startAt={data.generated_at} />
         </div>
       )}
     </div>

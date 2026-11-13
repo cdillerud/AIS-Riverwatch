@@ -1,0 +1,25 @@
+{
+  "id": "6b29b0a1-5c7e-4ef2-8f5d-1240d4c7f9d4",
+  "name": "SharePoint Document Linker",
+  "publisher": "Riverwatch Labs",
+  "version": "1.0.0.0",
+  "brief": "Business Central document storage in SharePoint",
+  "description": "Replaces external document-store behavior by keeping metadata in Business Central while storing files in SharePoint.",
+  "privacyStatement": "https://example.com/privacy",
+  "EULA": "https://example.com/eula",
+  "help": "https://example.com/help",
+  "url": "https://example.com",
+  "logo": "",
+  "dependencies": [],
+  "screenshots": [],
+  "platform": "24.0.0.0",
+  "application": "24.0.0.0",
+  "idRanges": [
+    {
+      "from": 50300,
+      "to": 50349
+    }
+  ],
+  "runtime": "13.0",
+  "target": "Cloud"
+}

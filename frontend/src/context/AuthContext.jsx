@@ -1,9 +1,23 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
-import { API } from '@/lib/api';
-import { unsubscribePush } from '@/lib/push';
+import { API } from '../lib/api';
+import { unsubscribePush } from '../lib/push';
 
 const AuthContext = createContext(null);
+
+// The server answered with something other than JSON (an HTML error page from
+// static hosting or a proxy): say so plainly instead of Safari's
+// "The string did not match the expected pattern".
+export const SERVER_UNAVAILABLE = "River Watch's server isn't reachable right now. Please try again in a little while.";
+export async function readJson(response) {
+  const type = response.headers.get('content-type') || '';
+  if (!type.includes('json')) throw new Error(SERVER_UNAVAILABLE);
+  try {
+    return await response.json();
+  } catch (e) {
+    throw new Error(SERVER_UNAVAILABLE);
+  }
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -22,7 +36,7 @@ export function AuthProvider({ children }) {
       });
       
       if (response.ok) {
-        const userData = await response.json();
+        const userData = await readJson(response);
         setUser(userData);
       } else {
         setUser(null);
@@ -45,7 +59,7 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ email, password })
       });
 
-      const data = await response.json();
+      const data = await readJson(response);
       
       if (!response.ok) {
         throw new Error(data.detail || 'Login failed');
@@ -54,8 +68,10 @@ export function AuthProvider({ children }) {
       setUser(data.user);
       return data.user;
     } catch (err) {
-      setError(err.message);
-      throw err;
+      // fetch itself failed (offline, DNS, server down): Safari says "Load failed"
+      const e = err instanceof TypeError ? new Error(SERVER_UNAVAILABLE) : err;
+      setError(e.message);
+      throw e;
     }
   };
 
@@ -69,7 +85,7 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ email, password, name })
       });
 
-      const data = await response.json();
+      const data = await readJson(response);
       
       // Handle existing user case (not an HTTP error, but a logical error)
       if (data.user_exists) {
@@ -85,8 +101,10 @@ export function AuthProvider({ children }) {
       setUser(data.user);
       return data.user;
     } catch (err) {
-      setError(err.message);
-      throw err;
+      // fetch itself failed (offline, DNS, server down): Safari says "Load failed"
+      const e = err instanceof TypeError ? new Error(SERVER_UNAVAILABLE) : err;
+      setError(e.message);
+      throw e;
     }
   };
 
@@ -101,7 +119,7 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ credential })
       });
 
-      const data = await response.json();
+      const data = await readJson(response);
 
       if (!response.ok) {
         throw new Error(data.detail || 'Google sign-in failed');
@@ -110,8 +128,10 @@ export function AuthProvider({ children }) {
       setUser(data.user);
       return data.user;
     } catch (err) {
-      setError(err.message);
-      throw err;
+      // fetch itself failed (offline, DNS, server down): Safari says "Load failed"
+      const e = err instanceof TypeError ? new Error(SERVER_UNAVAILABLE) : err;
+      setError(e.message);
+      throw e;
     }
   };
 
@@ -152,7 +172,7 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ mmsi, boat_name: boatName, is_primary: isPrimary })
       });
 
-      const data = await response.json();
+      const data = await readJson(response);
       
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to add vessel');
@@ -174,7 +194,7 @@ export function AuthProvider({ children }) {
       });
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = await readJson(response);
         throw new Error(data.detail || 'Failed to remove vessel');
       }
 
@@ -193,7 +213,7 @@ export function AuthProvider({ children }) {
       });
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = await readJson(response);
         throw new Error(data.detail || 'Failed to set primary vessel');
       }
 
@@ -214,7 +234,7 @@ export function AuthProvider({ children }) {
       });
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = await readJson(response);
         throw new Error(data.detail || 'Failed to update profile');
       }
 

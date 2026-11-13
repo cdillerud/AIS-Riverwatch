@@ -64,6 +64,7 @@ from services import trip_timeline as _trip_timeline
 from services import calibration as _calibration
 from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
+from services import wait_log as _wait_log
 from services import user_settings as _user_settings
 from services import live_ais as _live_ais
 from services import api_access as _api_access
@@ -5674,36 +5675,8 @@ async def get_lock_board(from_rm: Optional[float] = None, direction: Optional[st
     live, live_barges = None, {}
     for lk in ordered:
         lid = lk["lock_id"]
-        avg = averages.get(lid, {})
-        typical = {
-            "avg_single_lockage_minutes": avg.get("avg_single_lockage_minutes"),
-            "avg_double_lockage_minutes": avg.get("avg_double_lockage_minutes"),
-            "avg_recreational_lockage_minutes": avg.get("avg_recreational_lockage_minutes"),
-            "avg_tow_wait_minutes": avg.get("avg_tow_wait_minutes"),
-            "avg_recreational_wait_minutes": avg.get("avg_recreational_wait_minutes"),
-            "double_share": avg.get("double_share"),
-            "by_barges": avg.get("by_barges"),
-            "sample_count": avg.get("sample_count", 0),
-            "is_baseline": avg.get("is_baseline", True),
-        }
-        locking, waiting = [], []
-        for v in queue_by_lock.get(lid, []):
-            tz = v.get("timezone")
-            entry = {
-                "vessel_name": v.get("vessel_name"),
-                "mmsi": v.get("mmsi"),
-                "direction": {"U": "upbound", "D": "downbound"}.get(v.get("direction") or "", v.get("direction")),
-                "barges": v.get("num_barges"),
-                "needs_double": _lock_board.needs_double(lid, v.get("num_barges")) or bool(v.get("cuts_completed")),
-                "cuts_completed": v.get("cuts_completed") or 0,
-                "arrived_at": when(v.get("arrival_date"), tz),
-            }
-            if v.get("status") == "locking":
-                entry["started_at"] = when(v.get("sol_date"), tz)
-                locking.append(entry)
-            else:
-                waiting.append(entry)
-        waiting.sort(key=lambda e: e["arrived_at"] or now)
+        typical = _typical_for(averages.get(lid, {}))
+        locking, waiting = _queue_entries(lid, queue_by_lock.get(lid, []), now)
         waits = _lock_board.predict_waits(lid, locking, waiting, typical, direction, now)
         wait_at_arrival = None
         if arrive_in is not None and 0 <= arrive_in <= 24 * 60:
@@ -5834,6 +5807,132 @@ USACE_NO_DATA_LOCKS = ("lock_5a",)
 def _usace_fetched_by_lock() -> Dict[str, datetime]:
     return {usace_lock_id(n): t for n, t in usace_lock_fetched_at.items()}
 
+
+def _typical_for(avg: dict) -> dict:
+    return {
+        "avg_single_lockage_minutes": avg.get("avg_single_lockage_minutes"),
+        "avg_double_lockage_minutes": avg.get("avg_double_lockage_minutes"),
+        "avg_recreational_lockage_minutes": avg.get("avg_recreational_lockage_minutes"),
+        "avg_tow_wait_minutes": avg.get("avg_tow_wait_minutes"),
+        "avg_recreational_wait_minutes": avg.get("avg_recreational_wait_minutes"),
+        "double_share": avg.get("double_share"),
+        "by_barges": avg.get("by_barges"),
+        "sample_count": avg.get("sample_count", 0),
+        "is_baseline": avg.get("is_baseline", True),
+    }
+
+
+def _queue_entries(lid: str, rows: list, now: datetime):
+    """USACE queue rows -> (locking, waiting) as the lock board models them."""
+    locking, waiting = [], []
+    for v in rows:
+        tz = v.get("timezone")
+        entry = {
+            "vessel_name": v.get("vessel_name"),
+            "mmsi": v.get("mmsi"),
+            "key": _wait_log.key_of(v),
+            "direction": {"U": "upbound", "D": "downbound"}.get(v.get("direction") or "", v.get("direction")),
+            "barges": v.get("num_barges"),
+            "needs_double": _lock_board.needs_double(lid, v.get("num_barges")) or bool(v.get("cuts_completed")),
+            "cuts_completed": v.get("cuts_completed") or 0,
+            "arrived_at": _usace_lockages.parse_time(v.get("arrival_date"), tz),
+        }
+        if v.get("status") == "locking":
+            entry["started_at"] = _usace_lockages.parse_time(v.get("sol_date"), tz)
+            locking.append(entry)
+        else:
+            waiting.append(entry)
+    waiting.sort(key=lambda e: e["arrived_at"] or now)
+    return locking, waiting
+
+
+# --- Live wait-prediction log (services/wait_log.py) ---------------------------
+_wait_logged: set = set()
+_accuracy_cache: dict = {}
+
+
+async def log_wait_predictions(now: Optional[datetime] = None) -> int:
+    """Log the board's estimate for each boat that just joined a lock queue."""
+    now = now or datetime.now(timezone.utc)
+    averages = await get_lockage_averages()
+    docs = []
+    for lock_no, rows in list(usace_lock_rows.items()):
+        lid = usace_lock_id(lock_no)
+        if lid not in LOCKS or not rows:
+            continue
+        typical = _typical_for(averages.get(lid, {}))
+        locking, waiting = _queue_entries(lid, rows, now)
+        predict = lambda lk, ahead, d, _l=lid, _t=typical: _lock_board.predict_waits(_l, lk, ahead, _t, d, now)
+        docs += _wait_log.arrival_docs(lid, locking, waiting, predict, _wait_logged, now)
+    for d in docs:
+        _wait_logged.add((d["lock_id"], d["key"], d["arrived_at"]))
+        try:
+            await db.wait_predictions.update_one(
+                {"lock_id": d["lock_id"], "key": d["key"], "arrived_at": d["arrived_at"]},
+                {"$setOnInsert": d}, upsert=True)
+        except Exception as e:
+            logger.warning(f"[ACCURACY] could not log a wait prediction: {e}")
+    if len(_wait_logged) > 20000:
+        cutoff = now - timedelta(hours=2)
+        _wait_logged.difference_update({k for k in _wait_logged if k[2] < cutoff})
+    return len(docs)
+
+
+async def wait_logging_task():
+    while True:
+        try:
+            await asyncio.sleep(120)
+            await log_wait_predictions()
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.error(f"[ACCURACY] wait logging failed: {e}")
+
+
+def _utc_dt(t):
+    return t.replace(tzinfo=timezone.utc) if t is not None and t.tzinfo is None else t
+
+
+@api_router.get("/accuracy")
+async def accuracy(days: int = 30):
+    """Public: live wait predictions vs what USACE recorded, arrival-time
+    accuracy, and the latest held-out test of the wait model. No user data;
+    pleasure boats are not named."""
+    days = max(1, min(int(days), 120))
+    now = datetime.now(timezone.utc)
+    hit = _accuracy_cache.get(days)
+    if hit and now - hit[0] < timedelta(minutes=10):
+        return hit[1]
+    since = now - timedelta(days=days)
+    preds = await db.wait_predictions.find({"arrived_at": {"$gte": since}}, {"_id": 0}).to_list(None)
+    for p in preds:
+        p["arrived_at"] = _utc_dt(p["arrived_at"])
+    keys = list({p["key"] for p in preds})
+    lockages = await db.lockage_history.find(
+        {"source": "usace_lpms", "arrival_time": {"$gte": since - timedelta(hours=1)},
+         "$or": [{"usace_vessel_no": {"$in": keys}}, {"vessel_name": {"$in": keys}}]},
+        {"_id": 0, "lock_id": 1, "usace_vessel_no": 1, "vessel_name": 1, "arrival_time": 1,
+         "wait_time_minutes": 1, "is_recreational": 1}).to_list(None) if keys else []
+    for r in lockages:
+        r["arrival_time"] = _utc_dt(r["arrival_time"])
+    scored = await asyncio.to_thread(_wait_log.score, preds, lockages)
+    names = {lid: info.get("name", lid) for lid, info in LOCKS.items()}
+    waits = _wait_log.report(scored, names)
+    waits["logged"] = len(preds)
+    waits["since"] = min((p["arrived_at"] for p in preds), default=None)
+    waits["since"] = waits["since"].isoformat() if waits["since"] else None
+    arr = await db.arrival_calibration.find_one({}, {"_id": 0, "ran_at": 1, "accuracy": 1}, sort=[("ran_at", -1)])
+    model = await db.wait_calibration.find_one({"adopted": True}, {"_id": 0, "ran_at": 1, "reason": 1, "test": 1,
+                                                                   "new_score": 1}, sort=[("ran_at", -1)])
+    out = {
+        "days": days, "generated_at": now.isoformat(), "waits": waits,
+        "arrivals": (arr or {}).get("accuracy"),
+        "arrivals_checked_at": _utc_dt(arr["ran_at"]).isoformat() if arr else None,
+        "model_test": {"ran_at": _utc_dt(model["ran_at"]).isoformat(), "test_lockages": model.get("test"),
+                       "score": model.get("new_score")} if model else None,
+    }
+    _accuracy_cache[days] = (now, out)
+    return out
 
 # --- AIS feed health: uptime history and outage alerts ------------------------
 _feed_samples: "deque" = deque()
@@ -9059,6 +9158,7 @@ async def startup_event():
     asyncio.create_task(arrival_learning_task())
     asyncio.create_task(daily_report_task())
     asyncio.create_task(feed_monitor_task())
+    asyncio.create_task(wait_logging_task())
 
     restored = await load_usace_queue_snapshot()
     if restored:

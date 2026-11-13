@@ -1,3 +1,9 @@
+// Palettes read CSS variables so themes (src/themes.css) can remap them.
+// Families listed here must match scripts/gen-themes.js.
+const THEMED = ['slate', 'cyan', 'amber', 'red', 'green', 'purple', 'emerald', 'blue', 'orange', 'rose', 'yellow', 'sky', 'teal', 'indigo', 'pink', 'lime', 'gray', 'zinc'];
+const SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
+const themed = Object.fromEntries(THEMED.map((f) => [f, Object.fromEntries(SHADES.map((s) => [s, `rgb(var(--tw-${f}-${s}) / <alpha-value>)`]))]));
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
@@ -18,6 +24,9 @@ module.exports = {
     },
     extend: {
       colors: {
+        ...themed,
+        white: 'rgb(var(--tw-white) / <alpha-value>)',
+        black: 'rgb(var(--tw-black) / <alpha-value>)',
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

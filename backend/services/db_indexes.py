@@ -64,6 +64,9 @@ INDEXES = [
     ("lock_status", [("lock_id", ASC)], {}),
     # AIS feed up/down, one sample a minute (feed health / uptime).
     ("feed_samples", [("t", ASC)], {"expireAfterSeconds": 35 * 24 * 3600}),
+    # Live wait predictions, scored for the public accuracy page.
+    ("wait_predictions", [("lock_id", ASC), ("key", ASC), ("arrived_at", ASC)], {"unique": True}),
+    ("wait_predictions", [("arrived_at", ASC)], {"expireAfterSeconds": 180 * 24 * 3600}),
 ]
 
 # For unique indexes: which field decides the "newest" document to keep.

@@ -4,6 +4,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#020617" />
+        <script>/* apply a saved Sunlight / Night theme before first paint (Auto is applied by the app) */try{var t=localStorage.getItem("rw-theme");if(t==="sun"||t==="night")document.documentElement.dataset.theme=t;}catch(e){}</script>
         <meta name="description" content="River Watch - AIS vessel tracking and lock arrival planning for the Upper Mississippi River (Locks 1-27). Not for navigation." />
 
         <!-- Fonts: Rajdhani (Headings), Manrope (Body), JetBrains Mono (Data) -->
@@ -15,6 +16,7 @@
     </head>
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>
+        <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="rw-night-red" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.36 0.7 0.12 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter></svg>
         <div id="root"></div>
     </body>
 </html>

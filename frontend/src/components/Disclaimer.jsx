@@ -5,7 +5,7 @@ export const DISCLAIMER_TEXT =
 export default function Disclaimer() {
   return (
     <footer
-      className="bg-[#020617] px-4 py-2 text-center text-[10px] leading-snug text-slate-600"
+      className="bg-slate-950 px-4 py-2 text-center text-[10px] leading-snug text-slate-600"
       data-testid="nav-disclaimer"
     >
       {DISCLAIMER_TEXT}

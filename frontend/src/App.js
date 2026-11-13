@@ -15,9 +15,10 @@ const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
 const TrafficPlanner = lazy(() => import("@/pages/TrafficPlanner"));
 const TripsPage = lazy(() => import("@/pages/TripsPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
+const AccuracyPage = lazy(() => import("@/pages/AccuracyPage"));
 
 function PageLoading() {
-  return <div className="min-h-screen bg-[#020617] flex items-center justify-center text-sm text-slate-500">Loading...</div>;
+  return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-sm text-slate-500">Loading...</div>;
 }
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import useAisDriftWatch from "@/hooks/useAisDriftWatch";
@@ -95,6 +96,8 @@ function AppRouter() {
           <ReportsPage />
         </ProtectedRoute>
       } />
+      {/* Public: published prediction accuracy */}
+      <Route path="/accuracy" element={<AccuracyPage />} />
       {/* Catch-all redirect to landing or dashboard */}
       <Route path="*" element={
         isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/" replace />
@@ -1063,7 +1066,7 @@ function MainApp() {
   // If showing settings page
   if (showSettings) {
     return (
-      <div className="app-container bg-[#020617] min-h-screen">
+      <div className="app-container bg-slate-950 min-h-screen">
         <Suspense fallback={<PageLoading />}>
           <SettingsPage 
             onBack={handleSettingsUpdate}
@@ -1077,7 +1080,7 @@ function MainApp() {
 
   // Main dashboard or setup page based on connection state
   return (
-    <div className="app-container bg-[#020617] min-h-screen">
+    <div className="app-container bg-slate-950 min-h-screen">
       {connectionConfig ? (
         <Dashboard 
           isConnected={isConnected}

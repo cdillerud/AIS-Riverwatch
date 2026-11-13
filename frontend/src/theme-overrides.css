@@ -1,0 +1,74 @@
+/* Hand-tuned parts of the themes that palette variables can't reach
+   (raw rgba/hex in CSS, hairline borders, glows). Palettes: themes.css. */
+
+/* ---- Sunlight: readable in direct sun on a phone ---------------------- */
+html[data-theme="sun"] body {
+  background-color: #ffffff;
+}
+
+/* Hairline borders (white/5, white/10 -> black at 5-10%) vanish in glare. */
+html[data-theme="sun"] [class*="border-white/"],
+html[data-theme="sun"] [class*="divide-white/"] > * + * {
+  border-color: rgb(15 23 42 / 0.22);
+}
+html[data-theme="sun"] [class*="border-slate-8"],
+html[data-theme="sun"] [class*="border-slate-7"] {
+  border-color: rgb(100 116 139 / 0.55);
+}
+
+/* Glows and heavy dark shadows look like smudges on white. */
+html[data-theme="sun"] [class*="shadow-"] {
+  --tw-shadow-color: rgb(15 23 42 / 0.15);
+}
+html[data-theme="sun"] .glass-panel {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  box-shadow: 0 4px 16px -4px rgba(15, 23, 42, 0.2);
+}
+html[data-theme="sun"] .backdrop-blur-xl,
+html[data-theme="sun"] .backdrop-blur-sm,
+html[data-theme="sun"] .backdrop-blur {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-theme="sun"] .vessel-item:hover {
+  background: rgba(14, 116, 144, 0.1);
+}
+
+/* Slightly heavier text overall: thin strokes wash out in sunlight. */
+html[data-theme="sun"] body {
+  font-weight: 500;
+  -webkit-font-smoothing: auto;
+}
+
+/* River map: pale water, a stronger blue channel. */
+html[data-theme="sun"] .river-map {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 50%, #f8fafc 100%);
+}
+html[data-theme="sun"] .river-viz {
+  background: linear-gradient(90deg, transparent 0%, rgba(37, 99, 235, 0.14) 40%,
+    rgba(37, 99, 235, 0.28) 50%, rgba(37, 99, 235, 0.14) 60%, transparent 100%);
+}
+html[data-theme="sun"] input:focus,
+html[data-theme="sun"] select:focus {
+  box-shadow: 0 0 0 2px rgba(14, 116, 144, 0.35);
+}
+
+/* Map: lock boxes and the label borders that were tuned for a dark river. */
+html[data-theme="sun"] .lock-indicator {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.5);
+  color: #0f172a;
+  font-weight: 700;
+}
+html[data-theme="sun"] [class*="border-amber-500/"] { border-color: rgb(180 83 9 / 0.6); }
+html[data-theme="sun"] [class*="border-cyan-500/"],
+html[data-theme="sun"] [class*="border-cyan-400/"] { border-color: rgb(14 116 144 / 0.7); }
+/* ---- Night (red): keeps night vision when running after dark ----------- */
+/* The dark theme, turned red and dimmed. On <html> (the root) so fixed
+   dialogs and toasts keep positioning against the viewport. */
+html[data-theme="night"] {
+  /* #rw-night-red (public/index.html): brightness kept, all of it in the red channel */
+  filter: url(#rw-night-red);
+  background: #000;
+}

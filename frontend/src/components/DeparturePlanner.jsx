@@ -117,6 +117,12 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
         <div className="text-xs text-slate-500">No locks ahead {prefs.direction === "downbound" ? "downriver" : "upriver"} of RM {data.start_rm}.</div>
       )}
 
+      {locks.filter((l) => l.note).map((l) => (
+        <div key={l.lock_id} className="text-[11px] text-amber-400" data-testid={`lock-note-${l.lock_id}`}>
+          ! {l.name}: {l.note}
+        </div>
+      ))}
+
       {locks.length > 0 && opts.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs" data-testid="departure-table">
@@ -124,8 +130,8 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
               <tr className="text-slate-500 text-[10px] uppercase">
                 <th className="text-left font-normal py-1">Leave</th>
                 {locks.map((l) => (
-                  <th key={l.lock_id} className="text-right font-normal" title={l.name}>
-                    {l.lock_id.replace("lock_", "L").replace("melvin_price", "Mel").replace("chain_of_rocks", "CoR")}
+                  <th key={l.lock_id} className={`text-right font-normal ${l.note ? "text-amber-400" : ""}`} title={l.note ? `${l.name}: ${l.note}` : l.name}>
+                    {l.lock_id.replace("lock_", "L").replace("melvin_price", "Mel").replace("chain_of_rocks", "CoR")}{l.note && "!"}
                   </th>
                 ))}
                 <th className="text-right font-normal">At locks</th>

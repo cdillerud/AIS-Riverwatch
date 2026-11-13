@@ -12,6 +12,9 @@ without an account. Now everything under /api needs a session except:
   - /api/ais/ingest (relays authenticate with X-Ingest-Token instead)
   - /api/install/* (Pi bootstrap downloads, no data)
   - /api/accuracy (published prediction accuracy; aggregates, no user data)
+  - /api/public/* (data meant for people without an account: a boater's
+    "Share my trip" link, /api/public/share/{token}; unguessable token,
+    expires, revocable, allow-listed fields only - services/trip_share.py)
 
 Rollback: API_LOGIN_REQUIRED=false restores the old open behaviour.
 """
@@ -26,7 +29,7 @@ PUBLIC_EXACT = frozenset({
     "/api/install/tarball",
     "/api/install/bootstrap",
 })
-PUBLIC_PREFIXES = ("/api/auth/",)
+PUBLIC_PREFIXES = ("/api/auth/", "/api/public/")
 
 
 def login_required() -> bool:

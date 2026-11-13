@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import DeparturePlanner from "@/components/DeparturePlanner";
 import { whenVisible } from "@/lib/visibility";
+import ShareTripButton from "@/components/ShareTripButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -170,6 +171,9 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
       </CardHeader>
 
       <CardContent className="p-4 space-y-3">
+        {userMmsi && (
+          <ShareTripButton userMmsi={userMmsi} destinationRm={activeTrip?.end_rm ?? null} />
+        )}
         {activeTrip && (
           <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-cyan-900/30 border border-cyan-700/50" data-testid="trip-plan-active-trip-banner">
             <div className="min-w-0 text-xs">
@@ -297,6 +301,10 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                         </div>
                         <Badge className={`text-[10px] ${meta.badge}`}>{meta.label}</Badge>
                       </div>
+
+                      {leg.note && (
+                        <div className="text-[11px] text-amber-400 mb-2" data-testid={`leg-note-${leg.lock_id}`}>! {leg.note}</div>
+                      )}
 
                       <div className="grid grid-cols-3 gap-2 text-xs">
                         <div>

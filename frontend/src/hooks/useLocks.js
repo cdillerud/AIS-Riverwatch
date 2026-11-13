@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API } from "@/lib/api";
+import { API } from "../lib/api";
 
 // Offline fallback only. GET /api/locks is authoritative (USACE river miles);
 // this copy mirrors backend/config.py LOCKS and is used until the fetch

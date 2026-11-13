@@ -24,6 +24,8 @@ test("shows each departure with per-lock waits and marks the best", async () => 
   expect(row(0)).toContain("Now");
   expect(row(0)).toContain("40m");
   expect(row(30)).toContain("★");
-  expect(global.fetch.mock.calls[0][0]).toContain("direction=downbound");
+  const call = global.fetch.mock.calls.map((c) => c[0]).find((u) => u.includes("departure-options"));
+  expect(call).toContain("direction=downbound");
+  expect(el.querySelector('[data-testid="arrive-dark"]')).toBeNull(); // 9 am start, arrives ~12:30 pm
   act(() => root.unmount());
 });

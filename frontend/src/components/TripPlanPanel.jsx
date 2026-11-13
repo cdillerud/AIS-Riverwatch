@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 
 import { API } from "@/lib/api";
+import useLocks from "@/hooks/useLocks";
+import { isDark, sunsetOn, positionAtRm } from "@/lib/sun";
 
 const STATUS_META = {
   clear: {
@@ -75,6 +77,7 @@ const fmtMinutes = (m) => {
 };
 
 export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 20, compact = false }) {
+  const allLocks = useLocks();
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -125,6 +128,12 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
   }, [fetchPlan, waiting]);
 
   const legs = plan?.legs || [];
+  // Would the trip end after dark? (through the last lock, at the current pace)
+  const endLock = legs.length ? allLocks.find((l) => l.id === legs.at(-1).lock_id) : null;
+  const endAt = summary?.cumulative_eta_minutes != null ? new Date(Date.now() + summary.cumulative_eta_minutes * 60000) : null;
+  const endPos = endLock ? positionAtRm(endLock.river_mile, allLocks) : null;
+  const endsDark = endAt && endPos ? isDark(endAt, endPos.lat, endPos.lon) : false;
+  const sunset = endPos ? sunsetOn(new Date(), endPos.lat, endPos.lon) : null;
   // Stopped with locks ahead (e.g. waiting at a lock): show the route, say why
   // there are no ETAs, instead of a "NO DATA" warning on every lock.
   const stoppedWithRoute = summary?.overall_status === "no_data" && legs.length > 0;
@@ -229,6 +238,12 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                 {summary.time_at_locks_minutes > 0 && (
                   <div className="text-[10px] text-slate-500" data-testid="trip-plan-lock-time">
                     incl. {fmtMinutes(summary.time_at_locks_minutes)} at locks
+                  </div>
+                )}
+                {endsDark && (
+                  <div className="text-[10px] text-amber-400" data-testid="trip-plan-after-dark"
+                       title={sunset ? `Sunset about ${sunset.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : undefined}>
+                    ☾ after dark (~{endAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })})
                   </div>
                 )}
               </div>

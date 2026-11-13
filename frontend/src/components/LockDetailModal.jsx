@@ -18,6 +18,7 @@ import {
 
 import { API } from "@/lib/api";
 import LockageRow, { fmtDuration } from "@/components/LockageRow";
+import LockingThrough from "./LockingThrough";
 
 // Lock status: "OPEN" | "CLOSED" | "RESTRICTED" | "UNKNOWN". Anything other than
 // an explicit OPEN is never shown as open/green.
@@ -556,6 +557,8 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                     )}
                   </CardContent>
                 </Card>
+
+                <LockingThrough lockId={lockDetails.lock_id} phone={lockDetails.phone} />
 
                 {lockDetails.recent_lockages?.length > 0 && (
                   <Card className="bg-slate-800/30 border-slate-700" data-testid="lock-recent-lockages">

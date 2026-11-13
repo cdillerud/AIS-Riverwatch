@@ -277,6 +277,10 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                         <Badge className={`text-[10px] ${meta.badge}`}>{meta.label}</Badge>
                       </div>
 
+                      {leg.note && (
+                        <div className="text-[11px] text-amber-400 mb-2" data-testid={`leg-note-${leg.lock_id}`}>! {leg.note}</div>
+                      )}
+
                       <div className="grid grid-cols-3 gap-2 text-xs">
                         <div>
                           <div className="text-slate-500">RM</div>

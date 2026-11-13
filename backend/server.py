@@ -7638,6 +7638,30 @@ async def get_race_analysis_legacy(lock_id: str, request: Request, mmsi: str = N
 DEPARTURE_OFFSETS = [0, 30, 60, 120, 240]
 
 
+_lock_notes_cache: tuple = (None, {})
+
+
+async def _lock_notes() -> Dict[str, str]:
+    """Planning warnings per lock: closed / restricted (district page) or no
+    USACE lockages for far longer than usual (lockage_gap_note). Read from the
+    stored lock status, cached for a minute."""
+    global _lock_notes_cache
+    now = datetime.now(timezone.utc)
+    at, notes = _lock_notes_cache
+    if at and now - at < timedelta(seconds=60):
+        return notes
+    notes = {}
+    try:
+        async for s in db.lock_status.find({}, {"_id": 0, "lock_id": 1, "status": 1, "closure_info": 1,
+                                                 "status_source": 1}):
+            info = s.get("closure_info")
+            if info and (s.get("status") in ("CLOSED", "RESTRICTED") or s.get("status_source") == "lockage_gap"):
+                notes[s["lock_id"]] = info
+    except Exception as e:
+        logger.warning(f"Could not read lock notes: {e}")
+    _lock_notes_cache = (now, notes)
+    return notes
+
 @api_router.get("/session/{session_mmsi}/departure-options")
 async def get_departure_options(session_mmsi: str, direction: str, request: Request = None, cruise_mph: float = 15.0,
                                 destination_rm: Optional[float] = None, max_locks: int = 5):
@@ -7700,12 +7724,14 @@ async def get_departure_options(session_mmsi: str, direction: str, request: Requ
         prev = ldata['river_mile']
     tail = abs(destination_rm - prev) if destination_rm is not None else 0.0
     options = await _trip_timeline.departure_options(legs, speed * 1.0, DEPARTURE_OFFSETS, wait_at, own_lockage, tail)
+    notes = await _lock_notes()
     best = (min(range(len(options)), key=lambda i: (options[i]["time_at_locks_minutes"], options[i]["depart_in_minutes"]))
             if options and chain else None)
     return {
         "session_mmsi": session_mmsi, "direction": direction, "cruise_mph": speed,
         "start_rm": round(float(start_rm), 1), "destination_rm": destination_rm,
-        "locks": [{"lock_id": lid, "name": ld.get("name"), "river_mile": ld.get("river_mile")} for lid, ld in chain],
+        "locks": [{"lock_id": lid, "name": ld.get("name"), "river_mile": ld.get("river_mile"),
+                   "note": notes.get(lid)} for lid, ld in chain],
         "options": options, "best": best,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -7842,6 +7868,7 @@ async def get_session_trip_plan(
     timeline_by_lock = {t["lock_id"]: t for t in timeline}
 
     # Build per-leg analysis
+    lock_notes = await _lock_notes()
     legs = []
     cumulative_eta = 0.0 if user_speed_mph > 0 else None
     cant_beat_count = 0
@@ -7945,6 +7972,7 @@ async def get_session_trip_plan(
         legs.append({
             "lock_id": lid,
             "lock_name": ldata['name'],
+            "note": lock_notes.get(lid),
             "lock_rm": lock_rm,
             "leg_distance_mi": leg_distance,
             "user_eta_minutes": user_eta,

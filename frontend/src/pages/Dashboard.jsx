@@ -35,6 +35,7 @@ import RawDataPanel from "@/components/RawDataPanel";
 import Speedometer from "@/components/Speedometer";
 import TripPlanPanel from "@/components/TripPlanPanel";
 import FeedBanner from "@/components/FeedBanner";
+import ThemePicker from "@/components/ThemePicker";
 import { getVesselDisplayName, hasRiverMile, formatRiverMile, formatSpeedMph, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, lockShortLabel } from "@/utils/vesselDisplay";
 import { useAuth } from "@/context/AuthContext";
 
@@ -1065,6 +1066,7 @@ export default function Dashboard({
             
             {/* Right: Actions */}
             <div className="flex items-center gap-0.5 sm:gap-2">
+              <ThemePicker />
               {/* Traffic Planning - Icon only */}
               <Button
                 variant="ghost"
@@ -1459,7 +1461,7 @@ export default function Dashboard({
                 {/* Map Content with Floating Overlays */}
                 <div className="relative h-[calc(100%-44px)]">
                   {mainView === "locks" && (
-                    <div className="absolute inset-0 z-40 bg-[#020617]">
+                    <div className="absolute inset-0 z-40 bg-slate-950">
                       <LockBoard userVessel={userVessel} selectedLockId={activeTimingLockId} onSelectLock={highlightLock} onLockDetails={setSelectedLockDetail}
                                  aisVessels={liveAisVessels} allLocks={locks} onVesselDetails={openVesselDetails} />
                     </div>

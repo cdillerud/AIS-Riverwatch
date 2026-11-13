@@ -23,6 +23,7 @@ function PageLoading() {
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import useAisDriftWatch from "@/hooks/useAisDriftWatch";
 import useLocks from "@/hooks/useLocks";
+import useRiverAlerts from "@/hooks/useRiverAlerts";
 import Disclaimer from "@/components/Disclaimer";
 
 import { API, WS_BASE_URL, AIS_WS_PATH } from "@/lib/api";
@@ -1003,6 +1004,13 @@ function MainApp() {
       .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
       .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"));
   }, [vessels, userSettings.show_buoys]);
+
+  // Tow / lock / departure alerts (header bell; off until turned on). Traffic
+  // Watch accounts have no boat of their own, so nothing to alert about.
+  useRiverAlerts({
+    vessels: dashboardVessels,
+    userMmsi: user?.account_type === "traffic_watch" ? "" : userMmsi,
+  });
 
   const activeTimingLock = useMemo(() => {
     const accountType = user?.account_type || "vessel_owner";

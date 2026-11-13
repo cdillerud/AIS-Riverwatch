@@ -8716,6 +8716,129 @@ async def delete_trip(trip_id: str, request: Request):
 
 
 
+# =============================================================================
+# SHARE MY TRIP - public, expiring links to one boat's position and ETA
+# (services/trip_share.py). The public view answers without sign-in
+# (/api/public/ is in api_access.PUBLIC_PREFIXES) and returns only the fields
+# trip_share.public_payload allows: no MMSI, owner, or other boats.
+# =============================================================================
+import time as _time  # noqa: E402
+from services import trip_share as _trip_share  # noqa: E402
+
+
+class ShareCreate(BaseModel):
+    mmsi: str
+    hours: Optional[int] = Field(default=_trip_share.DEFAULT_HOURS, ge=_trip_share.MIN_HOURS, le=_trip_share.MAX_HOURS)
+    destination_rm: Optional[float] = Field(default=None, ge=0, le=2000)
+
+
+_share_rate = _trip_share.RateLimiter(limit=30, window_s=60.0)
+_share_cache: Dict[str, tuple] = {}   # token -> (monotonic time, payload)
+_SHARE_CACHE_S = 20.0
+_SHARE_NOT_FOUND = "This trip link has expired or was turned off"
+
+
+def _own_boat_entry(user: dict, mmsi: str) -> Optional[dict]:
+    """The boat on this account's own list. No admin override: a share puts
+    the boat's position on a public link, so only its owner may create one."""
+    for v in (user.get("vessels") or []):
+        if isinstance(v, dict) and str(v.get("mmsi")) == str(mmsi).strip():
+            return v
+    return None
+
+
+@api_router.post("/share")
+async def create_trip_share(body: ShareCreate, user: dict = Depends(require_user)):
+    """Create a public link to one of your boats (expires in 1-72 h)."""
+    mmsi = str(body.mmsi or "").strip()
+    entry = _own_boat_entry(user, mmsi)
+    if not mmsi or entry is None:
+        raise HTTPException(status_code=403, detail=_NOT_YOUR_BOAT)
+    now = datetime.now(timezone.utc)
+    active = await db.trip_shares.count_documents(
+        {"user_id": user["user_id"], "revoked": False, "expires_at": {"$gt": now}})
+    if active >= _trip_share.MAX_ACTIVE_PER_USER:
+        raise HTTPException(status_code=400, detail="Too many active trip links; stop one first")
+    doc = _trip_share.new_share(mmsi, user["user_id"], body.hours, body.destination_rm,
+                                entry.get("boat_name"), now=now)
+    await db.trip_shares.insert_one(dict(doc))
+    logger.info(f"[SHARE] {user['user_id']} shared {mmsi} for {body.hours} h")
+    return _trip_share.owner_view(doc)
+
+
+@api_router.get("/share")
+async def list_trip_shares(user: dict = Depends(require_user)):
+    """Your active trip links."""
+    now = datetime.now(timezone.utc)
+    cursor = db.trip_shares.find(
+        {"user_id": user["user_id"], "revoked": False, "expires_at": {"$gt": now}}, {"_id": 0},
+    ).sort("created_at", -1).limit(50)
+    shares = [_trip_share.owner_view(d) async for d in cursor if _trip_share.is_active(d, now)]
+    return {"shares": shares}
+
+
+@api_router.delete("/share/{token}")
+async def revoke_trip_share(token: str, user: dict = Depends(require_user)):
+    """Stop sharing: the link answers 404 from now on."""
+    res = await db.trip_shares.update_one(
+        {"token": str(token), "user_id": user["user_id"]}, {"$set": {"revoked": True}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Trip link not found")
+    _share_cache.pop(str(token), None)
+    return {"revoked": True}
+
+
+async def _shared_boat_view(doc: dict) -> dict:
+    mmsi = doc["mmsi"]
+    vessel = active_vessels.get(mmsi)
+    v_out, plan = None, None
+    if vessel is not None:
+        v_out = prepare_vessel_for_output(vessel, None)
+        if v_out.get("river_mile") is None and v_out.get("lat") is not None:
+            v_out["river_mile"] = estimate_river_mile(v_out.get("lat"), v_out.get("lon"))
+        dest = doc.get("destination_rm")
+        try:
+            # Internal call (request=None): ownership was checked when the
+            # link was created and is re-checked on every view.
+            plan = await get_session_trip_plan(mmsi, request=None, destination_rm=dest,
+                                               max_locks=15 if dest is not None else 1)
+        except Exception as e:
+            logger.warning(f"[SHARE] trip plan for a shared boat failed: {e}")
+            plan = None
+    locks = [(ld.get("name"), ld.get("river_mile")) for ld in LOCKS.values()]
+    return _trip_share.public_payload(doc.get("boat_name"), v_out, plan, locks,
+                                      destination_rm=doc.get("destination_rm"),
+                                      expires_at=doc.get("expires_at"))
+
+
+@api_router.get("/public/share/{token}")
+async def get_public_trip_share(token: str):
+    """PUBLIC: where a shared boat is and when it should arrive."""
+    token = str(token or "")
+    if not token or len(token) > 64:
+        raise HTTPException(status_code=404, detail=_SHARE_NOT_FOUND)
+    if not _share_rate.allow(token):
+        raise HTTPException(status_code=429, detail="Too many requests; try again in a minute",
+                            headers={"Retry-After": "60"})
+    doc = await db.trip_shares.find_one({"token": token}, {"_id": 0})
+    if not _trip_share.is_active(doc):
+        _share_cache.pop(token, None)
+        raise HTTPException(status_code=404, detail=_SHARE_NOT_FOUND)
+    # The boat must still be on the account that shared it.
+    owner = await db.users.find_one({"user_id": doc.get("user_id"), "vessels.mmsi": doc.get("mmsi")}, {"_id": 1})
+    if not owner:
+        raise HTTPException(status_code=404, detail=_SHARE_NOT_FOUND)
+    hit = _share_cache.get(token)
+    now_m = _time.monotonic()
+    if hit and now_m - hit[0] < _SHARE_CACHE_S:
+        return hit[1]
+    payload = await _shared_boat_view(doc)
+    if len(_share_cache) > 2000:
+        _share_cache.clear()
+    _share_cache[token] = (now_m, payload)
+    return payload
+
+
 @api_router.post("/debug/inject-nmea", dependencies=[Depends(require_admin)])
 async def inject_test_nmea(request: Request):
     """

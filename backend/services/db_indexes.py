@@ -67,6 +67,10 @@ INDEXES = [
     # Live wait predictions, scored for the public accuracy page.
     ("wait_predictions", [("lock_id", ASC), ("key", ASC), ("arrived_at", ASC)], {"unique": True}),
     ("wait_predictions", [("arrived_at", ASC)], {"expireAfterSeconds": 180 * 24 * 3600}),
+    # "Share my trip" links: looked up by token; MongoDB deletes them once expired.
+    ("trip_shares", [("token", ASC)], {"unique": True}),
+    ("trip_shares", [("expires_at", ASC)], {"expireAfterSeconds": 0}),
+    ("trip_shares", [("user_id", ASC), ("created_at", DESC)], {}),
 ]
 
 # For unique indexes: which field decides the "newest" document to keep.

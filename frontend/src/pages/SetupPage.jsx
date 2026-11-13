@@ -8,7 +8,9 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 
 import { API } from "@/lib/api";
+import FirstRunWizard from "@/components/FirstRunWizard";
 import useLocks from "@/hooks/useLocks";
+import { mmsiLabel } from "../lib/boatId";
 
 // Default connection settings - can be edited in advanced settings.
 // The relay (ais-relay:5353 inside the docker network) is the canonical
@@ -38,6 +40,7 @@ export default function SetupPage({ onConnect }) {
   const [ipAddress, setIpAddress] = useState(DEFAULT_IP);
   const [port, setPort] = useState(DEFAULT_PORT);
   const [existingSession, setExistingSession] = useState(null);
+  const [legacySetup, setLegacySetup] = useState(false); // own AIS receiver: IP/port form
   
   // Traffic watch state
   const [watchPointRM, setWatchPointRM] = useState("");
@@ -186,6 +189,23 @@ export default function SetupPage({ onConnect }) {
   };
 
   // Handle vessel owner connect
+  // First-run wizard done: same hand-off as the MMSI form.
+  const finishWizard = async ({ user_mmsi, boat_name }) => {
+    localStorage.setItem('riverwatch_mmsi', user_mmsi);
+    try {
+      await fetch(`${API}/user/${user_mmsi}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          boat_name,
+          connection_config: { ip_address: ipAddress, port: parseInt(port), user_mmsi },
+        }),
+      });
+    } catch (error) {
+      console.error("Failed to save session:", error);
+    }
+    onConnect({ ip_address: ipAddress, port: parseInt(port), user_mmsi, boat_name, account_type: "vessel_owner" });
+  };
   const handleVesselConnect = async () => {
     if (!userMmsi) {
       toast.error("Please enter your vessel's MMSI");
@@ -418,11 +438,11 @@ export default function SetupPage({ onConnect }) {
             <div className="mx-auto w-16 h-16 rounded-full bg-cyan-500/10 flex items-center justify-center mb-4">
               <Ship className="w-8 h-8 text-cyan-400" />
             </div>
-            <CardTitle className="text-2xl text-white">Vessel Setup</CardTitle>
+            <CardTitle className="text-2xl text-white">Set up your boat</CardTitle>
             <CardDescription className="text-slate-400">
               {existingSession 
                 ? "Welcome back! Continue with your vessel or change below."
-                : "Enter your vessel's MMSI to get started"
+                : "Three quick steps and you'll see the best time to leave"
               }
             </CardDescription>
           </CardHeader>
@@ -450,7 +470,7 @@ export default function SetupPage({ onConnect }) {
                 <div className="space-y-1 mb-4">
                   <div className="flex items-center gap-2">
                     <Ship className="w-4 h-4 text-cyan-400" />
-                    <span className="text-white font-mono">{existingSession.mmsi}</span>
+                    <span className="text-white font-mono">{mmsiLabel(existingSession.mmsi)}</span>
                     {existingSession.boatName && (
                       <span className="text-slate-400">• {existingSession.boatName}</span>
                     )}
@@ -467,7 +487,12 @@ export default function SetupPage({ onConnect }) {
               </div>
             )}
             
-            {/* New/Edit Vessel Form */}
+            {!existingSession && !legacySetup && (
+              <FirstRunWizard onDone={finishWizard} onBack={() => { setAccountType(null); setStep("choose"); }} onAdvanced={() => setLegacySetup(true)} />
+            )}
+
+            {/* New/Edit Vessel Form (returning boaters, or own AIS receiver) */}
+            {(existingSession || legacySetup) && (
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="mmsi" className="text-slate-300">Vessel MMSI</Label>
@@ -550,6 +575,7 @@ export default function SetupPage({ onConnect }) {
                 ← Back to options
               </Button>
             </div>
+            )}
           </CardContent>
         </Card>
       )}

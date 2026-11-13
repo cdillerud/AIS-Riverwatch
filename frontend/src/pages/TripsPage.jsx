@@ -46,6 +46,7 @@ import {
 } from "lucide-react";
 
 import { API } from "@/lib/api";
+import SeasonLog from "@/components/SeasonLog";
 
 const HEADING_OPTIONS = [
   { value: "northbound", label: "Upbound (↑ UB, RM increases)" },
@@ -215,6 +216,8 @@ export default function TripsPage() {
             New Trip
           </Button>
         </div>
+
+        <SeasonLog />
 
         {/* Body */}
         {loading && (

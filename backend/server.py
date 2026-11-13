@@ -65,6 +65,7 @@ from services import calibration as _calibration
 from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
 from services import wait_log as _wait_log
+from services import season_log as _season_log
 from services import user_settings as _user_settings
 from services import live_ais as _live_ais
 from services import api_access as _api_access
@@ -159,6 +160,7 @@ async def persist_vessel_sighting(vessel_data: dict):
     # Simulated demo boats never go into real vessel history / statistics
     if _is_demo_vessel(vessel_data, str(mmsi)):
         return
+    asyncio.create_task(_record_track_point(vessel_data))
     
     # Build the sighting record
     sighting = {
@@ -5933,6 +5935,64 @@ async def accuracy(days: int = 30):
     }
     _accuracy_cache[days] = (now, out)
     return out
+
+# --- Season log: a light track of users' own boats (services/season_log.py) -----
+_owned_mmsis: tuple = (None, set())
+_track_last: Dict[str, tuple] = {}
+
+
+async def _owned_mmsi_set() -> set:
+    global _owned_mmsis
+    now = datetime.now(timezone.utc)
+    at, owned = _owned_mmsis
+    if at is None or now - at > timedelta(minutes=5):
+        owned = set(str(m) for m in await db.users.distinct("vessels.mmsi") if m)
+        _owned_mmsis = (now, owned)
+    return owned
+
+
+async def _record_track_point(v: dict) -> None:
+    """One point per ~0.25 river mile (or 30 min) for boats on an account.
+    Simulated and parked-at-home positions are skipped."""
+    try:
+        mmsi = str(v.get("mmsi") or "")
+        rm = v.get("river_mile")
+        if not mmsi or rm is None or v.get("is_simulated") or v.get("parked"):
+            return
+        if mmsi in user_vessel_simulation and user_vessel_simulation[mmsi].get("enabled"):
+            return
+        if mmsi not in await _owned_mmsi_set():
+            return
+        now = datetime.now(timezone.utc)
+        if not _season_log.due(_track_last.get(mmsi), float(rm), now):
+            return
+        _track_last[mmsi] = (now, float(rm))
+        await db.boat_tracks.insert_one({"mmsi": mmsi, "t": now, "rm": float(rm), "lat": v.get("lat"),
+                                         "lon": v.get("lon"), "speed": v.get("speed")})
+    except Exception as e:
+        logger.debug(f"[TRACK] could not record: {e}")
+
+
+@api_router.get("/me/season")
+async def my_season(request: Request, year: Optional[int] = None):
+    """Season log for each boat on the signed-in account."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    year = year or _traffic_report.to_central(datetime.now(timezone.utc)).year
+    start = datetime(year, 1, 1, 6, tzinfo=timezone.utc)
+    end = datetime(year + 1, 1, 1, 6, tzinfo=timezone.utc)
+    locks = [(lid, info["river_mile"], info.get("name", lid)) for lid, info in LOCKS.items()]
+    boats = []
+    for v in (user.get("vessels") or []):
+        mmsi = str(v.get("mmsi") or "")
+        if not mmsi:
+            continue
+        pts = await db.boat_tracks.find({"mmsi": mmsi, "t": {"$gte": start, "$lt": end}},
+                                        {"_id": 0, "t": 1, "rm": 1}).sort("t", 1).to_list(None)
+        summary = await asyncio.to_thread(_season_log.summarize, pts, locks)
+        boats.append({"mmsi": mmsi, "boat_name": v.get("boat_name"), **summary})
+    return {"year": year, "boats": boats}
 
 # --- AIS feed health: uptime history and outage alerts ------------------------
 _feed_samples: "deque" = deque()

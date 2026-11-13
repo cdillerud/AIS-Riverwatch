@@ -20,6 +20,8 @@ import {
 
 import { API } from "@/lib/api";
 import useLocks from "@/hooks/useLocks";
+import StopsAhead from "@/components/StopsAhead";
+import { anchorsFromLegs } from "@/lib/stops";
 import { isDark, sunsetOn, positionAtRm } from "@/lib/sun";
 
 const STATUS_META = {
@@ -265,6 +267,10 @@ export default function TripPlanPanel({ userMmsi, maxLocks = 5, bufferMinutes = 
                 <span className="font-mono text-white">{plan.user_speed_mph?.toFixed?.(1) ?? "--"} mph</span>
               </span>
             </div>
+            {(plan.heading === "northbound" || plan.heading === "southbound") && plan.user_speed_mph > 1 && (
+              <StopsAhead fromRm={plan.user_rm} direction={plan.heading === "northbound" ? "upbound" : "downbound"}
+                          mph={plan.user_speed_mph} anchors={anchorsFromLegs(legs)} locks={allLocks} />
+            )}
 
             {stoppedWithRoute && (
               <div className="text-xs text-slate-400 px-1" data-testid="trip-plan-stopped-note">

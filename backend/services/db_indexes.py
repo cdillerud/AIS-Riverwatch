@@ -62,6 +62,8 @@ INDEXES = [
     ("report_sends", [("sent_at", ASC)], {"expireAfterSeconds": 120 * 24 * 3600}),
     ("arrival_calibration", [("ran_at", DESC)], {}),
     ("lock_status", [("lock_id", ASC)], {}),
+    # AIS feed up/down, one sample a minute (feed health / uptime).
+    ("feed_samples", [("t", ASC)], {"expireAfterSeconds": 35 * 24 * 3600}),
 ]
 
 # For unique indexes: which field decides the "newest" document to keep.

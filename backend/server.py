@@ -34,6 +34,8 @@ import os
 import logging
 import asyncio
 import socket
+from collections import deque
+from email.message import EmailMessage
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional, Dict
@@ -5833,6 +5835,102 @@ def _usace_fetched_by_lock() -> Dict[str, datetime]:
     return {usace_lock_id(n): t for n, t in usace_lock_fetched_at.items()}
 
 
+# --- AIS feed health: uptime history and outage alerts ------------------------
+_feed_samples: "deque" = deque()
+_feed_uptime: dict = {}
+_feed_alerted = False
+_feed_last_ok: Optional[datetime] = None  # last minute the feed was up (persisted)
+_feed_alerted_from: Optional[datetime] = None
+
+
+def _feed_summary(samples, now: datetime) -> dict:
+    out = _health.uptime_summary(samples, now)
+    if out["down_since"] and _feed_last_ok and _feed_last_ok.isoformat() < out["down_since"]:
+        out["down_since"] = _feed_last_ok.isoformat()  # outage began before this run of samples
+    return out
+
+
+def _feed_alert_message(kind: str, down_from: datetime, now: datetime, to: str) -> EmailMessage:
+    start = _traffic_report.to_central(down_from).strftime("%b %d %I:%M %p").replace(" 0", " ")
+    msg = EmailMessage()
+    msg["From"] = _report_mailer.sender()
+    msg["To"] = to
+    if kind == "down":
+        msg["Subject"] = f"River Watch: live AIS feed down since {start} CT"
+        body = ("The live AIS feed has sent nothing since " + start + " Central. Tow positions "
+                "are not updating; lock queues and waits from USACE are unaffected.\n\n"
+                "Check that the Boat Beacon device is on, on Wi-Fi, and not asleep.")
+    else:
+        mins = int((now - down_from).total_seconds() // 60)
+        msg["Subject"] = f"River Watch: live AIS feed back after {mins} min"
+        body = f"The live AIS feed is sending again (down from {start} Central, about {mins} minutes)."
+    url = _report_mailer.app_url()
+    msg.set_content(body + (f"\n\n{url}" if url else ""))
+    return msg
+
+
+async def _send_feed_alert(kind: str, down_from: datetime, now: datetime) -> None:
+    logger.warning(f"[FEED] live AIS feed {'down since ' + down_from.isoformat() if kind == 'down' else 'back up'}")
+    if not _report_mailer.configured():
+        return
+    admins = await db.users.find({"$or": [{"is_admin": True}, {"is_super_admin": True}],
+                                  "email": {"$nin": [None, ""]}}, {"_id": 0, "email": 1}).to_list(50)
+    for a in admins:
+        try:
+            await asyncio.to_thread(_report_mailer.send, _feed_alert_message(kind, down_from, now, a["email"]))
+        except Exception as e:
+            logger.error(f"[FEED] alert email failed: {e}")
+
+
+async def feed_monitor_task():
+    """One up/down sample a minute while a feed is configured: uptime for the
+    health check and the app's banner, plus an email to admins when an outage
+    passes 15 minutes and when it ends (only if SMTP is set up)."""
+    global _feed_alerted, _feed_uptime, _feed_last_ok, _feed_alerted_from
+    now = datetime.now(timezone.utc)
+    try:
+        rows = await db.feed_samples.find({"t": {"$gte": now - timedelta(days=7)}}, {"_id": 0}) \
+            .sort("t", 1).to_list(None)
+        _feed_samples.extend((r["t"].replace(tzinfo=timezone.utc) if r["t"].tzinfo is None else r["t"], r["ok"])
+                             for r in rows)
+        state = await db.feed_state.find_one({"_id": "ais"}) or {}
+        if state.get("last_ok"):
+            t = state["last_ok"]
+            _feed_last_ok = t.replace(tzinfo=timezone.utc) if t.tzinfo is None else t
+        _feed_uptime = _feed_summary(list(_feed_samples), now)
+    except Exception as e:
+        logger.warning(f"[FEED] could not load uptime history: {e}")
+    while True:
+        try:
+            await asyncio.sleep(_health.SAMPLE_SECONDS)
+            now = datetime.now(timezone.utc)
+            if ais_manager.config is None:
+                continue
+            ok = _health.ais_summary(True, ais_manager.is_connected, ais_manager._last_data_time,
+                                     now)["status"] == "ok"
+            _feed_samples.append((now, ok))
+            while _feed_samples and _feed_samples[0][0] < now - timedelta(days=7):
+                _feed_samples.popleft()
+            await db.feed_samples.insert_one({"t": now, "ok": ok})
+            if ok:
+                _feed_last_ok = now
+                await db.feed_state.update_one({"_id": "ais"}, {"$set": {"last_ok": now}}, upsert=True)
+            samples = list(_feed_samples)
+            _feed_uptime = _feed_summary(samples, now)
+            down_from = datetime.fromisoformat(_feed_uptime["down_since"]) if _feed_uptime["down_since"] else None
+            kind = _health.alert_due(down_from, _feed_alerted, now)
+            if kind == "down":
+                _feed_alerted, _feed_alerted_from = True, down_from
+                await _send_feed_alert("down", down_from, now)
+            elif kind == "up":
+                _feed_alerted = False
+                await _send_feed_alert("up", _feed_alerted_from or now, now)
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.error(f"[FEED] monitor failed: {e}")
+
+
 @api_router.get("/health")
 async def health(response: Response):
     """Public health check for uptime monitors: database reachable, USACE data
@@ -5851,7 +5949,7 @@ async def health(response: Response):
     if status == "down":
         response.status_code = 503
     return {"status": status, "time": now.isoformat(), "database": "ok" if database_ok else "down",
-            "usace": usace, "ais_feed": ais}
+            "usace": usace, "ais_feed": {**ais, **_feed_uptime}}
 
 
 @api_router.get("/locks/status")
@@ -8960,6 +9058,7 @@ async def startup_event():
     await load_adopted_arrival_factor()
     asyncio.create_task(arrival_learning_task())
     asyncio.create_task(daily_report_task())
+    asyncio.create_task(feed_monitor_task())
 
     restored = await load_usace_queue_snapshot()
     if restored:

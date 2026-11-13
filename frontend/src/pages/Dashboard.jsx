@@ -34,6 +34,7 @@ import LockDetailModal from "@/components/LockDetailModal";
 import RawDataPanel from "@/components/RawDataPanel";
 import Speedometer from "@/components/Speedometer";
 import TripPlanPanel from "@/components/TripPlanPanel";
+import FeedBanner from "@/components/FeedBanner";
 import { getVesselDisplayName, hasRiverMile, formatRiverMile, formatSpeedMph, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, lockShortLabel } from "@/utils/vesselDisplay";
 import { useAuth } from "@/context/AuthContext";
 
@@ -1215,6 +1216,7 @@ export default function Dashboard({
           </div>
         </div>
       </header>
+      <FeedBanner />
 
       {/* HUD Bar - Aligned left under logo */}
       <div className="hidden md:block bg-slate-900/30 border-b border-white/5">

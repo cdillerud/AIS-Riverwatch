@@ -127,6 +127,13 @@ export function AuthProvider({ children }) {
       localStorage.removeItem('riverwatch_mmsi');
       localStorage.removeItem('riverwatch_connection');
       console.log('[AUTH] Cleared localStorage on logout');
+      // Offline copies of lock boards (service worker, sw.js) carry the boat's
+      // MMSI in their URLs: drop them with the session.
+      try {
+        if (typeof caches !== 'undefined') {
+          caches.keys().then((ks) => ks.filter((k) => k.endsWith('-api')).forEach((k) => caches.delete(k))).catch(() => {});
+        }
+      } catch (e) { /* no Cache API */ }
       setUser(null);
     }
   };

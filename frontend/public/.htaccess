@@ -1,0 +1,27 @@
+# Used only when the built frontend is served by Apache/LiteSpeed static
+# hosting (e.g. Hostinger web hosting). The Docker deploy uses nginx + Caddy.
+
+# Single-page app: unknown paths (/accuracy, /s/abc...) load index.html.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_URI} !^/api/
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# Built JS/CSS have content hashes in their names: cache for a year.
+# index.html, sw.js and manifest.json must always be re-checked.
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css|woff2?)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "\.(png|ico|svg|webp)$">
+    Header set Cache-Control "public, max-age=604800"
+  </FilesMatch>
+  <FilesMatch "^(index\.html|sw\.js|manifest\.json)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>

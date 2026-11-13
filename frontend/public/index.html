@@ -13,17 +13,67 @@
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="River Watch" />
         <script>/* apply a saved Sunlight / Night theme before first paint (Auto is applied by the app) */try{var t=localStorage.getItem("rw-theme");if(t==="sun"||t==="night")document.documentElement.dataset.theme=t;}catch(e){}</script>
-        <meta name="description" content="River Watch - AIS vessel tracking and lock arrival planning for the Upper Mississippi River (Locks 1-27). Not for navigation." />
 
-        <!-- Fonts: Rajdhani (Headings), Manrope (Body), JetBrains Mono (Data) -->
+        <title>River Watch AIS | Upper Mississippi Lock Wait Times &amp; Tow Traffic</title>
+        <meta name="description" content="River Watch AIS predicts lock wait times and shows commercial tow traffic for recreational boaters on the Upper Mississippi River (Locks 1-27, Minneapolis to St. Louis), using live AIS and US Army Corps of Engineers lock data." />
+        <link rel="canonical" href="https://riverwatchais.com/" />
+
+        <!-- Link previews (iMessage, Facebook, Slack) and AI tools that read them -->
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="River Watch AIS" />
+        <meta property="og:url" content="https://riverwatchais.com/" />
+        <meta property="og:title" content="River Watch AIS - Upper Mississippi lock wait times and tow traffic" />
+        <meta property="og:description" content="Know how long you'll wait at each lock and which tows are headed your way. For recreational boaters on the Upper Mississippi, Locks 1-27." />
+        <meta property="og:image" content="https://riverwatchais.com/icon-512.png" />
+        <meta name="twitter:card" content="summary" />
+
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "WebApplication",
+          "name": "River Watch AIS",
+          "url": "https://riverwatchais.com/",
+          "applicationCategory": "TravelApplication",
+          "operatingSystem": "Any (web browser; installable on iPhone and Android)",
+          "description": "Lock wait time predictions and live commercial tow traffic for recreational boaters on the Upper Mississippi River, Locks 1-27 from Minneapolis to St. Louis. Combines live AIS vessel positions with US Army Corps of Engineers lockage data. Not for navigation.",
+          "areaServed": { "@type": "Place", "name": "Upper Mississippi River, Minneapolis MN to St. Louis MO" },
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "featureList": [
+            "Predicted wait time at each lock",
+            "Best time to leave, with arrival before dark",
+            "Commercial tows approaching each lock",
+            "Lock status, closures and restrictions",
+            "Marinas and fuel stops ahead with arrival times",
+            "Share your trip with family"
+          ]
+        }
+        </script>
+
+        <!-- Fonts: Rajdhani (Headings), Manrope (Body), JetBrains Mono (Data).
+             Loaded without blocking first paint; display=swap keeps text visible meanwhile. -->
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-
-        <title>River Watch | Upper Mississippi Vessel Tracking</title>
+        <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap"></noscript>
     </head>
     <body>
-        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <noscript>
+            <!-- Plain description for visitors and crawlers that don't run JavaScript -->
+            <main style="max-width:40rem;margin:2rem auto;padding:0 1rem;font-family:sans-serif;color:#e2e8f0;background:#020617">
+                <h1>River Watch AIS</h1>
+                <p>Lock wait times and commercial tow traffic for recreational boaters on the Upper Mississippi River, Locks 1-27 from Minneapolis to St. Louis.</p>
+                <ul>
+                    <li>Predicted wait at each lock, from US Army Corps of Engineers lockage data</li>
+                    <li>Tows approaching each lock, from live AIS vessel positions</li>
+                    <li>The best time to leave, and whether you'll arrive before dark</li>
+                    <li>Lock closures and restrictions</li>
+                    <li>Marinas and fuel ahead, with arrival times including lock waits</li>
+                </ul>
+                <p>Free. Works in any phone browser and can be added to the home screen. Not for navigation.</p>
+                <p><a href="/accuracy" style="color:#22d3ee">How accurate are the wait estimates?</a></p>
+                <p>River Watch needs JavaScript turned on.</p>
+            </main>
+        </noscript>
         <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="rw-night-red" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.36 0.7 0.12 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter></svg>
         <div id="root"></div>
     </body>

@@ -9031,6 +9031,267 @@ async def get_public_trip_share(token: str):
     return payload
 
 
+# =============================================================================
+# Web Push alerts: tow approaching / lock ahead busy or clearing / good time to
+# leave, delivered while River Watch is closed. Same rules as the on-device
+# alerts (frontend/src/lib/alerts.js), server side in services/push_rules.py.
+#   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (mailto: or https URL);
+#   unset = off (GET /api/push/key says so). Keys: scripts/make_vapid_keys.py.
+# One push_subscriptions doc per browser (endpoint): the boat (must be on the
+# account), the alert prefs from the header bell, rule state and a last-sent
+# log (30 min dedupe that survives restarts). The app reports when it is on
+# screen (POST /api/push/presence); for 2 minutes after that the server skips
+# the push because the open app already showed the alert as a toast.
+# =============================================================================
+from services import push_rules as _push_rules  # noqa: E402
+
+try:  # optional at import time: tests and old installs run without it
+    from pywebpush import webpush as _webpush, WebPushException as _WebPushException  # noqa: E402
+except ImportError:  # pragma: no cover
+    _webpush = None
+
+    class _WebPushException(Exception):
+        pass
+
+PUSH_TICK_SECONDS = 60
+PUSH_TTL_SECONDS = 15 * 60          # an alert older than this isn't worth delivering
+PUSH_MAX_PER_USER = 10              # browsers / phones per account
+_PUSH_OFF = "Alerts with the app closed are not set up on this server"
+
+
+def _vapid_config() -> Optional[dict]:
+    pub = os.environ.get("VAPID_PUBLIC_KEY", "").strip()
+    priv = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+    subject = os.environ.get("VAPID_SUBJECT", "").strip()
+    if _webpush is None or not (pub and priv and subject) or not subject.startswith(("mailto:", "https://")):
+        return None
+    return {"public": pub, "private": priv, "subject": subject}
+
+
+class PushSubscribeBody(BaseModel):
+    subscription: dict
+    mmsi: str
+    prefs: Optional[dict] = None
+
+
+class PushEndpointBody(BaseModel):
+    endpoint: str
+    visible: Optional[bool] = None
+
+
+@api_router.get("/push/key")
+async def push_key():
+    """VAPID public key for PushManager.subscribe; enabled=false when unset."""
+    cfg = _vapid_config()
+    return {"enabled": bool(cfg), "public_key": cfg["public"] if cfg else None}
+
+
+@api_router.post("/push/subscribe")
+async def push_subscribe(body: PushSubscribeBody, user: dict = Depends(require_user)):
+    """Save (or update) this browser's push subscription for one of your boats."""
+    if not _vapid_config():
+        return {"ok": False, "enabled": False, "detail": _PUSH_OFF}
+    mmsi = str(body.mmsi or "").strip()
+    if not mmsi or _own_boat_entry(user, mmsi) is None:
+        raise HTTPException(status_code=403, detail=_NOT_YOUR_BOAT)
+    sub = body.subscription
+    if not _push_rules.valid_subscription(sub):
+        raise HTTPException(status_code=400, detail="Not a valid push subscription")
+    endpoint = sub["endpoint"]
+    others = await db.push_subscriptions.count_documents({"user_id": user["user_id"], "endpoint": {"$ne": endpoint}})
+    if others >= PUSH_MAX_PER_USER:
+        raise HTTPException(status_code=400, detail="Too many devices with alerts on; turn alerts off on one first")
+    prefs = _push_rules.normalize_prefs(body.prefs)
+    now = datetime.now(timezone.utc)
+    existing = await db.push_subscriptions.find_one({"endpoint": endpoint}, {"_id": 0})
+    fields = {"user_id": user["user_id"], "mmsi": mmsi, "prefs": prefs, "updated_at": now,
+              "keys": {"p256dh": sub["keys"]["p256dh"], "auth": sub["keys"]["auth"]}}
+    if existing is None or existing.get("user_id") != user["user_id"] or existing.get("mmsi") != mmsi:
+        fields.update(state={}, last_sent={}, visible_at=now)   # subscribing happens in the open app
+    elif existing.get("prefs") != prefs:
+        fields["state"] = {}       # new thresholds: start over, like the open app does
+    await db.push_subscriptions.update_one(
+        {"endpoint": endpoint}, {"$set": fields, "$setOnInsert": {"endpoint": endpoint, "created_at": now}}, upsert=True)
+    return {"ok": True, "enabled": True}
+
+
+@api_router.delete("/push/subscribe")
+async def push_unsubscribe(body: PushEndpointBody, user: dict = Depends(require_user)):
+    """Stop alerts to this browser (alerts turned off, or signing out)."""
+    res = await db.push_subscriptions.delete_one({"endpoint": body.endpoint, "user_id": user["user_id"]})
+    return {"ok": True, "removed": getattr(res, "deleted_count", 0)}
+
+
+@api_router.post("/push/presence")
+async def push_presence(body: PushEndpointBody, user: dict = Depends(require_user)):
+    """The app is on screen (visible=true) or was hidden: while it's on screen
+    its own toasts show the alerts, so the server doesn't push them too."""
+    when = datetime.now(timezone.utc) if body.visible else None
+    await db.push_subscriptions.update_one({"endpoint": body.endpoint, "user_id": user["user_id"]},
+                                           {"$set": {"visible_at": when}})
+    return {"ok": True}
+
+
+async def _push_send(sub: dict, alert: dict, cfg: dict) -> str:
+    """'sent' | 'gone' (404/410: subscription expired) | 'error'."""
+    info = {"endpoint": sub["endpoint"], "keys": sub.get("keys") or {}}
+    try:
+        await asyncio.to_thread(
+            _webpush, subscription_info=info,
+            data=json.dumps(_push_rules.payload(alert, _push_rules.normalize_prefs(sub.get("prefs"))["sound"])),
+            vapid_private_key=cfg["private"], vapid_claims={"sub": cfg["subject"]},
+            ttl=PUSH_TTL_SECONDS, timeout=10, headers={"Urgency": "high"})
+        return "sent"
+    except _WebPushException as e:
+        code = getattr(getattr(e, "response", None), "status_code", None)
+        if code in (404, 410):
+            return "gone"
+        logger.warning(f"[PUSH] send failed (HTTP {code})")
+        return "error"
+    except Exception as e:
+        logger.warning(f"[PUSH] send failed: {type(e).__name__}")
+        return "error"
+
+
+def _push_traffic(now: datetime) -> List[dict]:
+    """Live commercial-traffic candidates: _live_positions (no account,
+    simulated or demo boats) plus tow flags / barges as the map shows them."""
+    out = []
+    for p in _live_positions(now):
+        raw = active_vessels.get(p["mmsi"])
+        try:
+            vd = prepare_vessel_for_output(raw) if raw is not None else {}
+        except Exception:
+            vd = {}
+        out.append({**p, "is_tow": vd.get("is_tow"), "barge_count": vd.get("barge_count"),
+                    "ship_type": p.get("ship_type") or vd.get("ship_type")})
+    return out
+
+
+async def _push_evaluate(sub: dict, me: dict, now: datetime, ctx: dict) -> tuple:
+    """Run the rules for one subscription -> (alerts, new state)."""
+    prefs = _push_rules.normalize_prefs(sub.get("prefs"))
+    state = dict(sub.get("state") or {})
+    alerts: List[dict] = []
+    if prefs["tow"]:
+        if ctx.get("traffic") is None:
+            ctx["traffic"] = _push_traffic(now)
+        found, refs = _push_rules.tow_alerts(me, ctx["traffic"], prefs["towMiles"], state.get("tow_refs"), now)
+        state["tow_refs"] = refs
+        alerts += found
+    else:
+        state.pop("tow_refs", None)
+
+    stopped = _push_rules.is_stopped(me)
+    rm = float(me["river_mile"])
+    if prefs["lock"]:
+        direction = _push_rules.direction_of(me) or (prefs["direction"] if stopped else None)
+        if direction:
+            boards = ctx.setdefault("boards", {})
+            if direction not in boards:   # one board per direction per tick, shared by all boats
+                boards[direction] = (await get_lock_board(direction=direction)).get("locks") or []
+            ahead = _lock_board.locks_in_view(boards[direction], round(rm * 2) / 2, direction, "ahead")
+            found, st = _push_rules.lock_alert(ahead[0] if ahead else None, state.get("lock"),
+                                               prefs["lockWaitMinutes"], _push_rules.user_is_tow(me))
+            state["lock"] = st
+            if found:
+                alerts.append(found)
+    else:
+        state.pop("lock", None)
+
+    if prefs["depart"] and stopped:
+        dep = state.get("depart") or {}
+        checked = _push_rules.parse_time(dep.get("checked_at"))
+        if checked is None or (now - checked).total_seconds() >= _push_rules.DEPART_EVERY_SECONDS - 5:
+            plan = f"{prefs['direction']}|{prefs['mph']}"
+            data = await get_departure_options(sub["mmsi"], prefs["direction"], request=None,
+                                               cruise_mph=prefs["mph"], max_locks=5)
+            prev = dep.get("nowBest") if dep.get("plan") == plan else None
+            found, now_best = _push_rules.depart_alert(data, prev)
+            state["depart"] = {"plan": plan, "nowBest": now_best, "checked_at": now.isoformat()}
+            if found:
+                alerts.append(found)
+    else:
+        state.pop("depart", None)   # under way: the next stop starts over
+    return alerts, state
+
+
+async def push_alerts_tick(now: Optional[datetime] = None) -> dict:
+    """One pass over every subscription whose boat has a fresh position."""
+    cfg = _vapid_config()
+    stats = {"checked": 0, "sent": 0, "removed": 0}
+    if not cfg:
+        return stats
+    now = now or datetime.now(timezone.utc)
+    subs = await db.push_subscriptions.find({}, {"_id": 0}).to_list(5000)
+    if not subs:
+        return stats
+    uids = list({s.get("user_id") for s in subs})
+    users = {u["user_id"]: u for u in await db.users.find(
+        {"user_id": {"$in": uids}}, {"_id": 0, "user_id": 1, "vessels": 1}).to_list(None)}
+    ctx: dict = {}
+    for sub in subs:
+        endpoint = sub.get("endpoint")
+        try:
+            user = users.get(sub.get("user_id"))
+            if not user or _own_boat_entry(user, sub.get("mmsi") or "") is None:
+                await db.push_subscriptions.delete_one({"endpoint": endpoint})   # boat left the account
+                stats["removed"] += 1
+                continue
+            raw = active_vessels.get(sub["mmsi"])
+            if raw is None:
+                continue
+            me = {**prepare_vessel_for_output(raw, sub["mmsi"]), "mmsi": sub["mmsi"]}
+            if not _push_rules.is_fresh(me, now) or not _push_rules.has_river_mile(me):
+                continue
+            stats["checked"] += 1
+            alerts, state = await _push_evaluate(sub, me, now, ctx)
+            fresh, log = _push_rules.dedupe(alerts, sub.get("last_sent"), now.timestamp())
+            gone = False
+            # App on screen: it showed these as toasts (dedupe still records them).
+            if not _push_rules.app_on_screen(sub.get("visible_at"), now):
+                for a in fresh:
+                    result = await _push_send(sub, a, cfg)
+                    if result == "gone":
+                        gone = True
+                        break
+                    if result == "sent":
+                        stats["sent"] += 1
+                    else:
+                        log.pop(a["key"], None)   # try again next tick
+            if gone:
+                await db.push_subscriptions.delete_one({"endpoint": endpoint})
+                stats["removed"] += 1
+                continue
+            if state != sub.get("state") or log != sub.get("last_sent"):
+                await db.push_subscriptions.update_one({"endpoint": endpoint},
+                                                       {"$set": {"state": state, "last_sent": log}})
+        except Exception as e:
+            logger.warning(f"[PUSH] subscription check failed: {type(e).__name__}: {e}")
+    return stats
+
+
+async def push_alerts_task():
+    if not _vapid_config():
+        logger.info("Web Push alerts off (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT not set)")
+        return
+    while True:
+        try:
+            await asyncio.sleep(PUSH_TICK_SECONDS)
+            stats = await push_alerts_tick()
+            if stats["sent"] or stats["removed"]:
+                logger.info(f"[PUSH] {stats}")
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.error(f"Push alerts task failed: {e}")
+
+
+@app.on_event("startup")
+async def _start_push_alerts():
+    asyncio.create_task(push_alerts_task())
+
+
 @api_router.post("/debug/inject-nmea", dependencies=[Depends(require_admin)])
 async def inject_test_nmea(request: Request):
     """

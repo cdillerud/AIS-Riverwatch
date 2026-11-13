@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { saveAlertSettings, TOW_MILE_CHOICES, LOCK_WAIT_CHOICES } from "@/lib/alerts";
 import { useAlertSettings } from "@/hooks/useRiverAlerts";
+import { usePushStatus } from "@/hooks/usePushAlerts";
+import { pushStatusText, requestPushResync } from "@/lib/push";
 import {
   notificationPermission, requestNotificationPermission, showSystemNotification,
 } from "@/lib/alertNotify";
@@ -20,6 +22,7 @@ const selectCls = "bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text
 // Header bell: alerts for this phone (saved on this device only).
 export default function AlertsPicker({ className = "" }) {
   const settings = useAlertSettings();
+  const pushStatus = usePushStatus();
   const [perm, setPerm] = useState(notificationPermission);
   const [open, setOpen] = useState(false);
   useEffect(() => { if (open) setPerm(notificationPermission()); }, [open]);
@@ -29,7 +32,10 @@ export default function AlertsPicker({ className = "" }) {
   const toggleEnabled = async () => {
     if (settings.enabled) { update({ enabled: false }); return; }
     update({ enabled: true });
-    if (notificationPermission() === "default") setPerm(await requestNotificationPermission());
+    if (notificationPermission() === "default") {
+      setPerm(await requestNotificationPermission());
+      requestPushResync();   // permission granted: sign up for alerts with the app closed
+    }
   };
 
   const test = async () => {
@@ -71,7 +77,7 @@ export default function AlertsPicker({ className = "" }) {
             {PERMISSION_TEXT[perm]}
             {perm === "default" && (
               <button type="button" className="ml-1 underline text-amber-200"
-                onClick={async () => setPerm(await requestNotificationPermission())}>
+                onClick={async () => { setPerm(await requestNotificationPermission()); requestPushResync(); }}>
                 Allow now
               </button>
             )}
@@ -105,7 +111,14 @@ export default function AlertsPicker({ className = "" }) {
         </div>
 
         <div className="border-t border-slate-800 pt-2 text-[11px] text-slate-500 space-y-1">
-          <p>Checked while River Watch is open or in the background. Nothing arrives once the app is closed. The same alert won't repeat within 30 minutes.</p>
+          {settings.enabled ? (
+            <p className={pushStatus === "active" ? "text-cyan-300" : ""} data-testid="alerts-push-status">
+              {pushStatusText(pushStatus)}
+            </p>
+          ) : (
+            <p>Alerts arrive while River Watch is open, and also when it's closed if this phone and server support it.</p>
+          )}
+          <p>The same alert won't repeat within 30 minutes.</p>
           {settings.enabled && (
             <button type="button" onClick={test} className="text-cyan-400 hover:text-cyan-300" data-testid="alerts-test">
               Send a test alert

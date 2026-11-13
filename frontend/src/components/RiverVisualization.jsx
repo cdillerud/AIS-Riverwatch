@@ -8,6 +8,7 @@ import { getVesselDisplayName, getVesselShortName, hasRiverMile, formatRiverMile
 import { API } from "@/lib/api";
 import LockageRow from "@/components/LockageRow";
 import { inLockInfo, queueEntryInLock } from "@/lib/inLock";
+import { mmsiLabel } from "../lib/boatId";
 
 // Default River Mile range for Upper Mississippi (Lock 1 to Chain of Rocks)
 const FULL_MIN_RM = 180;  // Chain of Rocks (RM 185) with buffer
@@ -163,7 +164,7 @@ const VesselInfoPanel = ({ vessel, userMmsi, showVesselNames, onClose, onUserVes
             <div className="space-y-1 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">MMSI</span>
-                <span className="font-mono text-white">{vessel.mmsi}</span>
+                <span className="font-mono text-white">{mmsiLabel(vessel.mmsi)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Type</span>

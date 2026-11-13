@@ -309,8 +309,13 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+APP_ID_PREFIX = "000"
+
+
 class VesselAdd(BaseModel):
-    mmsi: str
+    # Empty for a boat with no AIS / DSC radio: the server assigns an app ID
+    # (APP_ID_PREFIX + 6 digits; no real MMSI starts with 000).
+    mmsi: Optional[str] = None
     boat_name: str
     is_primary: bool = False
 
@@ -832,6 +837,21 @@ async def add_user_vessel(request: Request, vessel: VesselAdd):
     user = await get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    no_ais = not (vessel.mmsi or "").strip()
+    if no_ais:
+        if not (vessel.boat_name or "").strip():
+            raise HTTPException(status_code=400, detail="Give the boat a name")
+        for _ in range(20):
+            candidate = APP_ID_PREFIX + f"{secrets.randbelow(10**6):06d}"
+            if not await db.users.find_one({"vessels.mmsi": candidate}, {"_id": 1}):
+                vessel.mmsi = candidate
+                break
+        else:
+            raise HTTPException(status_code=503, detail="Couldn't assign a boat ID, try again")
+    else:
+        vessel.mmsi = vessel.mmsi.strip()
+        if vessel.mmsi.startswith(APP_ID_PREFIX):
+            raise HTTPException(status_code=400, detail="That isn't a valid MMSI")
     
     # Check if MMSI is already claimed by another user
     existing_claim = await db.users.find_one(
@@ -864,6 +884,7 @@ async def add_user_vessel(request: Request, vessel: VesselAdd):
         "mmsi": vessel.mmsi,
         "boat_name": vessel.boat_name,
         "is_primary": vessel.is_primary,
+        "no_ais": no_ais,
         "added_at": datetime.now(timezone.utc).isoformat()
     }
     

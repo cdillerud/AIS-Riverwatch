@@ -58,6 +58,7 @@ RIVERWATCH_UA = "RiverWatch/1.0 (Upper Mississippi lock planning)"
 OUTBOUND_HEADERS = {"User-Agent": RIVERWATCH_UA}
 from services import usace_lockages as _usace_lockages
 from services import lock_board as _lock_board
+from services import lock_limits as _lock_limits
 from services import transits as _transits
 from services import live_arrivals as _live_arrivals
 from services import trip_timeline as _trip_timeline
@@ -3868,27 +3869,17 @@ async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
                 response = await client.get(mvr_url, follow_redirects=True)
 
                 if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    for table in soup.find_all('table'):
-                        for row in table.find_all('tr'):
-                            cells = row.find_all(['td', 'th'])
-                            if len(cells) < 3:
-                                continue
-                            lock_id = match_lock_name(cells[0].get_text(" ", strip=True))
-                            if not lock_id:
-                                continue
-                            status_cell = cells[2].get_text(" ", strip=True)
-                            upper = status_cell.upper()
-                            if "CLOSED" in upper:
-                                lock_status_data[lock_id].status = "CLOSED"
-                                lock_status_data[lock_id].closure_info = status_cell
-                            elif "RESTRICT" in upper:
-                                lock_status_data[lock_id].status = "RESTRICTED"
-                                lock_status_data[lock_id].closure_info = status_cell
-                            elif "OPEN" in upper:
-                                lock_status_data[lock_id].status = "OPEN"
+                    # Ignored when not updated for 2 weeks (Nov 2026: "Updated
+                    # September 30"); aux-chamber rows never set the status.
+                    parsed = _lock_limits.parse_mvr_status(response.text, match_lock_name, datetime.now(timezone.utc))
+                    for lock_id, st in parsed.items():
+                        if lock_id not in lock_status_data:
+                            continue
+                        if st.get("status"):
+                            lock_status_data[lock_id].status = st["status"]
                             lock_status_data[lock_id].status_source = "district_page"
-                            logger.debug(f"USACE status for {lock_id}: {status_cell}")
+                        lock_status_data[lock_id].closure_info = st.get("closure_info")
+                        logger.debug(f"USACE status for {lock_id}: {st}")
             except Exception as e:
                 logger.warning(f"Could not fetch MVR lock status: {e}")
 
@@ -3897,6 +3888,15 @@ async def fetch_usace_lock_status() -> Dict[str, LockStatus]:
         # there recently - positive evidence the lock is operating. Never
         # assume OPEN without evidence.
         await _infer_status_from_recent_lockages(lock_status_data)
+
+        # USACE stoppages (NDC Corps Locks feed, every district) override the
+        # above: a lock under a traffic-stopping stoppage is CLOSED, an aux
+        # chamber or stall is RESTRICTED. Scheduled ones are planning notes.
+        for lock_id, eff in _lock_limits.current_stoppage_effects().items():
+            if lock_id in lock_status_data and eff.get("status"):
+                lock_status_data[lock_id].status = eff["status"]
+                lock_status_data[lock_id].status_source = "usace_stoppage"
+                lock_status_data[lock_id].closure_info = eff["closure_info"]
 
         # Update cache
         usace_cache["data"] = lock_status_data
@@ -6787,6 +6787,12 @@ async def get_water_conditions_for_lock(lock_id: str):
         },
         "flood_stages": official.get("thresholds") or {},
         "threshold_source": official.get("threshold_source"),
+        # River vs this lock's published closure limit (computed only when the
+        # reading is the same quantity on the district's own gauge/datum).
+        "closure_limits": _lock_limits.current_assessment(
+            lock_id,
+            district_restricted=getattr((usace_cache.get("data") or {}).get(lock_id), "status", None) == "RESTRICTED",
+        ),
     }
 
     # Only derive current_speed_mph from the OFFICIAL discharge. Never mix
@@ -7772,14 +7778,30 @@ async def _lock_notes() -> Dict[str, str]:
     if at and now - at < timedelta(seconds=60):
         return notes
     notes = {}
+    restricted = set()
     try:
         async for s in db.lock_status.find({}, {"_id": 0, "lock_id": 1, "status": 1, "closure_info": 1,
                                                  "status_source": 1}):
             info = s.get("closure_info")
+            if s.get("status") == "RESTRICTED":
+                restricted.add(s["lock_id"])
             if info and (s.get("status") in ("CLOSED", "RESTRICTED") or s.get("status_source") == "lockage_gap"):
                 notes[s["lock_id"]] = info
     except Exception as e:
         logger.warning(f"Could not read lock notes: {e}")
+    # USACE scheduled closures (next 48 h) and a river at >= 80% of a lock's
+    # published closure flow/stage (services/lock_limits.py).
+    try:
+        extra = {lid: [eff["upcoming"]] for lid, eff in _lock_limits.current_stoppage_effects().items()
+                 if eff.get("upcoming")}
+        for lid in LOCKS:
+            note = _lock_limits.current_assessment(lid, district_restricted=lid in restricted).get("note")
+            if note:
+                extra.setdefault(lid, []).append(note)
+        for lid, more in extra.items():
+            notes[lid] = "; ".join([notes[lid]] + more if notes.get(lid) else more)
+    except Exception as e:
+        logger.warning(f"Could not add lock limit notes: {e}")
     _lock_notes_cache = (now, notes)
     return notes
 
@@ -9440,7 +9462,9 @@ async def startup_event():
     # USACE lock queues + lockage history: refreshed continuously in the
     # background, one lock at a time (USACE allows 5 requests per minute).
     asyncio.create_task(usace_refresh_task())
-    
+    # River flow / pool / tailwater at each dam vs its published closure limit
+    asyncio.create_task(_lock_limits.refresh_loop(OUTBOUND_HEADERS))
+
     # Start demo vessel simulation
     if DEMO_VESSELS_ENABLED:
         asyncio.create_task(simulate_demo_vessels())
@@ -9494,6 +9518,23 @@ async def usace_refresh_task():
                     await asyncio.sleep(USACE_SPACING_S)
                 except asyncio.CancelledError:
                     return
+            # Once a pass: USACE stoppages (same NDC rate limit, same pacing)
+            for _attempt in range(2):
+                try:
+                    _lock_limits.set_stoppages(await _lock_limits.fetch_stoppages(client))
+                    break
+                except _lock_limits.RateLimited:
+                    logger.info("USACE rate limit hit on stoppages; pausing 65 s")
+                    await asyncio.sleep(65)
+                except asyncio.CancelledError:
+                    return
+                except Exception as e:
+                    logger.warning(f"USACE stoppage fetch failed: {e}")
+                    break
+            try:
+                await asyncio.sleep(USACE_SPACING_S)
+            except asyncio.CancelledError:
+                return
             passes += 1
             logger.info(f"USACE pass {passes} complete: {total} vessels waiting/locking across {len(usace_lock_fetched_at)} locks")
 

@@ -1,0 +1,12 @@
+# River Watch AIS - public pages are open to search engines and AI assistants.
+# Signed-in areas and the API are not useful to crawl.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /planning
+Disallow: /trips
+Disallow: /reports
+Disallow: /s/
+
+Sitemap: https://riverwatchais.com/sitemap.xml

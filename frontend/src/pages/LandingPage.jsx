@@ -17,7 +17,12 @@ export default function LandingPage() {
         {/* Background Image with Overlay */}
         <div className="absolute inset-0 z-0">
           <img 
-            src="https://images.unsplash.com/photo-1609359972809-fa361cf5b1d0?w=1920&q=80"
+            src="https://images.unsplash.com/photo-1609359972809-fa361cf5b1d0?w=1280&q=60&auto=format"
+            srcSet={[640, 960, 1280, 1920]
+              .map((w) => `https://images.unsplash.com/photo-1609359972809-fa361cf5b1d0?w=${w}&q=60&auto=format ${w}w`)
+              .join(", ")}
+            sizes="100vw"
+            decoding="async"
             alt="River with commercial vessels"
             className={`w-full h-full object-cover transition-opacity duration-1000 ${imageLoaded ? 'opacity-30' : 'opacity-0'}`}
             onLoad={() => setImageLoaded(true)}
@@ -74,7 +79,7 @@ export default function LandingPage() {
           </div>
 
           {/* Trust Indicators */}
-          <div className="mt-16 flex flex-wrap justify-center gap-8 text-sm text-slate-500">
+          <div className="mt-16 flex flex-wrap justify-center gap-8 text-sm text-slate-400">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-cyan-500" />
               <span>Free to Use</span>
@@ -240,14 +245,14 @@ export default function LandingPage() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Radio className="w-5 h-5 text-cyan-400" />
-              <span className="font-heading text-sm uppercase tracking-wider text-slate-500">
-                RiverWatch<span className="text-cyan-400/50 ml-0.5">AIS</span>
+              <span className="font-heading text-sm uppercase tracking-wider text-slate-400">
+                RiverWatch<span className="text-cyan-400 ml-0.5">AIS</span>
               </span>
             </div>
             <button onClick={() => navigate("/accuracy")} className="text-xs text-slate-400 hover:text-cyan-300 underline-offset-2 hover:underline" data-testid="accuracy-link">
               How accurate are the wait estimates?
             </button>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-400">
               Not affiliated with USACE.
             </p>
           </div>

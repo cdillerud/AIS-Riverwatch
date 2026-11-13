@@ -1,0 +1,26 @@
+# River Watch AIS
+
+> Lock wait times and commercial tow traffic for recreational boaters on the Upper Mississippi River, Locks 1-27 (Minneapolis, MN to St. Louis, MO). Free web app at https://riverwatchais.com/, installable on iPhone and Android. Not for navigation.
+
+On the Upper Mississippi, commercial tows have priority at the locks, so pleasure boats often wait an hour or more. River Watch AIS tells boaters how long the wait is likely to be and when to leave to avoid it.
+
+## What it does
+
+- Predicts the wait at each lock from US Army Corps of Engineers (USACE) lockage records and the tows queued or approaching.
+- Shows commercial tows heading to each lock, from live AIS vessel positions.
+- Suggests the best time to leave for a trip, and flags arrivals after sunset.
+- Shows lock closures and restrictions, and marinas and fuel stops ahead with arrival times that include lock waits.
+- Lets a boater share a live trip link with family.
+- Boats without an AIS transponder can use the phone's GPS.
+
+## Key pages
+
+- [Home](https://riverwatchais.com/): overview and sign-up
+- [Accuracy](https://riverwatchais.com/accuracy): how close the wait predictions have been to actual lockages, updated daily
+
+## Facts
+
+- Coverage: Upper Mississippi River Locks 1-27 (Lock 1 Minneapolis to Chain of Rocks Lock 27 near St. Louis)
+- Data: live AIS vessel positions; USACE Lock Performance Monitoring System lockage data; NOAA/USACE river levels
+- Price: free
+- Not affiliated with USACE. Not for navigation.

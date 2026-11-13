@@ -9,8 +9,9 @@
 // point of an alert) but only when alerts are on. Alerts show as a toast while
 // the page is visible and as a system notification otherwise.
 //
-// Nothing runs once the app is closed: that needs HTTPS hosting plus a Web
-// Push backend, which is out of scope.
+// With the app closed, the server sends the same alerts by Web Push when it
+// is set up for it (hooks/usePushAlerts.js, lib/push.js). Then a backgrounded
+// app leaves system notifications to the server (no double alerts).
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { API } from "@/lib/api";
@@ -23,6 +24,8 @@ import {
   towAlerts, lockAlert, departAlert, findUserVessel, isStopped,
 } from "@/lib/alerts";
 import { showSystemNotification } from "@/lib/alertNotify";
+import { pushActive } from "@/lib/push";
+import usePushAlerts from "@/hooks/usePushAlerts";
 
 const LOCK_POLL_MS = 60 * 1000;
 const DEPART_POLL_MS = 2 * 60 * 1000;
@@ -52,6 +55,8 @@ export default function useRiverAlerts({ vessels, userMmsi }) {
     for (const a of fresh) {
       if (!pageHidden()) {
         inApp(a);
+      } else if (pushActive()) {
+        // The server pushes it (it knows the app is hidden).
       } else {
         // No notification permission: keep it as a toast for when they come back.
         showSystemNotification({ title: a.title, body: a.body, tag: a.key, sound: settingsRef.current.sound })
@@ -61,6 +66,9 @@ export default function useRiverAlerts({ vessels, userMmsi }) {
   };
   const fireRef = useRef(fire);
   fireRef.current = fire;
+
+  // Alerts with the app closed (Web Push), when this browser and server can.
+  usePushAlerts({ settings, userMmsi });
 
   // Tow approaching
   useEffect(() => {

@@ -66,6 +66,30 @@ Web application → Authorized JavaScript origins: `https://riverwatch.yourdomai
 Put the client ID in `.env` as `GOOGLE_CLIENT_ID`, then
 `docker compose -f docker-compose.prod.yml up -d backend`.
 
+## 6. Alerts with the app closed (optional, Web Push)
+
+The header bell's alerts (tow approaching, wait at the next lock crossing the
+boater's threshold, "good time to leave" while stopped) normally show only
+while River Watch is open. With VAPID keys set, the server also checks them
+every minute and sends them as push notifications when the app is closed.
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend python scripts/make_vapid_keys.py
+nano .env    # paste VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY, set VAPID_SUBJECT=mailto:you@example.com
+docker compose -f docker-compose.prod.yml up -d backend
+```
+
+| Variable | What |
+|---|---|
+| `VAPID_PUBLIC_KEY` | Public key (base64url); handed to browsers by `GET /api/push/key` |
+| `VAPID_PRIVATE_KEY` | Private key (base64url, 32 bytes). Secret - never commit it |
+| `VAPID_SUBJECT` | `mailto:` address or `https://` URL push services can contact |
+
+Any of them empty = feature off; the bell then says alerts arrive only while
+the app is open. Push needs HTTPS (Caddy provides it). On iPhone, push works
+only after "Add to Home Screen" (iOS 16.4+). Generate the keys once: new keys
+invalidate every subscription, and boaters must turn alerts off and on again.
+
 ## Live AIS from a boat (optional)
 
 A hosted server can't reach a phone on a boat's Wi-Fi. To feed Boat Beacon

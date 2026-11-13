@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 import { API } from '@/lib/api';
+import { unsubscribePush } from '@/lib/push';
 
 const AuthContext = createContext(null);
 
@@ -115,6 +116,10 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    try {
+      // Stop alerts to this phone while the session still exists (DELETE needs it).
+      await Promise.race([unsubscribePush(), new Promise((r) => setTimeout(r, 3000))]);
+    } catch (e) { /* push unavailable */ }
     try {
       await fetch(`${API}/auth/logout`, {
         method: 'POST',

@@ -11,9 +11,10 @@
  *   the data is (src/lib/connectivity.js).
  * - Never cached: auth endpoints, anything that isn't GET, other API calls,
  *   WebSockets, other origins.
- * - Alerts: showNotification is called by the page (src/lib/alertNotify.js);
- *   tapping one focuses or opens the dashboard. True background push (app
- *   closed) would need HTTPS hosting plus a Web Push backend - not built.
+ * - Alerts: showNotification is called by the page (src/lib/alertNotify.js)
+ *   while the app is open, and by the `push` handler below for Web Push sent
+ *   by the server while it is closed (src/lib/push.js). Tapping one focuses
+ *   or opens the dashboard.
  */
 const VERSION = "rw-v1";
 const SHELL_CACHE = `${VERSION}-shell`;
@@ -134,6 +135,29 @@ self.addEventListener("fetch", (event) => {
   if (path.startsWith("/static/") || SHELL_URLS.includes(path) || path === "/apple-touch-icon.png" || path === "/icon-maskable-512.png") {
     event.respondWith(staticCacheFirst(request));
   }
+});
+
+// Web Push from the server (backend push task, lib/push.js): alerts while
+// River Watch is closed. Payload: {title, body, tag, url, silent} - text only.
+self.addEventListener("push", (event) => {
+  let d = {};
+  try {
+    d = event.data ? event.data.json() : {};
+  } catch (e) {
+    d = { body: event.data ? event.data.text() : "" };
+  }
+  const url = typeof d.url === "string" && d.url.startsWith("/") && !d.url.startsWith("//") ? d.url : "/dashboard";
+  const opts = {
+    body: d.body || "",
+    tag: d.tag || "river-watch",
+    renotify: !!d.tag,
+    silent: d.silent !== false,
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    data: { url },
+  };
+  if (!opts.silent) opts.vibrate = [200, 100, 200];
+  event.waitUntil(self.registration.showNotification(d.title || "River Watch", opts));
 });
 
 self.addEventListener("notificationclick", (event) => {

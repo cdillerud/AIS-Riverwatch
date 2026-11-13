@@ -67,6 +67,9 @@ INDEXES = [
     # Live wait predictions, scored for the public accuracy page.
     ("wait_predictions", [("lock_id", ASC), ("key", ASC), ("arrived_at", ASC)], {"unique": True}),
     ("wait_predictions", [("arrived_at", ASC)], {"expireAfterSeconds": 180 * 24 * 3600}),
+    # Own-boat tracks for the season log (kept ~13 months).
+    ("boat_tracks", [("mmsi", ASC), ("t", ASC)], {}),
+    ("boat_tracks", [("t", ASC)], {"expireAfterSeconds": 400 * 24 * 3600}),
     ("marinas", [("river_mile", ASC)], {}),
     # "Share my trip" links: looked up by token; MongoDB deletes them once expired.
     ("trip_shares", [("token", ASC)], {"unique": True}),

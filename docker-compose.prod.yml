@@ -44,6 +44,10 @@ services:
       - REPORT_SMTP_USER=${REPORT_SMTP_USER:-}
       - REPORT_SMTP_PASSWORD=${REPORT_SMTP_PASSWORD:-}
       - REPORT_EMAIL_FROM=${REPORT_EMAIL_FROM:-}
+      # Web Push alerts with the app closed (backend/scripts/make_vapid_keys.py); empty = off.
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-}
     depends_on:
       - mongodb
     restart: unless-stopped

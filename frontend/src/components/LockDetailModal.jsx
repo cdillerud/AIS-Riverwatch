@@ -19,6 +19,7 @@ import {
 import { API } from "@/lib/api";
 import LockageRow, { fmtDuration } from "@/components/LockageRow";
 import LockingThrough from "./LockingThrough";
+import LockClosureLimits from "./LockClosureLimits";
 
 // Lock status: "OPEN" | "CLOSED" | "RESTRICTED" | "UNKNOWN". Anything other than
 // an explicit OPEN is never shown as open/green.
@@ -279,6 +280,8 @@ export default function LockDetailModal({ lockId, isOpen, onClose, onSelectOnMap
                           </p>
                         )}
                       </div>
+
+                      <LockClosureLimits limits={waterConditions.closure_limits} />
 
                       {/* Supplementary metrics — sourced from the OFFICIAL station only */}
                       <div className="grid grid-cols-2 gap-3">

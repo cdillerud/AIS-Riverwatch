@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { isAppId } from "../lib/boatId";
 
 function VesselManagementComponent() {
   const { user, addVessel, removeVessel, setPrimaryVessel, refreshUser } = useAuth();
@@ -113,7 +114,7 @@ function VesselManagementComponent() {
                       )}
                     </div>
                     <span className="text-sm font-mono text-slate-400">
-                      MMSI: {vessel.mmsi}
+                      {isAppId(vessel.mmsi) ? "No AIS (phone GPS)" : `MMSI: ${vessel.mmsi}`}
                     </span>
                   </div>
                 </div>

@@ -2,8 +2,8 @@
 // (public/sw.js; Android Chrome only allows notifications from one), falling
 // back to `new Notification` (desktop, dev builds without a worker).
 //
-// These are local notifications from the open (or backgrounded) app. Push
-// with the app closed needs HTTPS hosting plus a Web Push backend - not built.
+// These are local notifications from the open (or backgrounded) app. With the
+// app closed, the server sends Web Push instead (lib/push.js, public/sw.js).
 
 export function notificationsSupported() {
   return typeof window !== "undefined" && "Notification" in window;

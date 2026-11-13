@@ -75,6 +75,9 @@ INDEXES = [
     ("trip_shares", [("token", ASC)], {"unique": True}),
     ("trip_shares", [("expires_at", ASC)], {"expireAfterSeconds": 0}),
     ("trip_shares", [("user_id", ASC), ("created_at", DESC)], {}),
+    # Web Push: one subscription per browser endpoint (services/push_rules.py).
+    ("push_subscriptions", [("endpoint", ASC)], _unique_str("endpoint")),
+    ("push_subscriptions", [("user_id", ASC)], {}),
 ]
 
 # For unique indexes: which field decides the "newest" document to keep.
@@ -83,6 +86,7 @@ NEWEST_BY = {
     "user_sessions": "created_at",
     "vessel_sightings": "timestamp",
     "usace_queue": "fetched_at",
+    "push_subscriptions": "updated_at",
 }
 
 

@@ -9,10 +9,9 @@
 // - Best time to leave: while stopped, "leave now" becomes the best option in
 //   GET /api/session/{mmsi}/departure-options after it wasn't.
 //
-// Alerts only fire while the app is open or backgrounded on the phone. Alerts
-// with the app fully closed would need the app hosted on HTTPS plus a Web Push
-// backend (push subscriptions + VAPID keys + a server-side rule runner) - not
-// built here.
+// These run while the app is open or backgrounded on the phone. With the app
+// closed, the server runs the same rules (backend services/push_rules.py -
+// keep the two in step) and sends them by Web Push (lib/push.js).
 import { hasRiverMile, isVesselStale, lockShortLabel, getVesselDisplayName } from "../utils/vesselDisplay";
 import { directionOf } from "./timingLock";
 

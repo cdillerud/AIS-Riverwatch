@@ -20,9 +20,10 @@ def _trip(mmsi, start, hours_13_to_14, direction="downbound"):
     return [a, b]
 
 
-def test_order_skips_lock_5a_and_links_neighbours():
-    assert "lock_5a" not in ORDER
-    assert T.next_lock(ORDER, "lock_5", "downbound") == "lock_6"
+def test_order_includes_lock_5a_and_links_neighbours():
+    assert T.next_lock(ORDER, "lock_5", "downbound") == "lock_5a"   # USACE code 55
+    assert T.next_lock(ORDER, "lock_5a", "downbound") == "lock_6"
+    assert "lock_5a" not in T.lock_order(LOCKS, skip=("lock_5a",))
     assert T.next_lock(ORDER, "lock_14", "upbound") == "lock_13"
     assert T.previous_lock(ORDER, "lock_14", "downbound") == "lock_13"
 

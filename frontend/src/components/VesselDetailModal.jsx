@@ -21,6 +21,7 @@ import useLocks from "@/hooks/useLocks";
 import { hasRiverMile, formatRiverMile, isUpbound, isDownbound, directionLabel, isVesselStale, getLastSeenMs } from "@/utils/vesselDisplay";
 import LockageRow from "@/components/LockageRow";
 import { useAuth } from "@/context/AuthContext";
+import { isAppId } from "../lib/boatId";
 
 // "At Lock" detection uses the shared lock list (GET /api/locks).
 const getVesselLockStatus = (vessel, locks) => {
@@ -206,7 +207,7 @@ export default function VesselDetailModal({ vessel, isOpen, onClose }) {
             {lockStatus && <Badge className="bg-purple-500/20 text-purple-400 text-[10px] px-1.5">AT LOCK {lockStatus.lockNum}</Badge>}
           </DialogTitle>
           <DialogDescription className="text-xs text-slate-500">
-            MMSI: {vessel.mmsi} • {getShipTypeDescription(vessel.ship_type)}
+            {isAppId(vessel.mmsi) ? "No AIS" : `MMSI: ${vessel.mmsi}`} • {getShipTypeDescription(vessel.ship_type)}
           </DialogDescription>
         </DialogHeader>
 

@@ -28,7 +28,7 @@ export default function AccuracyPage() {
   const usaceEta = data && data.arrivals && data.arrivals.usace_prediction;
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200">
+    <div className="min-h-screen bg-slate-950 text-slate-200">
       <header className="border-b border-white/5">
         <div className="container mx-auto px-4 py-3 flex items-center gap-3">
           <Link to="/" className="text-slate-400 hover:text-cyan-300" aria-label="Back"><ArrowLeft className="w-5 h-5" /></Link>

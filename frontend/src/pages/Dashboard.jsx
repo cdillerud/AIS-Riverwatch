@@ -36,6 +36,8 @@ import Speedometer from "@/components/Speedometer";
 import TripPlanPanel from "@/components/TripPlanPanel";
 import FeedBanner from "@/components/FeedBanner";
 import ThemePicker from "@/components/ThemePicker";
+import AlertsPicker from "@/components/AlertsPicker";
+import OfflineHint from "@/components/OfflineHint";
 import { getVesselDisplayName, hasRiverMile, formatRiverMile, formatSpeedMph, isUpbound, isDownbound, directionLabel, isVesselStale, lastSeenLabel, lockShortLabel } from "@/utils/vesselDisplay";
 import { useAuth } from "@/context/AuthContext";
 
@@ -1066,6 +1068,7 @@ export default function Dashboard({
             
             {/* Right: Actions */}
             <div className="flex items-center gap-0.5 sm:gap-2">
+              {!isTrafficWatch && <AlertsPicker />}
               <ThemePicker />
               {/* Traffic Planning - Icon only */}
               <Button
@@ -1218,6 +1221,7 @@ export default function Dashboard({
           </div>
         </div>
       </header>
+      <OfflineHint />
       <FeedBanner />
 
       {/* HUD Bar - Aligned left under logo */}

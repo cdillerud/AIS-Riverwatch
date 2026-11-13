@@ -3637,7 +3637,7 @@ async def fetch_usace_lock_queue_data():
 
 
 # USACE lock numbers -> RiverWatch lock ids (26/27 have names in LOCKS).
-_USACE_NAMED_LOCKS = {"26": "melvin_price", "27": "chain_of_rocks"}
+_USACE_NAMED_LOCKS = {"26": "melvin_price", "27": "chain_of_rocks", "55": "lock_5a"}  # USACE codes 5A as "55"
 
 
 def usace_lock_id(lock_no) -> str:
@@ -3841,8 +3841,6 @@ async def _infer_status_from_recent_lockages(lock_status_data: Dict[str, "LockSt
         return
     seen = {r["_id"]: r for r in rows}
     for lid in still:
-        if lid not in seen and lid == "lock_5a":
-            continue  # USACE publishes nothing for 5A at all
         r = seen.get(lid)
         note = lockage_gap_note(r["last"] if r else None, r["n"] if r else 0, now)
         if note:
@@ -5824,8 +5822,8 @@ async def _recent_barges(mmsis: List[str]) -> Dict[str, int]:
         return {}
 
 
-# USACE publishes no lock queue for these (5A returns nothing as "5A" or "05A")
-USACE_NO_DATA_LOCKS = ("lock_5a",)
+# Locks USACE publishes no queue for (none since 5A was found under code "55").
+USACE_NO_DATA_LOCKS: tuple = ()
 
 
 def _usace_fetched_by_lock() -> Dict[str, datetime]:

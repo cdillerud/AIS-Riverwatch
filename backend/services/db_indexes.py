@@ -70,6 +70,11 @@ INDEXES = [
     # Own-boat tracks for the season log (kept ~13 months).
     ("boat_tracks", [("mmsi", ASC), ("t", ASC)], {}),
     ("boat_tracks", [("t", ASC)], {"expireAfterSeconds": 400 * 24 * 3600}),
+    ("marinas", [("river_mile", ASC)], {}),
+    # "Share my trip" links: looked up by token; MongoDB deletes them once expired.
+    ("trip_shares", [("token", ASC)], {"unique": True}),
+    ("trip_shares", [("expires_at", ASC)], {"expireAfterSeconds": 0}),
+    ("trip_shares", [("user_id", ASC), ("created_at", DESC)], {}),
 ]
 
 # For unique indexes: which field decides the "newest" document to keep.

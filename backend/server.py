@@ -66,6 +66,7 @@ from services.db_indexes import ensure_indexes as _ensure_indexes
 from services import feed_health as _health
 from services import wait_log as _wait_log
 from services import season_log as _season_log
+from services import marinas as _marinas
 from services import user_settings as _user_settings
 from services import live_ais as _live_ais
 from services import api_access as _api_access
@@ -5993,6 +5994,66 @@ async def my_season(request: Request, year: Optional[int] = None):
         summary = await asyncio.to_thread(_season_log.summarize, pts, locks)
         boats.append({"mmsi": mmsi, "boat_name": v.get("boat_name"), **summary})
     return {"year": year, "boats": boats}
+# --- Marinas along the river (OpenStreetMap, services/marinas.py) ---------------
+_marinas_cache: list = []
+
+
+async def refresh_marinas(force: bool = False) -> int:
+    """Load marinas from the DB; re-fetch from OpenStreetMap weekly."""
+    global _marinas_cache
+    meta = await db.settings.find_one({"_id": "marinas_meta"}) or {}
+    fetched = meta.get("fetched_at")
+    if fetched is not None and fetched.tzinfo is None:
+        fetched = fetched.replace(tzinfo=timezone.utc)
+    fresh = fetched and datetime.now(timezone.utc) - fetched < timedelta(days=_marinas.REFRESH_DAYS)
+    if fresh and not force:
+        _marinas_cache = await db.marinas.find({}, {"_id": 0}).to_list(None)
+        return len(_marinas_cache)
+    try:
+        async with httpx.AsyncClient(timeout=120.0, headers=OUTBOUND_HEADERS) as client:
+            r = await client.post(_marinas.OVERPASS_URL, data={"data": _marinas.QUERY})
+            r.raise_for_status()
+            elements = r.json().get("elements", [])
+        snap = lambda lat, lon: _river_geo.river_mile(lat, lon, max_offset_mi=_marinas.MAX_OFFSET_MI)
+        docs = await asyncio.to_thread(_marinas.parse, elements, snap)
+    except Exception as e:
+        logger.warning(f"[MARINAS] OpenStreetMap fetch failed: {e}")
+        _marinas_cache = await db.marinas.find({}, {"_id": 0}).to_list(None)
+        return len(_marinas_cache)
+    if docs:
+        await db.marinas.delete_many({})
+        await db.marinas.insert_many([dict(d) for d in docs])
+        await db.settings.update_one({"_id": "marinas_meta"},
+                                     {"$set": {"fetched_at": datetime.now(timezone.utc), "count": len(docs)}},
+                                     upsert=True)
+        _marinas_cache = docs
+        logger.info(f"[MARINAS] {len(docs)} marinas on the river from OpenStreetMap")
+    return len(_marinas_cache)
+
+
+async def marinas_task():
+    while True:
+        try:
+            await refresh_marinas()
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.error(f"[MARINAS] refresh failed: {e}")
+        try:
+            await asyncio.sleep(12 * 3600)
+        except asyncio.CancelledError:
+            return
+
+
+@api_router.get("/marinas")
+async def list_marinas(from_rm: Optional[float] = None, to_rm: Optional[float] = None):
+    """Marinas / fuel docks on the river, optionally between two river miles
+    (listed in travel order from -> to)."""
+    rows = _marinas_cache
+    if from_rm is not None and to_rm is not None:
+        rows = _marinas.between(rows, from_rm, to_rm)
+    return {"marinas": rows, "credit": _marinas.OSM_CREDIT,
+            "add_url": "https://www.openstreetmap.org/"}
 
 # --- AIS feed health: uptime history and outage alerts ------------------------
 _feed_samples: "deque" = deque()
@@ -7698,6 +7759,30 @@ async def get_race_analysis_legacy(lock_id: str, request: Request, mmsi: str = N
 DEPARTURE_OFFSETS = [0, 30, 60, 120, 240]
 
 
+_lock_notes_cache: tuple = (None, {})
+
+
+async def _lock_notes() -> Dict[str, str]:
+    """Planning warnings per lock: closed / restricted (district page) or no
+    USACE lockages for far longer than usual (lockage_gap_note). Read from the
+    stored lock status, cached for a minute."""
+    global _lock_notes_cache
+    now = datetime.now(timezone.utc)
+    at, notes = _lock_notes_cache
+    if at and now - at < timedelta(seconds=60):
+        return notes
+    notes = {}
+    try:
+        async for s in db.lock_status.find({}, {"_id": 0, "lock_id": 1, "status": 1, "closure_info": 1,
+                                                 "status_source": 1}):
+            info = s.get("closure_info")
+            if info and (s.get("status") in ("CLOSED", "RESTRICTED") or s.get("status_source") == "lockage_gap"):
+                notes[s["lock_id"]] = info
+    except Exception as e:
+        logger.warning(f"Could not read lock notes: {e}")
+    _lock_notes_cache = (now, notes)
+    return notes
+
 @api_router.get("/session/{session_mmsi}/departure-options")
 async def get_departure_options(session_mmsi: str, direction: str, request: Request = None, cruise_mph: float = 15.0,
                                 destination_rm: Optional[float] = None, max_locks: int = 5):
@@ -7760,12 +7845,14 @@ async def get_departure_options(session_mmsi: str, direction: str, request: Requ
         prev = ldata['river_mile']
     tail = abs(destination_rm - prev) if destination_rm is not None else 0.0
     options = await _trip_timeline.departure_options(legs, speed * 1.0, DEPARTURE_OFFSETS, wait_at, own_lockage, tail)
+    notes = await _lock_notes()
     best = (min(range(len(options)), key=lambda i: (options[i]["time_at_locks_minutes"], options[i]["depart_in_minutes"]))
             if options and chain else None)
     return {
         "session_mmsi": session_mmsi, "direction": direction, "cruise_mph": speed,
         "start_rm": round(float(start_rm), 1), "destination_rm": destination_rm,
-        "locks": [{"lock_id": lid, "name": ld.get("name"), "river_mile": ld.get("river_mile")} for lid, ld in chain],
+        "locks": [{"lock_id": lid, "name": ld.get("name"), "river_mile": ld.get("river_mile"),
+                   "note": notes.get(lid)} for lid, ld in chain],
         "options": options, "best": best,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -7902,6 +7989,7 @@ async def get_session_trip_plan(
     timeline_by_lock = {t["lock_id"]: t for t in timeline}
 
     # Build per-leg analysis
+    lock_notes = await _lock_notes()
     legs = []
     cumulative_eta = 0.0 if user_speed_mph > 0 else None
     cant_beat_count = 0
@@ -8005,6 +8093,7 @@ async def get_session_trip_plan(
         legs.append({
             "lock_id": lid,
             "lock_name": ldata['name'],
+            "note": lock_notes.get(lid),
             "lock_rm": lock_rm,
             "leg_distance_mi": leg_distance,
             "user_eta_minutes": user_eta,
@@ -8776,6 +8865,129 @@ async def delete_trip(trip_id: str, request: Request):
 
 
 
+# =============================================================================
+# SHARE MY TRIP - public, expiring links to one boat's position and ETA
+# (services/trip_share.py). The public view answers without sign-in
+# (/api/public/ is in api_access.PUBLIC_PREFIXES) and returns only the fields
+# trip_share.public_payload allows: no MMSI, owner, or other boats.
+# =============================================================================
+import time as _time  # noqa: E402
+from services import trip_share as _trip_share  # noqa: E402
+
+
+class ShareCreate(BaseModel):
+    mmsi: str
+    hours: Optional[int] = Field(default=_trip_share.DEFAULT_HOURS, ge=_trip_share.MIN_HOURS, le=_trip_share.MAX_HOURS)
+    destination_rm: Optional[float] = Field(default=None, ge=0, le=2000)
+
+
+_share_rate = _trip_share.RateLimiter(limit=30, window_s=60.0)
+_share_cache: Dict[str, tuple] = {}   # token -> (monotonic time, payload)
+_SHARE_CACHE_S = 20.0
+_SHARE_NOT_FOUND = "This trip link has expired or was turned off"
+
+
+def _own_boat_entry(user: dict, mmsi: str) -> Optional[dict]:
+    """The boat on this account's own list. No admin override: a share puts
+    the boat's position on a public link, so only its owner may create one."""
+    for v in (user.get("vessels") or []):
+        if isinstance(v, dict) and str(v.get("mmsi")) == str(mmsi).strip():
+            return v
+    return None
+
+
+@api_router.post("/share")
+async def create_trip_share(body: ShareCreate, user: dict = Depends(require_user)):
+    """Create a public link to one of your boats (expires in 1-72 h)."""
+    mmsi = str(body.mmsi or "").strip()
+    entry = _own_boat_entry(user, mmsi)
+    if not mmsi or entry is None:
+        raise HTTPException(status_code=403, detail=_NOT_YOUR_BOAT)
+    now = datetime.now(timezone.utc)
+    active = await db.trip_shares.count_documents(
+        {"user_id": user["user_id"], "revoked": False, "expires_at": {"$gt": now}})
+    if active >= _trip_share.MAX_ACTIVE_PER_USER:
+        raise HTTPException(status_code=400, detail="Too many active trip links; stop one first")
+    doc = _trip_share.new_share(mmsi, user["user_id"], body.hours, body.destination_rm,
+                                entry.get("boat_name"), now=now)
+    await db.trip_shares.insert_one(dict(doc))
+    logger.info(f"[SHARE] {user['user_id']} shared {mmsi} for {body.hours} h")
+    return _trip_share.owner_view(doc)
+
+
+@api_router.get("/share")
+async def list_trip_shares(user: dict = Depends(require_user)):
+    """Your active trip links."""
+    now = datetime.now(timezone.utc)
+    cursor = db.trip_shares.find(
+        {"user_id": user["user_id"], "revoked": False, "expires_at": {"$gt": now}}, {"_id": 0},
+    ).sort("created_at", -1).limit(50)
+    shares = [_trip_share.owner_view(d) async for d in cursor if _trip_share.is_active(d, now)]
+    return {"shares": shares}
+
+
+@api_router.delete("/share/{token}")
+async def revoke_trip_share(token: str, user: dict = Depends(require_user)):
+    """Stop sharing: the link answers 404 from now on."""
+    res = await db.trip_shares.update_one(
+        {"token": str(token), "user_id": user["user_id"]}, {"$set": {"revoked": True}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Trip link not found")
+    _share_cache.pop(str(token), None)
+    return {"revoked": True}
+
+
+async def _shared_boat_view(doc: dict) -> dict:
+    mmsi = doc["mmsi"]
+    vessel = active_vessels.get(mmsi)
+    v_out, plan = None, None
+    if vessel is not None:
+        v_out = prepare_vessel_for_output(vessel, None)
+        if v_out.get("river_mile") is None and v_out.get("lat") is not None:
+            v_out["river_mile"] = estimate_river_mile(v_out.get("lat"), v_out.get("lon"))
+        dest = doc.get("destination_rm")
+        try:
+            # Internal call (request=None): ownership was checked when the
+            # link was created and is re-checked on every view.
+            plan = await get_session_trip_plan(mmsi, request=None, destination_rm=dest,
+                                               max_locks=15 if dest is not None else 1)
+        except Exception as e:
+            logger.warning(f"[SHARE] trip plan for a shared boat failed: {e}")
+            plan = None
+    locks = [(ld.get("name"), ld.get("river_mile")) for ld in LOCKS.values()]
+    return _trip_share.public_payload(doc.get("boat_name"), v_out, plan, locks,
+                                      destination_rm=doc.get("destination_rm"),
+                                      expires_at=doc.get("expires_at"))
+
+
+@api_router.get("/public/share/{token}")
+async def get_public_trip_share(token: str):
+    """PUBLIC: where a shared boat is and when it should arrive."""
+    token = str(token or "")
+    if not token or len(token) > 64:
+        raise HTTPException(status_code=404, detail=_SHARE_NOT_FOUND)
+    if not _share_rate.allow(token):
+        raise HTTPException(status_code=429, detail="Too many requests; try again in a minute",
+                            headers={"Retry-After": "60"})
+    doc = await db.trip_shares.find_one({"token": token}, {"_id": 0})
+    if not _trip_share.is_active(doc):
+        _share_cache.pop(token, None)
+        raise HTTPException(status_code=404, detail=_SHARE_NOT_FOUND)
+    # The boat must still be on the account that shared it.
+    owner = await db.users.find_one({"user_id": doc.get("user_id"), "vessels.mmsi": doc.get("mmsi")}, {"_id": 1})
+    if not owner:
+        raise HTTPException(status_code=404, detail=_SHARE_NOT_FOUND)
+    hit = _share_cache.get(token)
+    now_m = _time.monotonic()
+    if hit and now_m - hit[0] < _SHARE_CACHE_S:
+        return hit[1]
+    payload = await _shared_boat_view(doc)
+    if len(_share_cache) > 2000:
+        _share_cache.clear()
+    _share_cache[token] = (now_m, payload)
+    return payload
+
+
 @api_router.post("/debug/inject-nmea", dependencies=[Depends(require_admin)])
 async def inject_test_nmea(request: Request):
     """
@@ -9219,6 +9431,7 @@ async def startup_event():
     asyncio.create_task(daily_report_task())
     asyncio.create_task(feed_monitor_task())
     asyncio.create_task(wait_logging_task())
+    asyncio.create_task(marinas_task())
 
     restored = await load_usace_queue_snapshot()
     if restored:

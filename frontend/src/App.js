@@ -16,6 +16,7 @@ const TrafficPlanner = lazy(() => import("@/pages/TrafficPlanner"));
 const TripsPage = lazy(() => import("@/pages/TripsPage"));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const AccuracyPage = lazy(() => import("@/pages/AccuracyPage"));
+const SharedTripPage = lazy(() => import("@/pages/SharedTripPage"));
 
 function PageLoading() {
   return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-sm text-slate-500">Loading...</div>;
@@ -23,6 +24,7 @@ function PageLoading() {
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import useAisDriftWatch from "@/hooks/useAisDriftWatch";
 import useLocks from "@/hooks/useLocks";
+import useRiverAlerts from "@/hooks/useRiverAlerts";
 import Disclaimer from "@/components/Disclaimer";
 
 import { API, WS_BASE_URL, AIS_WS_PATH } from "@/lib/api";
@@ -98,6 +100,8 @@ function AppRouter() {
       } />
       {/* Public: published prediction accuracy */}
       <Route path="/accuracy" element={<AccuracyPage />} />
+      {/* Public: a boater's "Share my trip" link */}
+      <Route path="/s/:token" element={<SharedTripPage />} />
       {/* Catch-all redirect to landing or dashboard */}
       <Route path="*" element={
         isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/" replace />
@@ -1003,6 +1007,13 @@ function MainApp() {
       .filter(v => v.mmsi !== "2339005") // Filter Boat Beacon UK test signal
       .filter(v => userSettings.show_buoys || !v.mmsi?.toString().startsWith("99"));
   }, [vessels, userSettings.show_buoys]);
+
+  // Tow / lock / departure alerts (header bell; off until turned on). Traffic
+  // Watch accounts have no boat of their own, so nothing to alert about.
+  useRiverAlerts({
+    vessels: dashboardVessels,
+    userMmsi: user?.account_type === "traffic_watch" ? "" : userMmsi,
+  });
 
   const activeTimingLock = useMemo(() => {
     const accountType = user?.account_type || "vessel_owner";

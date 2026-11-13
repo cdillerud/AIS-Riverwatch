@@ -13,7 +13,9 @@ const DATA = {
 
 test("shows each departure with per-lock waits and marks the best", async () => {
   global.IS_REACT_ACT_ENVIRONMENT = true;
-  global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(DATA) }));
+  const MARINAS = { credit: "Marina data (c) OpenStreetMap contributors", add_url: "https://www.openstreetmap.org/",
+    marinas: [{ osm_id: "w/1", name: "Hastings Marina", river_mile: 813.4, fuel: true }, { osm_id: "w/2", name: "Upriver Marina", river_mile: 840 }] };
+  global.fetch = jest.fn((url) => Promise.resolve({ ok: true, json: () => Promise.resolve(String(url).includes("/marinas") ? MARINAS : DATA) }));
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
@@ -24,6 +26,12 @@ test("shows each departure with per-lock waits and marks the best", async () => 
   expect(row(0)).toContain("Now");
   expect(row(0)).toContain("40m");
   expect(row(30)).toContain("★");
-  expect(global.fetch.mock.calls[0][0]).toContain("direction=downbound");
+  const call = global.fetch.mock.calls.map((c) => c[0]).find((u) => u.includes("departure-options"));
+  expect(call).toContain("direction=downbound");
+  expect(el.querySelector('[data-testid="arrive-dark"]')).toBeNull(); // 9 am start, arrives ~12:30 pm
+  const stops = el.querySelector('[data-testid="stops-ahead"]');
+  expect(stops.textContent).toContain("Hastings Marina");      // downriver of RM 830.3
+  expect(stops.textContent).not.toContain("Upriver Marina");
+  expect(stops.textContent).toContain("OpenStreetMap");
   act(() => root.unmount());
 });

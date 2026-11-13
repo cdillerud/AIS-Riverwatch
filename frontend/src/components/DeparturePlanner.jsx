@@ -6,6 +6,10 @@ import { useEffect, useState, useCallback } from "react";
 import { API } from "../lib/api";
 import { whenVisible } from "../lib/visibility";
 import { departureLabel, clockIn, readPrefs, savePrefs } from "../lib/departure";
+import { darkCheck, isDark, sunTimes, positionAtRm } from "../lib/sun";
+import useLocks from "../hooks/useLocks";
+import StopsAhead from "./StopsAhead";
+import { anchorsFromOption } from "../lib/stops";
 
 const fmtMin = (m) => {
   if (m == null) return "—";
@@ -20,6 +24,7 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const allLocks = useLocks();
 
   const load = useCallback(async () => {
     if (!userMmsi) return;
@@ -52,6 +57,27 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
 
   const opts = data?.options || [];
   const locks = data?.locks || [];
+  // Arrival point: the destination, else the last lock in the table.
+  const lastLock = locks.length ? allLocks.find((l) => l.id === locks.at(-1).lock_id) : null;
+  const finishRm = data?.destination_rm ?? (lastLock ? lastLock.river_mile : data?.start_rm);
+  const dark = data ? darkCheck(opts, data.generated_at, finishRm, allLocks) : null;
+  const darkAt = (i) => Boolean(dark && dark.rows.at(i) && dark.rows.at(i).dark);
+  const nowDark = data ? isDark(new Date(data.generated_at), ...Object.values(positionAtRm(data.start_rm, allLocks))) : false;
+  const clock = (d) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  let darkNote = null;
+  if (dark && dark.anyDark) {
+    if (nowDark) {
+      const here = positionAtRm(data.start_rm, allLocks);
+      const t = new Date(data.generated_at);
+      let rise = sunTimes(t, here.lat, here.lon)[0];
+      if (rise < t.getTime()) rise = sunTimes(new Date(t.getTime() + 864e5), here.lat, here.lon)[0];
+      darkNote = `It's dark now. Sunrise is about ${clock(new Date(rise))}.`;
+    } else if (dark.latestBeforeDark != null) {
+      darkNote = `Sunset about ${clock(dark.sunset)}. Leave ${dark.latestBeforeDark ? `by ${departureLabel(dark.latestBeforeDark, data.generated_at)}` : "now"} to arrive before dark.`;
+    } else {
+      darkNote = `Sunset about ${clock(dark.sunset)}: every option here arrives after dark. Consider a closer stop.`;
+    }
+  }
 
   return (
     <div className="space-y-2" data-testid="departure-planner">
@@ -91,6 +117,12 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
         <div className="text-xs text-slate-500">No locks ahead {prefs.direction === "downbound" ? "downriver" : "upriver"} of RM {data.start_rm}.</div>
       )}
 
+      {locks.filter((l) => l.note).map((l) => (
+        <div key={l.lock_id} className="text-[11px] text-amber-400" data-testid={`lock-note-${l.lock_id}`}>
+          ! {l.name}: {l.note}
+        </div>
+      ))}
+
       {locks.length > 0 && opts.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-xs" data-testid="departure-table">
@@ -98,8 +130,8 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
               <tr className="text-slate-500 text-[10px] uppercase">
                 <th className="text-left font-normal py-1">Leave</th>
                 {locks.map((l) => (
-                  <th key={l.lock_id} className="text-right font-normal" title={l.name}>
-                    {l.lock_id.replace("lock_", "L").replace("melvin_price", "Mel").replace("chain_of_rocks", "CoR")}
+                  <th key={l.lock_id} className={`text-right font-normal ${l.note ? "text-amber-400" : ""}`} title={l.note ? `${l.name}: ${l.note}` : l.name}>
+                    {l.lock_id.replace("lock_", "L").replace("melvin_price", "Mel").replace("chain_of_rocks", "CoR")}{l.note && "!"}
                   </th>
                 ))}
                 <th className="text-right font-normal">At locks</th>
@@ -118,7 +150,9 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
                     </td>
                   ))}
                   <td className="text-right font-mono">{fmtMin(o.time_at_locks_minutes)}</td>
-                  <td className="text-right font-mono">{clockIn(o.finish_in_minutes, data.generated_at)}</td>
+                  <td className={`text-right font-mono ${darkAt(i) ? "text-amber-400" : ""}`} title={darkAt(i) ? "Arrives after dark" : undefined} data-testid={darkAt(i) ? "arrive-dark" : undefined}>
+                    {clockIn(o.finish_in_minutes, data.generated_at)}{darkAt(i) && " ☾"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -127,6 +161,8 @@ export default function DeparturePlanner({ userMmsi, destinationRm }) {
             Lock columns: expected wait when you'd get there. At locks: waits plus your own lockages.
             Arrive: {data.destination_rm != null ? `at RM ${data.destination_rm}` : "through the last lock shown"}. ★ least time at locks.
           </div>
+          {darkNote && <div className="text-[11px] text-amber-400 mt-1" data-testid="dark-note">☾ {darkNote}</div>}
+          <StopsAhead fromRm={data.start_rm} direction={prefs.direction} mph={prefs.mph} anchors={anchorsFromOption(opts[0], allLocks)} locks={allLocks} startAt={data.generated_at} />
         </div>
       )}
     </div>
